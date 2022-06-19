@@ -1,0 +1,12 @@
+[package]
+name = "three_player_chess_surena_rs"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+surena_game = { path = "deps/surena_game_rs/surena_game" }
+num-traits = "0.2"
+num-derive = "0.3"
+
+[lib]
+crate-type = ["cdylib"]
