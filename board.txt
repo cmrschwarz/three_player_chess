@@ -2,19 +2,19 @@
            K8  K7                   Kb   Kc
           J8       K6  K5  K9  Ka         Jc
         I8    J7                     Jb     Ic
-                  J6           Ja
-     D8     I7        J5    J9           Ib    Ec
-                 I6              Ia
-   C8     D7         I5      I9           Eb     Fc
-  B8                                               Gc
-        C7     D6                    Ea      Fb
-A8   B7     C6    D5              E9    Fa      Gb    Hc
-        B6     C5                    F9      Ga
-  A7                                               Hb
-   A6     B5         D4      E4           G9      Ha
+                  J6            Ja
+     D8     I7        J5    J9         Ib      Ec
+                  I6            Ia
+   C8     D7                              Eb     Fc
+  B8    C7           I5      I9             Fb     Gc
+               D6                   Ea
+A8   B7     C6    D5             E9    Fa      Gb     Hc
+               C5                   F9
+  A7    B6           D4      E4             Ga     Hb
+   A6     B5                              G9      Ha
                  C4              F4
-     A5     B4        D3    E3           G4    H9
-                  C3           F3
+     A5     B4        D3    E3           G4     H9
+                  C3            F3
         A4    B3                      G3    H4
          A3        C2  D2  E2  F2         H3
            A1  B2                   G2   H2
