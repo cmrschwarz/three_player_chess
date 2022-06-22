@@ -3,7 +3,7 @@
                    K6  K5  K9  Ka
         J8  J7                       Jb   Jc
        I8         J6            Ja         Ic
-           I7          J5  J9         Ib
+           I7          J5  J9          Ib
     D8           I6              Ia           Ec
    C8    D7                              Eb    Fc
   B8    C7     D6     I5    I9     Ea     Fb    Gc
@@ -13,7 +13,7 @@ A8   B7     C6     D5          E9     Fa     Gb   Hc
   A7    B6     C5     D4    E4     F9     Ga    Hb
    A6    B5                              G9    Ha
     A5           C4              F4           H9
-           B4          D3  E3         G4
+           B4          D3  E3          G4
        A4         C3            F3         H4
         A3   B3                      G3   H3
                    C2  D2  E2  F2

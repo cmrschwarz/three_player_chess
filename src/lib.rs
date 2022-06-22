@@ -42,14 +42,14 @@ struct FieldLocation(u8);
 #[derive(Copy, Clone, PartialEq, Eq)]
 struct ThreePlayerChess {
     turn: Color,
-    board: [FieldValue; BOARD_SIZE],
+    board: [u8; BOARD_SIZE],
 }
 
 impl ThreePlayerChess {
     pub fn new() -> ThreePlayerChess {
         ThreePlayerChess {
             turn: Color::C1,
-            board: [FieldValue(None); BOARD_SIZE],
+            board: [FieldValue(Option::None).into(); BOARD_SIZE],
         }
     }
 }
@@ -146,52 +146,81 @@ impl std::fmt::Display for ThreePlayerChess {
         let mut board_str: [u8; BOARD_STRING.len()] = BOARD_STRING.as_bytes().try_into().unwrap();
         for (field, value) in self.board.iter().enumerate() {
             let loc = BOARD_STRING_FIELD_LOCATIONS[field];
-            write!(&mut board_str[loc..loc + 2], "{}", value).unwrap();
+            write!(&mut board_str[loc..loc + 2], "{}", FieldValue::from(*value)).unwrap();
         }
-        write!(f, "{}", String::from_utf8_lossy(&board_str))
+        write!(f, "{}", std::str::from_utf8(&board_str).unwrap())
     }
 }
 impl std::fmt::Display for FieldLocation {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(
-            f,
-            "{}",
-            String::from_utf8_lossy(&BOARD_NOTATION[self.to_usize()])
-        )
+        write!(f, "{}", <&str>::from(*self))
     }
 }
-
+impl std::convert::From<FieldLocation> for u8 {
+    fn from(v: FieldLocation) -> u8 {
+        v.0
+    }
+}
+impl std::convert::From<FieldLocation> for usize {
+    fn from(v: FieldLocation) -> usize {
+        u8::from(v) as usize
+    }
+}
+impl std::convert::From<FieldLocation> for [u8; 2] {
+    fn from(v: FieldLocation) -> [u8; 2] {
+        BOARD_NOTATION[usize::from(v)]
+    }
+}
+impl std::convert::From<FieldLocation> for &str {
+    fn from(v: FieldLocation) -> &'static str {
+        unsafe {
+            return std::str::from_utf8_unchecked(&BOARD_NOTATION[usize::from(v)]);
+        }
+    }
+}
 impl FieldLocation {
-    fn to_usize(&self) -> usize {
-        self.0 as usize
-    }
-    fn to_u8(&self) -> u8 {
-        self.0
-    }
-    fn to_notation(&self) -> [u8; 2] {
-        return BOARD_NOTATION[self.to_usize()];
-    }
-    fn to_notation_str(&self) -> String {
-        String::from_utf8_lossy(&BOARD_NOTATION[self.to_usize()])
-            .to_owned()
-            .to_string()
-    }
-    fn from_str(field_name: &str) -> Option<Self> {
-        let board_str: [u8; 2] = field_name.as_bytes()[0..2].try_into().unwrap();
+    fn from_utf8(board_str: [u8; 2]) -> Option<Self> {
         BOARD_NOTATION_MAP
             .get(&board_str)
             .map(|field_not| *field_not)
     }
+    fn from_str(field_name: &str) -> Option<Self> {
+        let board_str: Result<[u8; 2], _> = field_name.as_bytes()[0..2].try_into();
+        if let Result::Ok(board_str) = board_str {
+            Self::from_utf8(board_str)
+        } else {
+            Option::None
+        }
+    }
 }
-
+impl std::convert::From<FieldValue> for u8 {
+    fn from(v: FieldValue) -> u8 {
+        match v {
+            FieldValue(Some((color, piece_type))) => {
+                ToPrimitive::to_u8(&color).unwrap() << 3 | ToPrimitive::to_u8(&piece_type).unwrap()
+            }
+            FieldValue(None) => 0u8,
+        }
+    }
+}
+impl std::convert::From<u8> for FieldValue {
+    fn from(v: u8) -> FieldValue {
+        if let Some(color) = Color::from_u8(v >> 3) {
+            if let Some(piece_type) = PieceType::from_u8(v & 0x7) {
+                return FieldValue(Some((color, piece_type)));
+            }
+        }
+        FieldValue(None)
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
-    fn print_board() {
+    pub fn print_board() {
         let mut tpc = ThreePlayerChess::new();
-        tpc.board[FieldLocation::from_str("A3").unwrap().to_usize()] =
-            FieldValue(Some((Color::C1, PieceType::Rook)));
+        tpc.board[usize::from(FieldLocation::from_str("A3").unwrap())] =
+            FieldValue(Some((Color::C1, PieceType::Rook))).into();
         println!("{}", tpc);
     }
 }
