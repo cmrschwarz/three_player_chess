@@ -325,6 +325,7 @@ dependencies = [
 name = "three_player_chess_surena_rs"
 version = "0.1.0"
 dependencies = [
+ "lazy_static",
  "num-derive",
  "num-traits",
  "surena_game",
