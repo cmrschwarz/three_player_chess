@@ -1,5 +1,5 @@
 [package]
-name = "three_player_chess_surena_rs"
+name = "three_player_chess"
 version = "0.1.0"
 edition = "2021"
 
