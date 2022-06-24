@@ -13,7 +13,7 @@ pub const HB_SIZE: usize =  ROW_SIZE * HB_ROW_COUNT;
 pub const BOARD_SIZE: usize = HB_SIZE * HB_COUNT; // 96
 
 #[repr(u8)]
-#[derive(Copy, Clone, PartialEq, Eq, FromPrimitive, ToPrimitive)]
+#[derive(Copy, Clone, PartialEq, Eq, FromPrimitive, ToPrimitive, Debug)]
 pub enum PieceType {
     Pawn = 1,
     Knight = 2,
@@ -24,23 +24,23 @@ pub enum PieceType {
 }
 
 #[repr(u8)]
-#[derive(Copy, Clone, PartialEq, Eq, FromPrimitive, ToPrimitive)]
+#[derive(Copy, Clone, PartialEq, Eq, FromPrimitive, ToPrimitive, Debug)]
 pub enum Color { // these are assigned clockwise, with player 1 at the bottom
-    C1 = 0,
-    C2 = 1,
-    C3 = 2,
+    C1 = 1,
+    C2 = 2,
+    C3 = 3,
 }
 
 // this is not used for board storage because it's sadly
 // two bytes large. it can be converted from / into PackedFieldValue alias u8,
 // which is actually used for storage
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub struct FieldValue(pub Option<(Color, PieceType)>);
 
 pub type PackedFieldValue = u8;
 
 #[repr(transparent)]
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct FieldLocation(pub std::num::NonZeroU8);
 
 #[derive(Copy, Clone, PartialEq, Eq)]
