@@ -9,7 +9,7 @@ pub const ROW_SIZE: usize = 8; // row == rank
 pub const HB_ROW_COUNT: usize = 4; // each halfboard has 4 rows
 pub const HB_COUNT: usize = 3; // number of half boards
 pub const COLOR_COUNT: u8 = HB_COUNT as u8;
-pub const HB_SIZE: usize =  ROW_SIZE * HB_ROW_COUNT;
+pub const HB_SIZE: usize = ROW_SIZE * HB_ROW_COUNT;
 pub const BOARD_SIZE: usize = HB_SIZE * HB_COUNT; // 96
 
 #[repr(u8)]
@@ -25,7 +25,8 @@ pub enum PieceType {
 
 #[repr(u8)]
 #[derive(Copy, Clone, PartialEq, Eq, FromPrimitive, ToPrimitive, Debug)]
-pub enum Color { // these are assigned clockwise, with player 1 at the bottom
+pub enum Color {
+    // these are assigned clockwise, with player 1 at the bottom
     C1 = 1,
     C2 = 2,
     C3 = 3,
@@ -167,7 +168,7 @@ impl std::default::Default for FieldLocation {
 }
 impl std::convert::From<u8> for FieldLocation {
     fn from(v: u8) -> FieldLocation {
-        FieldLocation(std::num::NonZeroU8::new(v+1).unwrap())
+        FieldLocation(std::num::NonZeroU8::new(v + 1).unwrap())
     }
 }
 impl std::convert::From<FieldLocation> for u8 {

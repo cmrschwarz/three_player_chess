@@ -8,7 +8,6 @@ pub fn print_board() {
     println!("{}", tpc);
 }
 
-
 #[test]
 pub fn gen_moves() {
     let mut tpc = ThreePlayerChess::new();
