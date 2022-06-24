@@ -5,10 +5,12 @@ use std::char;
 use std::collections::HashMap;
 use std::io::Write;
 
-pub const ROW_SIZE: usize = 8; // in standard chess rows would be called ranks
+pub const ROW_SIZE: usize = 8; // row == rank
 pub const HB_ROW_COUNT: usize = 4; // each halfboard has 4 rows
 pub const HB_COUNT: usize = 3; // number of half boards
-pub const BOARD_SIZE: usize = ROW_SIZE * HB_ROW_COUNT * HB_COUNT; // 96
+pub const COLOR_COUNT: u8 = HB_COUNT as u8;
+pub const HB_SIZE: usize =  ROW_SIZE * HB_ROW_COUNT;
+pub const BOARD_SIZE: usize = HB_SIZE * HB_COUNT; // 96
 
 #[repr(u8)]
 #[derive(Copy, Clone, PartialEq, Eq, FromPrimitive, ToPrimitive)]
@@ -23,10 +25,10 @@ pub enum PieceType {
 
 #[repr(u8)]
 #[derive(Copy, Clone, PartialEq, Eq, FromPrimitive, ToPrimitive)]
-pub enum Color {
-    C1 = 1,
-    C2 = 2,
-    C3 = 3,
+pub enum Color { // these are assigned clockwise, with player 1 at the bottom
+    C1 = 0,
+    C2 = 1,
+    C3 = 2,
 }
 
 // this is not used for board storage because it's sadly
@@ -38,8 +40,8 @@ pub struct FieldValue(pub Option<(Color, PieceType)>);
 pub type PackedFieldValue = u8;
 
 #[repr(transparent)]
-#[derive(Copy, Clone, PartialEq, Eq)]
-pub struct FieldLocation(u8);
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct FieldLocation(pub std::num::NonZeroU8);
 
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub struct ThreePlayerChess {
@@ -97,7 +99,7 @@ lazy_static! {
     static ref BOARD_NOTATION_MAP: HashMap<[u8; 2], FieldLocation> = {
         let mut nm = HashMap::new();
         for i in 0..BOARD_SIZE {
-            nm.insert(BOARD_NOTATION[i], FieldLocation(i as u8));
+            nm.insert(BOARD_NOTATION[i], FieldLocation::from(i as u8));
         }
         nm
     };
@@ -158,9 +160,34 @@ impl std::fmt::Display for FieldLocation {
         write!(f, "{}", <&str>::from(*self))
     }
 }
+impl std::default::Default for FieldLocation {
+    fn default() -> FieldLocation {
+        FieldLocation::from(0 as u8)
+    }
+}
+impl std::convert::From<u8> for FieldLocation {
+    fn from(v: u8) -> FieldLocation {
+        FieldLocation(std::num::NonZeroU8::new(v+1).unwrap())
+    }
+}
 impl std::convert::From<FieldLocation> for u8 {
     fn from(v: FieldLocation) -> u8 {
-        v.0
+        v.0.get() - 1
+    }
+}
+impl std::convert::From<Color> for u8 {
+    fn from(v: Color) -> u8 {
+        ToPrimitive::to_u8(&v).unwrap()
+    }
+}
+impl std::convert::From<u8> for Color {
+    fn from(v: u8) -> Color {
+        Color::from_u8(v).unwrap()
+    }
+}
+impl std::convert::From<usize> for FieldLocation {
+    fn from(v: usize) -> FieldLocation {
+        FieldLocation::from(u8::try_from(v).unwrap())
     }
 }
 impl std::convert::From<FieldLocation> for usize {
