@@ -229,20 +229,6 @@ impl ThreePlayerChess {
         });
         true
     }
-    fn try_gen_capture_unless_check(
-        &self,
-        src: AnnotatedFieldLocation,
-        tgt: AnnotatedFieldLocation,
-        moves: &mut Vec<Move>,
-    ) -> bool {
-        let piece_value = self.get_packed_field_value(tgt.loc);
-        match FieldValue::from(piece_value) {
-            FieldValue(Some((color, _))) if color != self.turn => {
-                self.gen_move_unless_check(src, tgt, MoveType::Capture(piece_value), moves)
-            }
-            _ => false,
-        }
-    }
     fn gen_move(
         &self,
         src: AnnotatedFieldLocation,
@@ -396,6 +382,29 @@ impl ThreePlayerChess {
             }
         }
     }
+    fn try_gen_pawn_capture(
+        &self,
+        src: AnnotatedFieldLocation,
+        tgt: AnnotatedFieldLocation,
+        moves: &mut Vec<Move>,
+    ) -> bool {
+        let piece_value = self.get_packed_field_value(tgt.loc);
+        match FieldValue::from(piece_value) {
+            FieldValue(Some((color, _))) if color != self.turn => {
+                self.gen_move_unless_check(src, tgt, MoveType::Capture(piece_value), moves)
+            }
+            FieldValue(None) => {
+                if tgt.rank == ROW_SIZE as i8 - 2
+                    && self.possible_en_passant[u8::from(tgt.hb) as usize - 1] == Some(tgt.loc)
+                {
+                    self.gen_move_unless_check(src, tgt, MoveType::EnPassant, moves)
+                } else {
+                    false
+                }
+            }
+            _ => false,
+        }
+    }
     fn gen_moves_pawn(&self, field: FieldLocation, moves: &mut Vec<Move>) {
         let src = AnnotatedFieldLocation::from_field_with_origin(self.turn, field);
         if let Some(up) = move_rank(src, true) {
@@ -412,9 +421,9 @@ impl ThreePlayerChess {
         for right in [true, false] {
             match move_diagonal(src, true, right) {
                 Some((one, two)) => {
-                    self.try_gen_capture_unless_check(src, one, moves);
+                    self.try_gen_pawn_capture(src, one, moves);
                     if let Some(two) = two {
-                        self.try_gen_capture_unless_check(src, two, moves);
+                        self.try_gen_pawn_capture(src, two, moves);
                     }
                 }
                 None => {}
