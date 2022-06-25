@@ -28,6 +28,10 @@ pub struct AnnotatedFieldLocation {
     pub file: i8,
     pub rank: i8,
 }
+
+const HBRC: i8 = HB_ROW_COUNT as i8;
+const RS: i8 = ROW_SIZE as i8;
+
 impl AnnotatedFieldLocation {
     pub fn new(origin: Color, loc: u8, hb: Color, file: i8, rank: i8) -> Self {
         AnnotatedFieldLocation {
@@ -73,7 +77,7 @@ fn get_next_hb(color: Color, clockwise: bool) -> Color {
 }
 
 fn invert_coord(coord: i8) -> i8 {
-    (ROW_SIZE + 1) as i8 - coord
+    RS + 1 - coord
 }
 fn coord_dir(positive: bool) -> i8 {
     if positive {
@@ -96,43 +100,45 @@ fn adjust_coord(coord: i8, invert: bool) -> i8 {
     }
 }
 fn get_raw_rank(field: FieldLocation) -> i8 {
-    ((u8::from(field) % HB_SIZE as u8) / ROW_SIZE as u8 + 1) as i8
+    ((u8::from(field) % HB_SIZE as u8) / RS as u8 + 1) as i8
 }
 fn get_rank(field: FieldLocation, color: Color) -> i8 {
     adjust_coord(get_raw_rank(field), get_hb(field) != color)
 }
 
 fn get_raw_file(field: FieldLocation) -> i8 {
-    (u8::from(field) % ROW_SIZE as u8 + 1) as i8
+    (u8::from(field) % RS as u8 + 1) as i8
 }
 fn get_file(field: FieldLocation, color: Color) -> i8 {
     adjust_coord(get_raw_file(field), get_hb(field) != color)
 }
 
 fn get_hb_offset(color: Color) -> u8 {
-    (u8::from(color) - 1) * 32
+    (u8::from(color) - 1) * HB_SIZE as u8
 }
 
 fn move_rank(field: AnnotatedFieldLocation, up: bool) -> Option<AnnotatedFieldLocation> {
-    let tgt_rank = field.rank + if up { 1i8 } else { -1i8 };
+    let tgt_rank = field.rank + coord_dir(up);
     if !coord_in_bounds(tgt_rank) {
         return None;
     }
-    if (tgt_rank <= 3 || (tgt_rank == 4 && up)) || (tgt_rank > 5 || (tgt_rank == 5 && !up)) {
+    if (tgt_rank < HBRC || (tgt_rank == HBRC && up))
+        || (tgt_rank > HBRC + 1 || (tgt_rank == HBRC + 1 && !up))
+    {
         return Some(AnnotatedFieldLocation::new(
             field.origin,
-            (u8::from(field.loc) as i8 + coord_dir(up == (tgt_rank <= 4)) * ROW_SIZE as i8) as u8,
+            (u8::from(field.loc) as i8 + coord_dir(up == (tgt_rank <= HBRC)) * RS) as u8,
             field.hb,
             field.file,
             tgt_rank,
         ));
     }
-    let hb = get_next_hb(field.hb, (field.file <= 4) == up);
+    let hb = get_next_hb(field.hb, (field.file <= HBRC) == up);
     assert!(hb != field.origin || field.hb != field.origin);
     let file_idx = adjust_coord(field.file, field.origin != hb) - 1;
     Some(AnnotatedFieldLocation::new(
         field.origin,
-        get_hb_offset(hb) + 3 * ROW_SIZE as u8 + file_idx as u8,
+        (get_hb_offset(hb) as i8 + (HBRC - 1) * RS + file_idx) as u8,
         hb,
         field.file,
         tgt_rank,
@@ -168,8 +174,8 @@ fn move_diagonal(
     if !coord_in_bounds(tgt_file) || !coord_in_bounds(tgt_rank) {
         return None;
     }
-    if (field.rank == 4 && up) || (field.rank == 5 && !up) {
-        if (field.file == 4 && right) || (field.file == 5 && !right) {
+    if (field.rank == HBRC && up) || (field.rank == HBRC + 1 && !up) {
+        if (field.file == HBRC && right) || (field.file == HBRC + 1 && !right) {
             let hb1 = get_next_hb(field.hb, true);
             let hb2 = get_next_hb(hb1, true);
             let loc1 = get_field_on_next_hb(u8::from(field.loc));
@@ -185,8 +191,8 @@ fn move_diagonal(
                 )),
             ));
         }
-        let tgt_hb = get_next_hb(get_hb(field.loc), (field.file <= 4) == up);
-        let loc = get_hb_offset(tgt_hb) as i8 + 3 * ROW_SIZE as i8 + invert_coord(tgt_file) - 1;
+        let tgt_hb = get_next_hb(get_hb(field.loc), (field.file <= HBRC) == up);
+        let loc = get_hb_offset(tgt_hb) as i8 + (HBRC - 1) * RS + invert_coord(tgt_file) - 1;
         return Some((
             AnnotatedFieldLocation::new(field.origin, loc as u8, tgt_hb, tgt_file, tgt_rank),
             None,
@@ -197,7 +203,7 @@ fn move_diagonal(
     Some((
         AnnotatedFieldLocation::new(
             field.origin,
-            (u8::from(field.loc) as i8 + rank_dir * ROW_SIZE as i8 + file_dir) as u8,
+            (u8::from(field.loc) as i8 + rank_dir * RS + file_dir) as u8,
             field.hb,
             tgt_file,
             tgt_rank,
@@ -263,12 +269,11 @@ impl ThreePlayerChess {
         }
     }
     fn gen_moves_rook(&self, field: AnnotatedFieldLocation, moves: &mut Vec<Move>) {
-        let rs = ROW_SIZE as i8;
         for (length, rank, increase) in [
-            (rs - field.rank, true, true),  // up
+            (RS - field.rank, true, true),  // up
             (field.rank - 1, true, false),  // down
             (field.file - 1, false, false), // left
-            (rs - field.file, false, true), // right
+            (RS - field.file, false, true), // right
         ] {
             let mut pos = field;
             for _ in 0..length {
@@ -290,13 +295,12 @@ impl ThreePlayerChess {
         }
     }
     fn gen_moves_bishop(&self, field: AnnotatedFieldLocation, moves: &mut Vec<Move>) {
-        let rs = ROW_SIZE as i8;
         use std::cmp::min;
         for (length, up, right) in [
-            (min(rs - field.file, rs - field.rank), true, true), // up right
-            (min(field.file, rs - field.rank), true, false),     // up left
+            (min(RS - field.file, RS - field.rank), true, true), // up right
+            (min(field.file, RS - field.rank), true, false),     // up left
             (min(field.file, field.rank), false, false),         // down left
-            (min(rs - field.file, field.rank), false, true),     // down right
+            (min(RS - field.file, field.rank), false, true),     // down right
         ] {
             let mut pos = field;
             for i in 0..length {
@@ -354,7 +358,7 @@ impl ThreePlayerChess {
         }
         for up in [true, false] {
             let rank_adjusted = adjust_coord(field.rank, !up);
-            if rank_adjusted != 3 && rank_adjusted != 4 {
+            if rank_adjusted != HBRC - 1 && rank_adjusted != HBRC {
                 continue;
             }
             let u1 = move_rank(field, up).unwrap();
@@ -362,8 +366,8 @@ impl ThreePlayerChess {
             for right in [true, false] {
                 self.gen_move_opt(field, move_file(u2, right), moves);
             }
-            if rank_adjusted == 4 && field.file > 2 && field.file < 7 {
-                let right = field.file < 5;
+            if rank_adjusted == HBRC && field.file > HBRC - 2 && field.file <= HBRC + 2 {
+                let right = field.file < HBRC + 1;
                 let u1r1 = move_file(u1, right).unwrap();
                 let u1r2 = move_file(u1r1, right).unwrap();
                 self.gen_move(field, u1r2, moves);
