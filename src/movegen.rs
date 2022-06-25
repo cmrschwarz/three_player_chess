@@ -116,7 +116,7 @@ fn move_rank(
         ));
     }
     let hb = get_next_hb(color, (field.file <= 4) == up);
-    let file_idx = invert_coord(field.file) - 1;
+    let file_idx = adjust_coord(field.file, color != hb) - 1;
     Some(AnnotatedFieldLocation::new(
         get_hb_offset(hb) + 3 * ROW_SIZE as u8 + file_idx as u8,
         hb,
@@ -223,6 +223,17 @@ impl ThreePlayerChess {
         }
         return true;
     }
+    fn gen_slide_move_opt(
+        &self,
+        src: AnnotatedFieldLocation,
+        tgt: Option<AnnotatedFieldLocation>,
+        moves: &mut Vec<Move>,
+    ) -> bool {
+        match tgt {
+            Some(tgt) => self.gen_slide_move(src, tgt, moves),
+            None => false,
+        }
+    }
     fn gen_moves_rook(&self, field: AnnotatedFieldLocation, moves: &mut Vec<Move>) {
         let rs = ROW_SIZE as i8;
         for (length, rank, increase) in [
@@ -303,8 +314,38 @@ impl ThreePlayerChess {
             }
         }
     }
-    fn gen_moves_knight(&self, _field: AnnotatedFieldLocation, _moves: &mut Vec<Move>) {
-        unimplemented!()
+    fn gen_moves_knight(&self, field: AnnotatedFieldLocation, moves: &mut Vec<Move>) {
+        for right in [true, false] {
+            if let Some(r1) = move_file(field, self.turn, right) {
+                for up in [true, false] {
+                    if let Some(r1u1) = move_rank(r1, self.turn, up) {
+                        self.gen_slide_move_opt(field, move_rank(r1u1, self.turn, up), moves);
+                    }
+                }
+                if let Some(r2) = move_file(r1, self.turn, right) {
+                    for up in [true, false] {
+                        self.gen_slide_move_opt(field, move_rank(r2, self.turn, up), moves);
+                    }
+                }
+            }
+        }
+        for up in [true, false] {
+            let rank_adjusted = adjust_coord(field.rank, !up);
+            if rank_adjusted != 3 && rank_adjusted != 4 {
+                break;
+            }
+            let u1 = move_rank(field, self.turn, up).unwrap();
+            let u2 = move_rank(u1, self.turn, up).unwrap();
+            for right in [true, false] {
+                self.gen_slide_move_opt(field, move_file(u2, self.turn, right), moves);
+            }
+            if rank_adjusted == 4 && field.file > 2 && field.file < 7 {
+                let right = field.file < 5;
+                let u1r1 = move_file(u1, self.turn, right).unwrap();
+                let u1r2 = move_file(u1r1, self.turn, right).unwrap();
+                self.gen_slide_move(field, u1r2, moves);
+            }
+        }
     }
     fn gen_moves_king(&self, field: AnnotatedFieldLocation, moves: &mut Vec<Move>) {
         for tgt in [
@@ -313,21 +354,14 @@ impl ThreePlayerChess {
             move_rank(field, self.turn, false),
             move_rank(field, self.turn, false),
         ] {
-            match tgt {
-                Some(tgt) => {
-                    self.gen_slide_move(field, tgt, moves);
-                }
-                None => {}
-            }
+            self.gen_slide_move_opt(field, tgt, moves);
         }
-        for right in [false, true] {
-            for up in [false, true] {
+        for right in [true, false] {
+            for up in [true, false] {
                 match move_diagonal(field, self.turn, up, right) {
                     Some((one, two)) => {
                         self.gen_slide_move(field, one, moves);
-                        if let Some(two) = two {
-                            self.gen_slide_move(field, two, moves);
-                        }
+                        self.gen_slide_move_opt(field, two, moves);
                     }
                     None => {}
                 }
