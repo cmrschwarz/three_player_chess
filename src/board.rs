@@ -32,6 +32,28 @@ pub enum Color {
     C3 = 3,
 }
 
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum WinReason {
+    Checkmate(Color),
+    DoubleResign,
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum DrawReason {
+    Stalemate(Color),
+    Agreement,
+    InsufficientMaterial,
+    FiftyMoveRule,
+    ThreefoldRepetition,
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum GameStatus {
+    Ongoing(),
+    Win(Color, WinReason),
+    Draw(DrawReason),
+}
+
 // this is not used for board storage because it's sadly
 // two bytes large. it can be converted from / into PackedFieldValue alias u8,
 // which is actually used for storage
@@ -47,6 +69,12 @@ pub struct FieldLocation(pub std::num::NonZeroU8);
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub struct ThreePlayerChess {
     pub turn: Color,
+    pub possible_en_passant: [FieldLocation; HB_COUNT],
+    pub possible_castling: [(bool, bool); HB_COUNT],
+    pub move_index: u16,
+    pub last_capture_or_pawn_move_index: u16,
+    pub game_status: GameStatus,
+    pub resigned_player: Option<Color>,
     pub board: [PackedFieldValue; BOARD_SIZE],
 }
 
@@ -54,6 +82,12 @@ impl ThreePlayerChess {
     pub fn new() -> ThreePlayerChess {
         ThreePlayerChess {
             turn: Color::C1,
+            possible_en_passant: [FieldLocation::default(); HB_COUNT],
+            possible_castling: [(true, true); HB_COUNT],
+            move_index: 0,
+            last_capture_or_pawn_move_index: 0,
+            game_status: GameStatus::Ongoing(),
+            resigned_player: None,
             board: [FieldValue(Option::None).into(); BOARD_SIZE],
         }
     }

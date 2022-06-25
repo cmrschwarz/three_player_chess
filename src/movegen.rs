@@ -5,12 +5,13 @@ use crate::board::*;
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum MoveType {
     Slide,
-    PawnTwoSquareAdvance,
+    PawnMove,
     Capture(PackedFieldValue),
     EnPassant,
-    CastleShort,
-    CastleLong,
+    Castle,
     Promotion(PieceType),
+    ThreefoldRepetitionClaim,
+    FiftyMoveRuleClaim,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -399,11 +400,11 @@ impl ThreePlayerChess {
         let src = AnnotatedFieldLocation::from_field_with_origin(self.turn, field);
         if let Some(up) = move_rank(src, true) {
             if let FieldValue(None) = self.get_field_value(up.loc) {
-                self.gen_move_unless_check(src, up, MoveType::Slide, moves);
+                self.gen_move_unless_check(src, up, MoveType::PawnMove, moves);
                 if src.rank == 2 {
                     let up2 = move_rank(up, true).unwrap();
                     if let FieldValue(None) = self.get_field_value(up2.loc) {
-                        self.gen_move_unless_check(src, up2, MoveType::PawnTwoSquareAdvance, moves);
+                        self.gen_move_unless_check(src, up2, MoveType::PawnMove, moves);
                     }
                 }
             }
