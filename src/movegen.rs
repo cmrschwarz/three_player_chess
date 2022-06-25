@@ -2,11 +2,11 @@ use num_traits::FromPrimitive;
 
 use crate::board::*;
 
-#[repr(u8)]
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum MoveType {
     Slide,
-    Capture,
+    PawnTwoSquareAdvance,
+    Capture(PackedFieldValue),
     EnPassant,
     CastleShort,
     CastleLong,
@@ -207,32 +207,49 @@ fn move_diagonal(
 }
 
 impl ThreePlayerChess {
+    fn gen_move_unless_check(
+        &self,
+        src: AnnotatedFieldLocation,
+        tgt: AnnotatedFieldLocation,
+        move_type: MoveType,
+        moves: &mut Vec<Move>,
+    ) -> bool {
+        // TODO: don't allow the move if it would cause a check
+        moves.push(Move {
+            move_type,
+            source: src.loc,
+            target: tgt.loc,
+        });
+        true
+    }
+    fn try_gen_capture_unless_check(
+        &self,
+        src: AnnotatedFieldLocation,
+        tgt: AnnotatedFieldLocation,
+        moves: &mut Vec<Move>,
+    ) -> bool {
+        let piece_value = self.get_packed_field_value(tgt.loc);
+        match FieldValue::from(piece_value) {
+            FieldValue(Some((color, _))) if color != self.turn => {
+                self.gen_move_unless_check(src, tgt, MoveType::Capture(piece_value), moves)
+            }
+            _ => false,
+        }
+    }
     fn gen_move(
         &self,
         src: AnnotatedFieldLocation,
         tgt: AnnotatedFieldLocation,
         moves: &mut Vec<Move>,
     ) -> bool {
-        match self.get_field_value(tgt.loc) {
-            FieldValue(None) => {
-                moves.push(Move {
-                    move_type: MoveType::Slide,
-                    source: src.loc,
-                    target: tgt.loc,
-                });
+        let piece_value = self.get_packed_field_value(tgt.loc);
+        match FieldValue::from(piece_value) {
+            FieldValue(None) => self.gen_move_unless_check(src, tgt, MoveType::Slide, moves),
+            FieldValue(Some((color, _))) if color != self.turn => {
+                self.gen_move_unless_check(src, tgt, MoveType::Capture(piece_value), moves)
             }
-            FieldValue(Some((color, _))) => {
-                if color != self.turn {
-                    moves.push(Move {
-                        move_type: MoveType::Capture,
-                        source: src.loc,
-                        target: tgt.loc,
-                    });
-                }
-                return false;
-            }
+            _ => false,
         }
-        return true;
     }
     fn gen_move_opt(
         &self,
@@ -374,8 +391,30 @@ impl ThreePlayerChess {
             }
         }
     }
-    fn gen_moves_pawn(&self, field: AnnotatedFieldLocation, moves: &mut Vec<Move>) {
-        todo!()
+    fn gen_moves_pawn(&self, field: FieldLocation, moves: &mut Vec<Move>) {
+        let src = AnnotatedFieldLocation::from_field_with_origin(self.turn, field);
+        if let Some(up) = move_rank(src, true) {
+            if let FieldValue(None) = self.get_field_value(up.loc) {
+                self.gen_move_unless_check(src, up, MoveType::Slide, moves);
+                if src.rank == 2 {
+                    let up2 = move_rank(up, true).unwrap();
+                    if let FieldValue(None) = self.get_field_value(up2.loc) {
+                        self.gen_move_unless_check(src, up2, MoveType::PawnTwoSquareAdvance, moves);
+                    }
+                }
+            }
+        }
+        for right in [true, false] {
+            match move_diagonal(src, true, right) {
+                Some((one, two)) => {
+                    self.try_gen_capture_unless_check(src, one, moves);
+                    if let Some(two) = two {
+                        self.try_gen_capture_unless_check(src, two, moves);
+                    }
+                }
+                None => {}
+            }
+        }
     }
     fn gen_moves_queen(&self, field: AnnotatedFieldLocation, moves: &mut Vec<Move>) {
         self.gen_moves_rook(field, moves);
@@ -386,14 +425,15 @@ impl ThreePlayerChess {
         for (loc, val) in self.board.iter().enumerate() {
             match FieldValue::from(*val) {
                 FieldValue(Some((color, piece_type))) if color == self.turn => {
-                    let field = AnnotatedFieldLocation::from_field(FieldLocation::from(loc));
+                    let field = FieldLocation::from(loc);
+                    let field_a = AnnotatedFieldLocation::from_field(field);
                     match piece_type {
                         PieceType::Pawn => self.gen_moves_pawn(field, &mut moves),
-                        PieceType::Knight => self.gen_moves_knight(field, &mut moves),
-                        PieceType::Bishop => self.gen_moves_bishop(field, &mut moves),
-                        PieceType::Rook => self.gen_moves_rook(field, &mut moves),
-                        PieceType::Queen => self.gen_moves_queen(field, &mut moves),
-                        PieceType::King => self.gen_moves_king(field, &mut moves),
+                        PieceType::Knight => self.gen_moves_knight(field_a, &mut moves),
+                        PieceType::Bishop => self.gen_moves_bishop(field_a, &mut moves),
+                        PieceType::Rook => self.gen_moves_rook(field_a, &mut moves),
+                        PieceType::Queen => self.gen_moves_queen(field_a, &mut moves),
+                        PieceType::King => self.gen_moves_king(field_a, &mut moves),
                     }
                 }
                 _ => {}
@@ -401,7 +441,11 @@ impl ThreePlayerChess {
         }
         moves
     }
+
+    pub fn get_packed_field_value(&self, field: FieldLocation) -> PackedFieldValue {
+        self.board[usize::from(field)]
+    }
     pub fn get_field_value(&self, field: FieldLocation) -> FieldValue {
-        FieldValue::from(self.board[usize::from(field)])
+        FieldValue::from(self.get_packed_field_value(field))
     }
 }
