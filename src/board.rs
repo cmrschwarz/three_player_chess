@@ -12,6 +12,13 @@ pub const COLOR_COUNT: u8 = HB_COUNT as u8;
 pub const HB_SIZE: usize = ROW_SIZE * HB_ROW_COUNT;
 pub const BOARD_SIZE: usize = HB_SIZE * HB_COUNT; // 96
 
+pub const START_POSITION: &'static str = concat!(
+    "ABCDEFGH2/BG1/CF1/AH1/D1/E1/B|",
+    "LKJIDCBA7/KB8/JC8/LA8/I8/D8/B|",
+    "HGFEIJKLb/GKc/FJc/HLc/Ec/Ic/B|",
+    "0|0"
+);
+
 #[repr(u8)]
 #[derive(Copy, Clone, PartialEq, Eq, FromPrimitive, ToPrimitive, Debug)]
 pub enum PieceType {
@@ -69,8 +76,9 @@ pub struct FieldLocation(pub std::num::NonZeroU8);
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub struct ThreePlayerChess {
     pub turn: Color,
-    pub possible_en_passant: [FieldLocation; HB_COUNT],
+    pub possible_en_passant: [Option<FieldLocation>; HB_COUNT],
     pub possible_castling: [(bool, bool); HB_COUNT],
+    pub king_positions: [Option<FieldLocation>; HB_COUNT],
     pub move_index: u16,
     pub last_capture_or_pawn_move_index: u16,
     pub game_status: GameStatus,
@@ -82,14 +90,119 @@ impl ThreePlayerChess {
     pub fn new() -> ThreePlayerChess {
         ThreePlayerChess {
             turn: Color::C1,
-            possible_en_passant: [FieldLocation::default(); HB_COUNT],
-            possible_castling: [(true, true); HB_COUNT],
+            possible_en_passant: [None; HB_COUNT],
+            possible_castling: [(false, false); HB_COUNT],
+            king_positions: [None; HB_COUNT],
             move_index: 0,
             last_capture_or_pawn_move_index: 0,
             game_status: GameStatus::Ongoing(),
             resigned_player: None,
-            board: [FieldValue(Option::None).into(); BOARD_SIZE],
+            board: [FieldValue(None).into(); BOARD_SIZE],
         }
+    }
+    fn player_from_str<'a>(
+        &mut self,
+        color: Color,
+        pstr: &'a str,
+    ) -> Result<&'a str, &'static str> {
+        let mut files = [0u8; ROW_SIZE];
+        let bytes = pstr.as_bytes();
+        let mut i = 0;
+
+        for piece_type in [
+            PieceType::Pawn,
+            PieceType::Knight,
+            PieceType::Bishop,
+            PieceType::Rook,
+            PieceType::Queen,
+            PieceType::King,
+        ] {
+            let mut file_count = 0;
+            loop {
+                let b = bytes[i];
+                i += 1;
+                if b == '/'.try_into().unwrap() {
+                    if file_count != 0 {
+                        return Err("unterminated file list");
+                    }
+                    break;
+                }
+                if b.is_ascii_digit()
+                    || (b >= 'a'.try_into().unwrap() && b <= 'c'.try_into().unwrap())
+                {
+                    if file_count == 0 {
+                        return Err("rank specified without file");
+                    }
+                    for f in 0..file_count {
+                        let square_str = [files[f], b];
+                        let loc = FieldLocation::from_utf8(square_str)
+                            .map(|loc| Ok(loc))
+                            .unwrap_or(Err("invalid field location"))?;
+                        let square = &mut self.board[usize::from(loc)];
+                        if FieldValue::from(*square).0.is_some() {
+                            return Err("field respecified");
+                        }
+                        *square = FieldValue(Some((color, piece_type))).into();
+                    }
+                    file_count = 0;
+                } else if b >= 'A'.try_into().unwrap() && b <= 'L'.try_into().unwrap() {
+                    if file_count == ROW_SIZE {
+                        return Err("file list too long");
+                    }
+                    files[file_count] = b;
+                    file_count += 1;
+                }
+            }
+        }
+        self.possible_castling[u8::from(color) as usize - 1] = match bytes[i].into() {
+            'Q' => Ok((true, false)),
+            'K' => Ok((false, true)),
+            'B' => Ok((true, true)),
+            _ => Err("invalid castling rights specification"),
+        }?;
+        i += 1;
+        let pstr = std::str::from_utf8(&pstr.as_bytes()[i..]).unwrap();
+        let pipe_pos = pstr
+            .find("|")
+            .map(|p| Ok(p))
+            .unwrap_or(Err("expected en passant location or '|'"))?;
+        if pipe_pos == 0 {
+            Ok(&pstr[1..])
+        } else {
+            let (ep_str, end) = pstr.split_at(pipe_pos);
+            let ep_square = FieldLocation::from_str(ep_str)
+                .map(|l| Ok(l))
+                .unwrap_or(Err("invalid en passant square"))?;
+            self.possible_en_passant[u8::from(color) as usize - 1] = Some(ep_square);
+            Result::Ok(end)
+        }
+    }
+    pub fn from_str(pstr: &str) -> Result<ThreePlayerChess, &'static str> {
+        let mut tpc = ThreePlayerChess::new();
+        let mut pstr_it = pstr;
+        for c in u8::from(Color::C1)..u8::from(Color::C3) + 1 {
+            pstr_it = tpc.player_from_str(Color::from(c), pstr_it)?;
+        }
+        let pipe_pos = pstr_it
+            .find("|")
+            .map(|x| Ok(x))
+            .unwrap_or(Err("expected capture/pawn move index followed by '|'"))?;
+        let (cpi, mi) = pstr_it.split_at(pipe_pos);
+        tpc.last_capture_or_pawn_move_index = cpi
+            .parse()
+            .or_else(|_| Err("capture/pawn move index is not a valid integer"))?;
+        tpc.last_capture_or_pawn_move_index = mi[1..]
+            .parse()
+            .or_else(|_| Err("move index is not a valid integer"))?;
+        Ok(tpc)
+    }
+}
+
+impl Default for ThreePlayerChess {
+    fn default() -> Self {
+        Self::from_str(START_POSITION)
+            .map_err(|err| println!("{:?}", err))
+            .unwrap()
     }
 }
 
