@@ -12,12 +12,17 @@ pub const COLOR_COUNT: u8 = HB_COUNT as u8;
 pub const HB_SIZE: usize = ROW_SIZE * HB_ROW_COUNT;
 pub const BOARD_SIZE: usize = HB_SIZE * HB_COUNT; // 96
 
-pub const START_POSITION: &'static str = concat!(
+pub const START_POSITION_STRING: &'static str = concat!(
     "ABCDEFGH2/BG1/CF1/AH1/D1/E1/B|",
     "LKJIDCBA7/KB8/JC8/LA8/I8/D8/B|",
     "HGFEIJKLb/GKc/FJc/HLc/Ec/Ic/B|",
     "0|0"
 );
+// 2 characters for each board cell
+// for each player: 6 slashes + 1 castling + 2 e.p. + 1 '|'
+// 2 times 5 characters for move and pawn/capture index each (max value 65535)
+// 1 final character for the bar between the two indices
+pub const MAX_POSITION_STRING_SIZE: usize = BOARD_SIZE * 2 + 3 * (6 + 1 + 2 + 1) + 2 * 5 + 1;
 
 #[repr(u8)]
 #[derive(Copy, Clone, PartialEq, Eq, FromPrimitive, ToPrimitive, Debug)]
@@ -28,6 +33,16 @@ pub enum PieceType {
     Rook = 4,
     Queen = 5,
     King = 6,
+}
+
+impl PieceType {
+    pub fn iter() -> std::slice::Iter<'static, PieceType> {
+        use PieceType::*;
+        // this is ordered by value (ascending). changing this order would
+        // change the string representation
+        static PIECE_TYPES: [PieceType; 6] = [Pawn, Knight, Bishop, Rook, Queen, King];
+        PIECE_TYPES.iter()
+    }
 }
 
 #[repr(u8)]
@@ -109,14 +124,7 @@ impl ThreePlayerChess {
         let bytes = pstr.as_bytes();
         let mut i = 0;
 
-        for piece_type in [
-            PieceType::Pawn,
-            PieceType::Knight,
-            PieceType::Bishop,
-            PieceType::Rook,
-            PieceType::Queen,
-            PieceType::King,
-        ] {
+        for piece_type in PieceType::iter() {
             let mut file_count = 0;
             loop {
                 let b = bytes[i];
@@ -142,7 +150,7 @@ impl ThreePlayerChess {
                         if FieldValue::from(*square).0.is_some() {
                             return Err("field respecified");
                         }
-                        *square = FieldValue(Some((color, piece_type))).into();
+                        *square = FieldValue(Some((color, *piece_type))).into();
                     }
                     file_count = 0;
                 } else if b >= 'A'.try_into().unwrap() && b <= 'L'.try_into().unwrap() {
@@ -155,9 +163,10 @@ impl ThreePlayerChess {
             }
         }
         self.possible_castling[u8::from(color) as usize - 1] = match bytes[i].into() {
-            'Q' => Ok((true, false)),
-            'K' => Ok((false, true)),
             'B' => Ok((true, true)),
+            'K' => Ok((false, true)),
+            'Q' => Ok((true, false)),
+            'N' => Ok((false, false)),
             _ => Err("invalid castling rights specification"),
         }?;
         i += 1;
@@ -196,11 +205,75 @@ impl ThreePlayerChess {
             .or_else(|_| Err("move index is not a valid integer"))?;
         Ok(tpc)
     }
+    pub fn to_string<'a>(&self, result_buffer: &'a mut [u8; MAX_POSITION_STRING_SIZE]) -> &'a str {
+        let mut cursor = std::io::Cursor::new(&mut result_buffer[..]);
+        for c in u8::from(Color::C1)..u8::from(Color::C3) + 1 {
+            for piece_type in PieceType::iter() {
+                for hb in u8::from(Color::C1)..u8::from(Color::C3) + 1 {
+                    for rank in 0..HB_ROW_COUNT {
+                        let mut piece_found = false;
+                        for file in 0..ROW_SIZE {
+                            let loc = FieldLocation::new(Color::from(hb), file, rank);
+                            if let FieldValue(Some((col, piece))) =
+                                self.board[usize::from(loc)].into()
+                            {
+                                if col == c.into() && piece == *piece_type {
+                                    cursor
+                                        .write_fmt(format_args!("{}", loc.file_char() as char))
+                                        .unwrap();
+                                    piece_found = true;
+                                }
+                            }
+                        }
+                        if piece_found {
+                            cursor
+                                .write_fmt(format_args!(
+                                    "{}",
+                                    FieldLocation::new(Color::from(hb), 1, rank).rank_char()
+                                        as char
+                                ))
+                                .unwrap();
+                        }
+                    }
+                }
+                cursor.write(&"/".as_bytes()).unwrap();
+            }
+            cursor
+                .write(
+                    &match self.possible_castling[c as usize - 1] {
+                        (true, true) => "B",
+                        (false, true) => "K",
+                        (true, false) => "Q",
+                        _ => "N",
+                    }
+                    .as_bytes(),
+                )
+                .unwrap();
+            if let Some(loc) = self.possible_en_passant[c as usize - 1] {
+                cursor.write_fmt(format_args!("{}", loc)).unwrap();
+            }
+            cursor.write(&"|".as_bytes()).unwrap();
+        }
+        cursor
+            .write_fmt(format_args!(
+                "{}|{}",
+                self.last_capture_or_pawn_move_index, self.move_index
+            ))
+            .unwrap();
+        let pos = cursor.position() as usize;
+        &std::str::from_utf8(result_buffer).unwrap()[0..pos]
+    }
 }
 
+impl std::convert::TryFrom<&str> for ThreePlayerChess {
+    type Error = &'static str;
+    fn try_from(pstr: &str) -> Result<Self, Self::Error> {
+        ThreePlayerChess::from_str(pstr)
+    }
+}
 impl Default for ThreePlayerChess {
     fn default() -> Self {
-        Self::from_str(START_POSITION)
+        Self::from_str(START_POSITION_STRING)
             .map_err(|err| println!("{:?}", err))
             .unwrap()
     }
@@ -368,6 +441,15 @@ impl FieldLocation {
         } else {
             Option::None
         }
+    }
+    pub fn new(hb: Color, file: usize, rank: usize) -> FieldLocation {
+        FieldLocation::from((u8::from(hb) as usize - 1) * HB_SIZE + rank * ROW_SIZE + file)
+    }
+    pub fn file_char(&self) -> u8 {
+        <[u8; 2]>::from(*self)[0]
+    }
+    pub fn rank_char(&self) -> u8 {
+        <[u8; 2]>::from(*self)[1]
     }
 }
 impl std::convert::From<FieldValue> for PackedFieldValue {
