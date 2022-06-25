@@ -22,27 +22,42 @@ pub struct Move {
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub struct AnnotatedFieldLocation {
+    pub origin: Color,
     pub loc: FieldLocation,
     pub hb: Color,
     pub file: i8,
     pub rank: i8,
 }
 impl AnnotatedFieldLocation {
-    pub fn new(loc: u8, hb: Color, file: i8, rank: i8) -> AnnotatedFieldLocation {
+    pub fn new(origin: Color, loc: u8, hb: Color, file: i8, rank: i8) -> Self {
         AnnotatedFieldLocation {
+            origin,
             loc: FieldLocation::from(loc),
             hb,
             file,
             rank,
         }
     }
-    pub fn from_field(color: Color, field: FieldLocation) -> AnnotatedFieldLocation {
-        let hb = get_hb(field);
+    pub fn from_field_with_origin_and_hb(origin: Color, hb: Color, field: FieldLocation) -> Self {
         AnnotatedFieldLocation {
+            origin,
             loc: field,
-            hb: hb,
-            file: get_file(field, color),
-            rank: get_rank(field, color),
+            hb,
+            file: get_file(field, origin),
+            rank: get_rank(field, origin),
+        }
+    }
+    pub fn from_field_with_origin(origin: Color, field: FieldLocation) -> Self {
+        Self::from_field_with_origin_and_hb(origin, get_hb(field), field)
+    }
+    pub fn from_field(field: FieldLocation) -> Self {
+        let hb = get_hb(field);
+        Self::from_field_with_origin_and_hb(hb, hb, field)
+    }
+    pub fn reorient(&mut self, origin: Color) {
+        if origin != self.origin {
+            self.file = invert_coord(self.file);
+            self.rank = invert_coord(self.rank);
         }
     }
 }
@@ -98,26 +113,25 @@ fn get_hb_offset(color: Color) -> u8 {
     (u8::from(color) - 1) * 32
 }
 
-fn move_rank(
-    field: AnnotatedFieldLocation,
-    color: Color,
-    up: bool,
-) -> Option<AnnotatedFieldLocation> {
+fn move_rank(field: AnnotatedFieldLocation, up: bool) -> Option<AnnotatedFieldLocation> {
     let tgt_rank = field.rank + if up { 1i8 } else { -1i8 };
     if !coord_in_bounds(tgt_rank) {
         return None;
     }
     if (tgt_rank <= 3 || (tgt_rank == 4 && up)) || (tgt_rank > 5 || (tgt_rank == 5 && !up)) {
         return Some(AnnotatedFieldLocation::new(
+            field.origin,
             (u8::from(field.loc) as i8 + coord_dir(up == (tgt_rank <= 4)) * ROW_SIZE as i8) as u8,
             field.hb,
             field.file,
             tgt_rank,
         ));
     }
-    let hb = get_next_hb(color, (field.file <= 4) == up);
-    let file_idx = adjust_coord(field.file, color != hb) - 1;
+    let hb = get_next_hb(field.hb, (field.file <= 4) == up);
+    assert!(hb != field.origin || field.hb != field.origin);
+    let file_idx = adjust_coord(field.file, field.origin != hb) - 1;
     Some(AnnotatedFieldLocation::new(
+        field.origin,
         get_hb_offset(hb) + 3 * ROW_SIZE as u8 + file_idx as u8,
         hb,
         field.file,
@@ -125,18 +139,14 @@ fn move_rank(
     ))
 }
 
-fn move_file(
-    field: AnnotatedFieldLocation,
-    color: Color,
-    right: bool,
-) -> Option<AnnotatedFieldLocation> {
-    let inverted = field.hb != color;
-    let file = adjust_coord(field.file, inverted);
-    let dir = coord_dir((field.hb == color) == right);
-    let tgt_file = file + dir;
+fn move_file(field: AnnotatedFieldLocation, right: bool) -> Option<AnnotatedFieldLocation> {
+    let inverted = field.hb != field.origin;
+    let tgt_file = field.file + coord_dir(right);
+    let dir_raw = coord_dir(inverted != right);
     coord_in_bounds(tgt_file).then(|| {
         AnnotatedFieldLocation::new(
-            (u8::from(field.loc) as i8 + dir) as u8,
+            field.origin,
+            (u8::from(field.loc) as i8 + dir_raw) as u8,
             field.hb,
             tgt_file,
             field.rank,
@@ -150,7 +160,6 @@ fn get_field_on_next_hb(loc: u8) -> u8 {
 
 fn move_diagonal(
     field: AnnotatedFieldLocation,
-    color: Color,
     up: bool,
     right: bool,
 ) -> Option<(AnnotatedFieldLocation, Option<AnnotatedFieldLocation>)> {
@@ -166,26 +175,28 @@ fn move_diagonal(
             let loc1 = get_field_on_next_hb(u8::from(field.loc));
             let loc2 = get_field_on_next_hb(loc1);
             return Some((
-                AnnotatedFieldLocation::new(loc1, hb1, tgt_file, tgt_rank),
-                Some(AnnotatedFieldLocation::new(loc2, hb2, tgt_file, tgt_rank)),
+                AnnotatedFieldLocation::new(field.origin, loc1, hb1, tgt_file, tgt_rank),
+                Some(AnnotatedFieldLocation::new(
+                    field.origin,
+                    loc2,
+                    hb2,
+                    tgt_file,
+                    tgt_rank,
+                )),
             ));
         }
         let tgt_hb = get_next_hb(get_hb(field.loc), (field.file <= 4) == up);
+        let loc = get_hb_offset(tgt_hb) as i8 + 3 * ROW_SIZE as i8 + invert_coord(tgt_file) - 1;
         return Some((
-            AnnotatedFieldLocation::new(
-                (get_hb_offset(tgt_hb) as i8 + 3 * ROW_SIZE as i8 + invert_coord(tgt_file) - 1)
-                    as u8,
-                tgt_hb,
-                tgt_file,
-                tgt_rank,
-            ),
+            AnnotatedFieldLocation::new(field.origin, loc as u8, tgt_hb, tgt_file, tgt_rank),
             None,
         ));
     }
-    let rank_dir = coord_dir(up == (field.hb == color));
-    let file_dir = coord_dir(right == (field.hb == color));
+    let rank_dir = coord_dir(up == (field.hb == field.origin));
+    let file_dir = coord_dir(right == (field.hb == field.origin));
     Some((
         AnnotatedFieldLocation::new(
+            field.origin,
             (u8::from(field.loc) as i8 + rank_dir * ROW_SIZE as i8 + file_dir) as u8,
             field.hb,
             tgt_file,
@@ -196,7 +207,7 @@ fn move_diagonal(
 }
 
 impl ThreePlayerChess {
-    fn gen_slide_move(
+    fn gen_move(
         &self,
         src: AnnotatedFieldLocation,
         tgt: AnnotatedFieldLocation,
@@ -223,14 +234,14 @@ impl ThreePlayerChess {
         }
         return true;
     }
-    fn gen_slide_move_opt(
+    fn gen_move_opt(
         &self,
         src: AnnotatedFieldLocation,
         tgt: Option<AnnotatedFieldLocation>,
         moves: &mut Vec<Move>,
     ) -> bool {
         match tgt {
-            Some(tgt) => self.gen_slide_move(src, tgt, moves),
+            Some(tgt) => self.gen_move(src, tgt, moves),
             None => false,
         }
     }
@@ -245,13 +256,13 @@ impl ThreePlayerChess {
             let mut pos = field;
             for _ in 0..length {
                 let res = if rank {
-                    move_rank(pos, self.turn, increase)
+                    move_rank(pos, increase)
                 } else {
-                    move_file(pos, self.turn, increase)
+                    move_file(pos, increase)
                 };
                 match res {
                     Some(tgt) => {
-                        if !self.gen_slide_move(pos, tgt, moves) {
+                        if !self.gen_move(pos, tgt, moves) {
                             break;
                         }
                         pos = tgt;
@@ -272,31 +283,26 @@ impl ThreePlayerChess {
         ] {
             let mut pos = field;
             for i in 0..length {
-                match move_diagonal(pos, self.turn, up, right) {
+                match move_diagonal(pos, up, right) {
                     None => break,
                     Some((one, None)) => {
-                        if !self.gen_slide_move(field, one, moves) {
+                        if !self.gen_move(field, one, moves) {
                             break;
                         };
                         pos = one;
                     }
                     Some((mut one, Some(mut two))) => {
-                        let swap_dir = pos.hb != self.turn;
-                        if swap_dir && one.hb != self.turn {
+                        let swap_dir = pos.hb != field.origin;
+                        if swap_dir && one.hb != field.origin {
                             std::mem::swap(&mut one, &mut two);
                         }
-                        if self.gen_slide_move(field, two, moves) {
+                        if self.gen_move(field, two, moves) {
                             let mut pos2 = two;
                             for _ in i..length {
-                                match move_diagonal(
-                                    pos2,
-                                    self.turn,
-                                    up != swap_dir,
-                                    right != swap_dir,
-                                ) {
+                                match move_diagonal(pos2, up != swap_dir, right != swap_dir) {
                                     None => break,
                                     Some((one, None)) => {
-                                        if !self.gen_slide_move(pos2, one, moves) {
+                                        if !self.gen_move(pos2, one, moves) {
                                             break;
                                         }
                                         pos2 = one;
@@ -305,7 +311,7 @@ impl ThreePlayerChess {
                                 }
                             }
                         }
-                        if !self.gen_slide_move(field, one, moves) {
+                        if !self.gen_move(field, one, moves) {
                             break;
                         }
                         pos = one;
@@ -316,15 +322,15 @@ impl ThreePlayerChess {
     }
     fn gen_moves_knight(&self, field: AnnotatedFieldLocation, moves: &mut Vec<Move>) {
         for right in [true, false] {
-            if let Some(r1) = move_file(field, self.turn, right) {
+            if let Some(r1) = move_file(field, right) {
                 for up in [true, false] {
-                    if let Some(r1u1) = move_rank(r1, self.turn, up) {
-                        self.gen_slide_move_opt(field, move_rank(r1u1, self.turn, up), moves);
+                    if let Some(r1u1) = move_rank(r1, up) {
+                        self.gen_move_opt(field, move_rank(r1u1, up), moves);
                     }
                 }
-                if let Some(r2) = move_file(r1, self.turn, right) {
+                if let Some(r2) = move_file(r1, right) {
                     for up in [true, false] {
-                        self.gen_slide_move_opt(field, move_rank(r2, self.turn, up), moves);
+                        self.gen_move_opt(field, move_rank(r2, up), moves);
                     }
                 }
             }
@@ -332,43 +338,43 @@ impl ThreePlayerChess {
         for up in [true, false] {
             let rank_adjusted = adjust_coord(field.rank, !up);
             if rank_adjusted != 3 && rank_adjusted != 4 {
-                break;
+                continue;
             }
-            let u1 = move_rank(field, self.turn, up).unwrap();
-            let u2 = move_rank(u1, self.turn, up).unwrap();
+            let u1 = move_rank(field, up).unwrap();
+            let u2 = move_rank(u1, up).unwrap();
             for right in [true, false] {
-                self.gen_slide_move_opt(field, move_file(u2, self.turn, right), moves);
+                self.gen_move_opt(field, move_file(u2, right), moves);
             }
             if rank_adjusted == 4 && field.file > 2 && field.file < 7 {
                 let right = field.file < 5;
-                let u1r1 = move_file(u1, self.turn, right).unwrap();
-                let u1r2 = move_file(u1r1, self.turn, right).unwrap();
-                self.gen_slide_move(field, u1r2, moves);
+                let u1r1 = move_file(u1, right).unwrap();
+                let u1r2 = move_file(u1r1, right).unwrap();
+                self.gen_move(field, u1r2, moves);
             }
         }
     }
     fn gen_moves_king(&self, field: AnnotatedFieldLocation, moves: &mut Vec<Move>) {
         for tgt in [
-            move_file(field, self.turn, false),
-            move_file(field, self.turn, true),
-            move_rank(field, self.turn, false),
-            move_rank(field, self.turn, false),
+            move_file(field, false),
+            move_file(field, true),
+            move_rank(field, false),
+            move_rank(field, false),
         ] {
-            self.gen_slide_move_opt(field, tgt, moves);
+            self.gen_move_opt(field, tgt, moves);
         }
         for right in [true, false] {
             for up in [true, false] {
-                match move_diagonal(field, self.turn, up, right) {
+                match move_diagonal(field, up, right) {
                     Some((one, two)) => {
-                        self.gen_slide_move(field, one, moves);
-                        self.gen_slide_move_opt(field, two, moves);
+                        self.gen_move(field, one, moves);
+                        self.gen_move_opt(field, two, moves);
                     }
                     None => {}
                 }
             }
         }
     }
-    fn gen_moves_pawn(&self, _field: AnnotatedFieldLocation, _moves: &mut Vec<Move>) {
+    fn gen_moves_pawn(&self, field: AnnotatedFieldLocation, moves: &mut Vec<Move>) {
         todo!()
     }
     fn gen_moves_queen(&self, field: AnnotatedFieldLocation, moves: &mut Vec<Move>) {
@@ -380,8 +386,7 @@ impl ThreePlayerChess {
         for (loc, val) in self.board.iter().enumerate() {
             match FieldValue::from(*val) {
                 FieldValue(Some((color, piece_type))) if color == self.turn => {
-                    let field =
-                        AnnotatedFieldLocation::from_field(self.turn, FieldLocation::from(loc));
+                    let field = AnnotatedFieldLocation::from_field(FieldLocation::from(loc));
                     match piece_type {
                         PieceType::Pawn => self.gen_moves_pawn(field, &mut moves),
                         PieceType::Knight => self.gen_moves_knight(field, &mut moves),

@@ -11,8 +11,8 @@ pub fn print_board() {
 #[test]
 pub fn gen_moves() {
     let mut tpc = ThreePlayerChess::new();
-    tpc.board[usize::from(FieldLocation::from_str("E4").unwrap())] =
-        FieldValue(Some((Color::C1, PieceType::Knight))).into();
+    tpc.board[usize::from(FieldLocation::from_str("I9").unwrap())] =
+        FieldValue(Some((Color::C1, PieceType::Rook))).into();
 
     let moves = tpc.gen_moves();
     for m in moves {
