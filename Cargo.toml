@@ -8,6 +8,7 @@ surena_game = { path = "deps/surena_game_rs/surena_game" }
 num-traits = "0.2"
 num-derive = "0.3"
 lazy_static = "1.4"
+arrayvec = "0.7.2"
 
 [lib]
 crate-type = ["cdylib"]

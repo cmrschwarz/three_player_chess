@@ -1,6 +1,7 @@
 use num_derive::{FromPrimitive, ToPrimitive};
 use num_traits::{FromPrimitive, ToPrimitive};
 
+use crate::movegen::*;
 use std::char;
 use std::collections::HashMap;
 use std::io::Write;
@@ -54,6 +55,12 @@ pub enum Color {
     C3 = 3,
 }
 
+impl Default for Color {
+    fn default() -> Self {
+        Self::C1
+    }
+}
+
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum WinReason {
     Checkmate(Color),
@@ -88,7 +95,7 @@ pub type PackedFieldValue = u8;
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct FieldLocation(pub std::num::NonZeroU8);
 
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct ThreePlayerChess {
     pub turn: Color,
     pub possible_en_passant: [Option<FieldLocation>; HB_COUNT],
@@ -99,6 +106,7 @@ pub struct ThreePlayerChess {
     pub game_status: GameStatus,
     pub resigned_player: Option<Color>,
     pub board: [PackedFieldValue; BOARD_SIZE],
+    pub check_possibilities: CheckPossibilities,
 }
 
 impl ThreePlayerChess {
@@ -113,6 +121,7 @@ impl ThreePlayerChess {
             game_status: GameStatus::Ongoing(),
             resigned_player: None,
             board: [FieldValue(None).into(); BOARD_SIZE],
+            check_possibilities: CheckPossibilities::new(),
         }
     }
     fn player_from_str<'a>(
@@ -127,8 +136,12 @@ impl ThreePlayerChess {
         for piece_type in PieceType::iter() {
             let mut file_count = 0;
             loop {
+                if i == bytes.len() {
+                    return Err("unexpected end of string");
+                }
                 let b = bytes[i];
                 i += 1;
+
                 if b == '/'.try_into().unwrap() {
                     if file_count != 0 {
                         return Err("unterminated file list");
@@ -151,6 +164,14 @@ impl ThreePlayerChess {
                             return Err("field respecified");
                         }
                         *square = FieldValue(Some((color, *piece_type))).into();
+                        if *piece_type == PieceType::King {
+                            if file_count != 1
+                                || (bytes.len() == i || bytes[i] != '/'.try_into().unwrap())
+                            {
+                                return Err("each player must have one king");
+                            }
+                            self.king_positions[u8::from(color) as usize - 1] = Some(loc);
+                        }
                     }
                     file_count = 0;
                 } else if b >= 'A'.try_into().unwrap() && b <= 'L'.try_into().unwrap() {
@@ -210,9 +231,9 @@ impl ThreePlayerChess {
         for c in u8::from(Color::C1)..u8::from(Color::C3) + 1 {
             for piece_type in PieceType::iter() {
                 for hb in u8::from(Color::C1)..u8::from(Color::C3) + 1 {
-                    for rank in 0..HB_ROW_COUNT {
+                    for rank in 1..HB_ROW_COUNT as i8 + 1 {
                         let mut piece_found = false;
-                        for file in 0..ROW_SIZE {
+                        for file in 1..ROW_SIZE as i8 + 1 {
                             let loc = FieldLocation::new(Color::from(hb), file, rank);
                             if let FieldValue(Some((col, piece))) =
                                 self.board[usize::from(loc)].into()
@@ -442,8 +463,12 @@ impl FieldLocation {
             Option::None
         }
     }
-    pub fn new(hb: Color, file: usize, rank: usize) -> FieldLocation {
-        FieldLocation::from((u8::from(hb) as usize - 1) * HB_SIZE + rank * ROW_SIZE + file)
+    pub fn new(hb: Color, file: i8, rank: i8) -> FieldLocation {
+        FieldLocation::from(
+            (u8::from(hb) as usize - 1) * HB_SIZE
+                + (rank - 1) as usize * ROW_SIZE
+                + (file - 1) as usize,
+        )
     }
     pub fn file_char(&self) -> u8 {
         <[u8; 2]>::from(*self)[0]

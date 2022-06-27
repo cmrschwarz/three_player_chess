@@ -1,6 +1,9 @@
-use num_traits::FromPrimitive;
-
 use crate::board::*;
+use arrayvec::ArrayVec;
+use num_traits::FromPrimitive;
+use std::cmp::min;
+const HBRC: i8 = HB_ROW_COUNT as i8;
+const RS: i8 = ROW_SIZE as i8;
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum MoveType {
@@ -21,7 +24,7 @@ pub struct Move {
     pub target: FieldLocation,
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
 pub struct AnnotatedFieldLocation {
     pub origin: Color,
     pub loc: FieldLocation,
@@ -30,14 +33,116 @@ pub struct AnnotatedFieldLocation {
     pub rank: i8,
 }
 
-const HBRC: i8 = HB_ROW_COUNT as i8;
-const RS: i8 = ROW_SIZE as i8;
+const CHECK_LINES_DIAGONALS_MAX_SQUARES: usize = 17;
+const CHECK_LINES_DIAGONALS_COUNT: usize = 5;
+const MAX_KNIGHT_MOVES_PER_SQUARE: usize = 10;
+
+#[derive(Clone)]
+pub struct CheckPossibilities {
+    knight_moves: ArrayVec<FieldLocation, MAX_KNIGHT_MOVES_PER_SQUARE>,
+
+    diagonal_lines: [FieldLocation; CHECK_LINES_DIAGONALS_MAX_SQUARES],
+    diagonal_line_ends: [usize; CHECK_LINES_DIAGONALS_COUNT],
+
+    file: [FieldLocation; ROW_SIZE],
+    rank: [FieldLocation; ROW_SIZE],
+}
+
+impl CheckPossibilities {
+    fn add_cardinal_directions(&mut self, field: AnnotatedFieldLocation) {
+        let mut rank_it = FieldLocation::new(field.hb, 1, field.rank);
+        for i in 0..ROW_SIZE {
+            self.rank[i] = rank_it;
+            rank_it = FieldLocation::from(u8::from(rank_it) + 1);
+        }
+        self.file[0] = FieldLocation::new(field.origin, field.file, 1);
+        self.file[HB_ROW_COUNT] = FieldLocation::new(
+            get_next_hb(field.origin, field.file <= HBRC),
+            invert_coord(field.file),
+            1,
+        );
+        for i in 1..HB_ROW_COUNT {
+            self.file[i] = FieldLocation::from(u8::from(self.file[i - 1]) + HB_ROW_COUNT as u8);
+        }
+    }
+    fn add_diagonal_directions(&mut self, field: AnnotatedFieldLocation) {
+        let mut lines_idx = 0;
+        let mut lines_count = 0;
+        let mut line_begin = 0;
+        for (length, up, right) in [
+            (min(RS - field.file, RS - field.rank), true, true), // up right
+            (min(field.file, RS - field.rank), true, false),     // up left
+            (min(field.file, field.rank), false, false),         // down left
+            (min(RS - field.file, field.rank), false, true),     // down right
+        ] {
+            let mut pos = field;
+            for i in 0..length {
+                match move_diagonal(pos, up, right) {
+                    None => break,
+                    Some((one, None)) => {
+                        self.diagonal_lines[lines_idx] = one.loc;
+                        lines_idx += 1;
+                        pos = one;
+                    }
+                    Some((mut one, Some(mut two))) => {
+                        let swap_dir = pos.hb != field.origin;
+                        if swap_dir && one.hb != field.origin {
+                            std::mem::swap(&mut one, &mut two);
+                        }
+                        let line_split_point = lines_idx;
+                        let mut pos2 = two;
+                        for _ in i..length {
+                            match move_diagonal(pos2, up != swap_dir, right != swap_dir) {
+                                None => break,
+                                Some((one, None)) => {
+                                    pos2 = one;
+                                    self.diagonal_lines[lines_idx] = one.loc;
+                                    lines_idx += 1;
+                                }
+                                _ => unreachable!(),
+                            }
+                        }
+                        let line_end = lines_idx;
+                        self.diagonal_line_ends[lines_count] = line_end;
+                        lines_count += 1;
+                        for i in line_begin..line_split_point + 1 {
+                            self.diagonal_lines[lines_idx] = self.diagonal_lines[i];
+                            lines_idx += 1;
+                        }
+                        line_begin = line_end;
+                    }
+                }
+            }
+            self.diagonal_line_ends[lines_count] = lines_idx;
+            line_begin = lines_idx;
+            lines_count += 1;
+        }
+        if lines_count != CHECK_LINES_DIAGONALS_COUNT {
+            assert!(lines_count + 1 == CHECK_LINES_DIAGONALS_COUNT);
+            self.diagonal_line_ends[lines_count] = self.diagonal_line_ends[lines_count - 1];
+        }
+    }
+    pub fn new() -> Self {
+        Self {
+            knight_moves: Default::default(),
+            diagonal_lines: Default::default(),
+            diagonal_line_ends: Default::default(),
+            file: Default::default(),
+            rank: Default::default(),
+        }
+    }
+    pub fn build_for_king_pos(&mut self, king_pos: AnnotatedFieldLocation) {
+        get_knight_moves_for_field(king_pos, &mut self.knight_moves);
+        self.add_cardinal_directions(king_pos);
+        self.add_diagonal_directions(king_pos);
+    }
+}
 
 impl AnnotatedFieldLocation {
-    pub fn new(origin: Color, loc: u8, hb: Color, file: i8, rank: i8) -> Self {
+    pub fn new(origin: Color, loc: FieldLocation, hb: Color, file: i8, rank: i8) -> Self {
         AnnotatedFieldLocation {
             origin,
-            loc: FieldLocation::from(loc),
+            loc,
             hb,
             file,
             rank,
@@ -50,6 +155,19 @@ impl AnnotatedFieldLocation {
             hb,
             file: get_file(field, origin),
             rank: get_rank(field, origin),
+        }
+    }
+    pub fn from_file_and_rank(origin: Color, hb: Color, file: i8, rank: i8) -> Self {
+        AnnotatedFieldLocation {
+            origin,
+            loc: FieldLocation::new(
+                hb,
+                adjust_coord(file, hb != origin),
+                adjust_coord(rank, hb != origin),
+            ),
+            hb,
+            file,
+            rank,
         }
     }
     pub fn from_field_with_origin(origin: Color, field: FieldLocation) -> Self {
@@ -114,10 +232,6 @@ fn get_file(field: FieldLocation, color: Color) -> i8 {
     adjust_coord(get_raw_file(field), get_hb(field) != color)
 }
 
-fn get_hb_offset(color: Color) -> u8 {
-    (u8::from(color) - 1) * HB_SIZE as u8
-}
-
 fn move_rank(field: AnnotatedFieldLocation, up: bool) -> Option<AnnotatedFieldLocation> {
     let tgt_rank = field.rank + coord_dir(up);
     if !coord_in_bounds(tgt_rank) {
@@ -128,7 +242,9 @@ fn move_rank(field: AnnotatedFieldLocation, up: bool) -> Option<AnnotatedFieldLo
     {
         return Some(AnnotatedFieldLocation::new(
             field.origin,
-            (u8::from(field.loc) as i8 + coord_dir(up == (tgt_rank <= HBRC)) * RS) as u8,
+            FieldLocation::from(
+                (u8::from(field.loc) as i8 + coord_dir(up == (tgt_rank <= HBRC)) * RS) as u8,
+            ),
             field.hb,
             field.file,
             tgt_rank,
@@ -136,10 +252,10 @@ fn move_rank(field: AnnotatedFieldLocation, up: bool) -> Option<AnnotatedFieldLo
     }
     let hb = get_next_hb(field.hb, (field.file <= HBRC) == up);
     assert!(hb != field.origin || field.hb != field.origin);
-    let file_idx = adjust_coord(field.file, field.origin != hb) - 1;
+    let file = adjust_coord(field.file, field.origin != hb);
     Some(AnnotatedFieldLocation::new(
         field.origin,
-        (get_hb_offset(hb) as i8 + (HBRC - 1) * RS + file_idx) as u8,
+        FieldLocation::new(hb, file, HBRC),
         hb,
         field.file,
         tgt_rank,
@@ -153,7 +269,7 @@ fn move_file(field: AnnotatedFieldLocation, right: bool) -> Option<AnnotatedFiel
     coord_in_bounds(tgt_file).then(|| {
         AnnotatedFieldLocation::new(
             field.origin,
-            (u8::from(field.loc) as i8 + dir_raw) as u8,
+            FieldLocation::from((u8::from(field.loc) as i8 + dir_raw) as u8),
             field.hb,
             tgt_file,
             field.rank,
@@ -161,8 +277,45 @@ fn move_file(field: AnnotatedFieldLocation, right: bool) -> Option<AnnotatedFiel
     })
 }
 
-fn get_field_on_next_hb(loc: u8) -> u8 {
-    (loc + HB_SIZE as u8) % (HB_COUNT * HB_SIZE) as u8
+fn get_knight_moves_for_field(
+    field: AnnotatedFieldLocation,
+    moves: &mut arrayvec::ArrayVec<FieldLocation, MAX_KNIGHT_MOVES_PER_SQUARE>,
+) {
+    for right in [true, false] {
+        if let Some(r1) = move_file(field, right) {
+            for up in [true, false] {
+                if let Some(r1u1) = move_rank(r1, up) {
+                    move_rank(r1u1, up).map(|m| moves.push(m.loc));
+                }
+            }
+            if let Some(r2) = move_file(r1, right) {
+                for up in [true, false] {
+                    move_rank(r2, up).map(|m| moves.push(m.loc));
+                }
+            }
+        }
+    }
+    for up in [true, false] {
+        let rank_adjusted = adjust_coord(field.rank, !up);
+        if rank_adjusted != HBRC - 1 && rank_adjusted != HBRC {
+            continue;
+        }
+        let u1 = move_rank(field, up).unwrap();
+        let u2 = move_rank(u1, up).unwrap();
+        for right in [true, false] {
+            move_file(u2, right).map(|m| moves.push(m.loc));
+        }
+        if rank_adjusted == HBRC && field.file > HBRC - 2 && field.file <= HBRC + 2 {
+            let right = field.file < HBRC + 1;
+            let u1r1 = move_file(u1, right).unwrap();
+            let u1r2 = move_file(u1r1, right).unwrap();
+            moves.push(u1r2.loc);
+        }
+    }
+}
+
+fn get_field_on_next_hb(loc: FieldLocation) -> FieldLocation {
+    FieldLocation::from((u8::from(loc) + HB_SIZE as u8) % (HB_COUNT * HB_SIZE) as u8)
 }
 
 fn move_diagonal(
@@ -179,7 +332,7 @@ fn move_diagonal(
         if (field.file == HBRC && right) || (field.file == HBRC + 1 && !right) {
             let hb1 = get_next_hb(field.hb, true);
             let hb2 = get_next_hb(hb1, true);
-            let loc1 = get_field_on_next_hb(u8::from(field.loc));
+            let loc1 = get_field_on_next_hb(field.loc);
             let loc2 = get_field_on_next_hb(loc1);
             return Some((
                 AnnotatedFieldLocation::new(field.origin, loc1, hb1, tgt_file, tgt_rank),
@@ -193,9 +346,14 @@ fn move_diagonal(
             ));
         }
         let tgt_hb = get_next_hb(get_hb(field.loc), (field.file <= HBRC) == up);
-        let loc = get_hb_offset(tgt_hb) as i8 + (HBRC - 1) * RS + invert_coord(tgt_file) - 1;
         return Some((
-            AnnotatedFieldLocation::new(field.origin, loc as u8, tgt_hb, tgt_file, tgt_rank),
+            AnnotatedFieldLocation::new(
+                field.origin,
+                FieldLocation::new(tgt_hb, invert_coord(tgt_file), HBRC),
+                tgt_hb,
+                tgt_file,
+                tgt_rank,
+            ),
             None,
         ));
     }
@@ -204,7 +362,7 @@ fn move_diagonal(
     Some((
         AnnotatedFieldLocation::new(
             field.origin,
-            (u8::from(field.loc) as i8 + rank_dir * RS + file_dir) as u8,
+            FieldLocation::new(field.hb, field.file + file_dir, field.rank + rank_dir),
             field.hb,
             tgt_file,
             tgt_rank,
@@ -282,7 +440,6 @@ impl ThreePlayerChess {
         }
     }
     fn gen_moves_bishop(&self, field: AnnotatedFieldLocation, moves: &mut Vec<Move>) {
-        use std::cmp::min;
         for (length, up, right) in [
             (min(RS - field.file, RS - field.rank), true, true), // up right
             (min(field.file, RS - field.rank), true, false),     // up left
@@ -329,36 +486,10 @@ impl ThreePlayerChess {
         }
     }
     fn gen_moves_knight(&self, field: AnnotatedFieldLocation, moves: &mut Vec<Move>) {
-        for right in [true, false] {
-            if let Some(r1) = move_file(field, right) {
-                for up in [true, false] {
-                    if let Some(r1u1) = move_rank(r1, up) {
-                        self.gen_move_opt(field, move_rank(r1u1, up), moves);
-                    }
-                }
-                if let Some(r2) = move_file(r1, right) {
-                    for up in [true, false] {
-                        self.gen_move_opt(field, move_rank(r2, up), moves);
-                    }
-                }
-            }
-        }
-        for up in [true, false] {
-            let rank_adjusted = adjust_coord(field.rank, !up);
-            if rank_adjusted != HBRC - 1 && rank_adjusted != HBRC {
-                continue;
-            }
-            let u1 = move_rank(field, up).unwrap();
-            let u2 = move_rank(u1, up).unwrap();
-            for right in [true, false] {
-                self.gen_move_opt(field, move_file(u2, right), moves);
-            }
-            if rank_adjusted == HBRC && field.file > HBRC - 2 && field.file <= HBRC + 2 {
-                let right = field.file < HBRC + 1;
-                let u1r1 = move_file(u1, right).unwrap();
-                let u1r2 = move_file(u1r1, right).unwrap();
-                self.gen_move(field, u1r2, moves);
-            }
+        let mut knight_moves = arrayvec::ArrayVec::new();
+        get_knight_moves_for_field(field, &mut knight_moves);
+        for m in knight_moves {
+            self.gen_move(field, AnnotatedFieldLocation::from_field(m), moves);
         }
     }
     fn gen_moves_king(&self, field: AnnotatedFieldLocation, moves: &mut Vec<Move>) {
@@ -434,7 +565,12 @@ impl ThreePlayerChess {
         self.gen_moves_rook(field, moves);
         self.gen_moves_bishop(field, moves);
     }
-    pub fn gen_moves(&self) -> Vec<Move> {
+    pub fn gen_moves(&mut self) -> Vec<Move> {
+        if let Some(king_pos) = self.king_positions[u8::from(self.turn) as usize - 1] {
+            self.check_possibilities
+                .build_for_king_pos(AnnotatedFieldLocation::from_field(king_pos));
+        }
+
         let mut moves = Vec::new();
         for (loc, val) in self.board.iter().enumerate() {
             match FieldValue::from(*val) {
