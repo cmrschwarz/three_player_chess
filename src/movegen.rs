@@ -5,13 +5,14 @@ use std::cmp::min;
 const HBRC: i8 = HB_ROW_COUNT as i8;
 const RS: i8 = ROW_SIZE as i8;
 
+
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum MoveType {
     Slide,
-    PawnMove,
+    PawnDoubleMove,
     Capture(PackedFieldValue),
-    EnPassant,
-    Castle,
+    EnPassant(PackedFieldValue, FieldLocation),
+    Castle(FieldLocation, FieldLocation),
     Promotion(PieceType),
     ThreefoldRepetitionClaim,
     FiftyMoveRuleClaim,
@@ -186,13 +187,13 @@ impl AnnotatedFieldLocation {
 }
 
 fn get_hb(field: FieldLocation) -> Color {
-    Color::from_usize(usize::from(field) / HB_SIZE + 1).unwrap()
+    Color::from_usize(usize::from(field) / HB_SIZE).unwrap()
 }
 
 fn get_next_hb(color: Color, clockwise: bool) -> Color {
     let dir: i8 = if clockwise { 1 } else { -1 };
     const CC: i8 = COLOR_COUNT as i8;
-    Color::from(((u8::from(color) as i8 - 1 + CC + dir) % CC) as u8 + 1)
+    Color::from(((u8::from(color) as i8 + CC + dir) % CC) as u8)
 }
 
 fn invert_coord(coord: i8) -> i8 {
@@ -372,6 +373,102 @@ fn move_diagonal(
 }
 
 impl ThreePlayerChess {
+    fn make_move(&mut self, m: Move ) {
+        let src = usize::from(m.source);
+        let tgt = usize::from(m.target);
+        match m.move_type{
+            MoveType::Slide | MoveType::PawnDoubleMove=> {
+                self.board[tgt] = self.board[src];
+                self.board[src] = Default::default();
+            },
+            MoveType::Capture(_) => {
+                self.board[tgt] = self.board[src];
+            }
+            MoveType::EnPassant(captured_pawn, captured_pawn_loc) => {
+                self.board[tgt] = self.board[src];
+                self.board[usize::from(captured_pawn_loc)] = Default::default();
+                self.board[src] = Default::default();
+            },
+            MoveType::Castle(rook_source, rook_target) => {
+                let king = self.board[src];
+                let rook = self.board[usize::from(rook_source)];
+                self.board[src] = Default::default();
+                self.board[usize::from(rook_source)] = Default::default();
+                self.board[usize::from(rook_target)] = rook;
+                self.board[tgt] = king;
+            },
+            MoveType::Promotion(piece_type) => {
+                self.board[tgt] = FieldValue(Some((self.turn, piece_type))).into();
+                self.board[src] = Default::default();
+            },
+            MoveType::ThreefoldRepetitionClaim | MoveType::FiftyMoveRuleClaim => return,
+        }
+    }
+    fn apply_move_sideeffects(&mut self, m: Move){
+        self.move_index += 1;
+        self.possible_en_passant[usize::from(self.turn)] = None;
+        match m.move_type{
+            MoveType::Slide => match FieldValue::from(self.board[usize::from(m.target)]).unwrap() {
+                (_, PieceType::King) => {
+                    self.king_positions[usize::from(self.turn)] = Some(m.target);
+                    for r in self.possible_rooks_for_castling[usize::from(self.turn)].iter_mut() {
+                        *r = None;
+                    }
+                },
+                (_, PieceType::Pawn)  => {
+                    self.last_capture_or_pawn_move_index = self.move_index;
+                },
+                (_, PieceType::Rook)  => {
+                    for r in self.possible_rooks_for_castling[usize::from(self.turn)].iter_mut() {
+                        if *r == Some(m.source) {
+                            *r = None;
+                        }
+                    };
+                },
+                _ => {},
+            },
+            MoveType::PawnDoubleMove => {
+                self.last_capture_or_pawn_move_index = self.move_index;
+                self.possible_en_passant[usize::from(self.turn)] = Some(move_rank(AnnotatedFieldLocation::from_field(m.source), true).unwrap().loc);
+            },
+            MoveType::Castle(_, _) => {
+                self.possible_rooks_for_castling[usize::from(self.turn)] = Default::default();
+            },
+            _ => (),
+        }
+    }
+    fn undo_move(&mut self, m: Move){
+        let src = usize::from(m.source);
+        let tgt = usize::from(m.target);
+        match m.move_type{
+            MoveType::Slide | MoveType::PawnDoubleMove => {
+                self.board[src] = self.board[tgt];
+                self.board[tgt] = Default::default();
+            },
+            MoveType::Capture(captured_piece) => {
+                self.board[src] = self.board[tgt];
+                self.board[tgt] = captured_piece;
+            }
+            MoveType::EnPassant(captured_pawn, captured_pawn_loc) => {
+                self.board[usize::from(captured_pawn_loc)] = captured_pawn;
+                self.board[src] = self.board[tgt];
+                self.board[tgt] = Default::default();
+            },
+            MoveType::Castle(rook_source, rook_target) => {
+                let king = self.board[tgt];
+                let rook = self.board[usize::from(rook_target)];
+                self.board[tgt] = Default::default();
+                self.board[usize::from(rook_target)] = Default::default();
+                self.board[src] = king;
+                self.board[usize::from(rook_source)] = rook;
+            },
+            MoveType::Promotion(_) => {
+                self.board[tgt] = Default::default();
+                self.board[src] = FieldValue(Some((self.turn, PieceType::Pawn))).into();
+            },
+            MoveType::ThreefoldRepetitionClaim | MoveType::FiftyMoveRuleClaim => return,
+        }
+    }
     fn gen_move_unless_check(
         &self,
         src: AnnotatedFieldLocation,
@@ -526,9 +623,10 @@ impl ThreePlayerChess {
             }
             FieldValue(None) => {
                 if tgt.rank == ROW_SIZE as i8 - 2
-                    && self.possible_en_passant[u8::from(tgt.hb) as usize - 1] == Some(tgt.loc)
+                    && self.possible_en_passant[usize::from(tgt.hb)] == Some(tgt.loc)
                 {
-                    self.gen_move_unless_check(src, tgt, MoveType::EnPassant, moves)
+                    let ep_pawn_pos = move_rank(tgt, true).unwrap().loc;
+                    self.gen_move_unless_check(src, tgt, MoveType::EnPassant(self.board[usize::from(ep_pawn_pos)], ep_pawn_pos), moves)
                 } else {
                     false
                 }
@@ -540,11 +638,11 @@ impl ThreePlayerChess {
         let src = AnnotatedFieldLocation::from_field_with_origin(self.turn, field);
         if let Some(up) = move_rank(src, true) {
             if let FieldValue(None) = self.get_field_value(up.loc) {
-                self.gen_move_unless_check(src, up, MoveType::PawnMove, moves);
+                self.gen_move_unless_check(src, up, MoveType::Slide, moves);
                 if src.rank == 2 {
                     let up2 = move_rank(up, true).unwrap();
                     if let FieldValue(None) = self.get_field_value(up2.loc) {
-                        self.gen_move_unless_check(src, up2, MoveType::PawnMove, moves);
+                        self.gen_move_unless_check(src, up2, MoveType::PawnDoubleMove, moves);
                     }
                 }
             }
@@ -566,7 +664,7 @@ impl ThreePlayerChess {
         self.gen_moves_bishop(field, moves);
     }
     pub fn gen_moves(&mut self) -> Vec<Move> {
-        if let Some(king_pos) = self.king_positions[u8::from(self.turn) as usize - 1] {
+        if let Some(king_pos) = self.king_positions[usize::from(self.turn)] {
             self.check_possibilities
                 .build_for_king_pos(AnnotatedFieldLocation::from_field(king_pos));
         }

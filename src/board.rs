@@ -4,6 +4,7 @@ use num_traits::{FromPrimitive, ToPrimitive};
 use crate::movegen::*;
 use std::char;
 use std::collections::HashMap;
+use std::fs::File;
 use std::io::Write;
 
 pub const ROW_SIZE: usize = 8; // row == rank
@@ -14,26 +15,26 @@ pub const HB_SIZE: usize = ROW_SIZE * HB_ROW_COUNT;
 pub const BOARD_SIZE: usize = HB_SIZE * HB_COUNT; // 96
 
 pub const START_POSITION_STRING: &'static str = concat!(
-    "ABCDEFGH2/BG1/CF1/AH1/D1/E1/B|",
-    "LKJIDCBA7/KB8/JC8/LA8/I8/D8/B|",
-    "HGFEIJKLb/GKc/FJc/HLc/Ec/Ic/B|",
+    "ABCDEFGH2/BG1/CF1/AH1/D1/E1/AH/|",
+    "LKJIDCBA7/KB8/JC8/LA8/I8/D8/LA/|",
+    "HGFEIJKLb/GKc/FJc/HLc/Ec/Ic/HL/|",
     "0|0"
 );
 // 2 characters for each board cell
-// for each player: 6 slashes + 1 castling + 2 e.p. + 1 '|'
+// for each player: 7 slashes + 2 castling + 2 e.p. + 1 '|'
 // 2 times 5 characters for move and pawn/capture index each (max value 65535)
 // 1 final character for the bar between the two indices
-pub const MAX_POSITION_STRING_SIZE: usize = BOARD_SIZE * 2 + 3 * (6 + 1 + 2 + 1) + 2 * 5 + 1;
+pub const MAX_POSITION_STRING_SIZE: usize = BOARD_SIZE * 2 + 3 * (7 + 2 + 2 + 1) + 2 * 5 + 1;
 
 #[repr(u8)]
 #[derive(Copy, Clone, PartialEq, Eq, FromPrimitive, ToPrimitive, Debug)]
 pub enum PieceType {
-    Pawn = 1,
-    Knight = 2,
-    Bishop = 3,
-    Rook = 4,
-    Queen = 5,
-    King = 6,
+    Pawn = 0,
+    Knight = 1,
+    Bishop = 2,
+    Rook = 3,
+    Queen = 4,
+    King = 5,
 }
 
 impl PieceType {
@@ -50,9 +51,9 @@ impl PieceType {
 #[derive(Copy, Clone, PartialEq, Eq, FromPrimitive, ToPrimitive, Debug)]
 pub enum Color {
     // these are assigned clockwise, with player 1 at the bottom
+    C0 = 0,
     C1 = 1,
     C2 = 2,
-    C3 = 3,
 }
 
 impl Default for Color {
@@ -93,13 +94,13 @@ pub type PackedFieldValue = u8;
 
 #[repr(transparent)]
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
-pub struct FieldLocation(pub std::num::NonZeroU8);
+pub struct FieldLocation(std::num::NonZeroU8);
 
 #[derive(Clone)]
 pub struct ThreePlayerChess {
     pub turn: Color,
     pub possible_en_passant: [Option<FieldLocation>; HB_COUNT],
-    pub possible_castling: [(bool, bool); HB_COUNT],
+    pub possible_rooks_for_castling: [[Option<FieldLocation>; 2]; HB_COUNT],
     pub king_positions: [Option<FieldLocation>; HB_COUNT],
     pub move_index: u16,
     pub last_capture_or_pawn_move_index: u16,
@@ -114,7 +115,7 @@ impl ThreePlayerChess {
         ThreePlayerChess {
             turn: Color::C1,
             possible_en_passant: [None; HB_COUNT],
-            possible_castling: [(false, false); HB_COUNT],
+            possible_rooks_for_castling: Default::default(),
             king_positions: [None; HB_COUNT],
             move_index: 0,
             last_capture_or_pawn_move_index: 0,
@@ -140,17 +141,16 @@ impl ThreePlayerChess {
                     return Err("unexpected end of string");
                 }
                 let b = bytes[i];
+                let c = char::from(b);
                 i += 1;
 
-                if b == '/'.try_into().unwrap() {
+                if c == '/' {
                     if file_count != 0 {
                         return Err("unterminated file list");
                     }
                     break;
                 }
-                if b.is_ascii_digit()
-                    || (b >= 'a'.try_into().unwrap() && b <= 'c'.try_into().unwrap())
-                {
+                if b.is_ascii_digit() || (c >= 'a' && c <= 'c') {
                     if file_count == 0 {
                         return Err("rank specified without file");
                     }
@@ -160,7 +160,7 @@ impl ThreePlayerChess {
                             .map(|loc| Ok(loc))
                             .unwrap_or(Err("invalid field location"))?;
                         let square = &mut self.board[usize::from(loc)];
-                        if FieldValue::from(*square).0.is_some() {
+                        if FieldValue::from(*square).is_some() {
                             return Err("field respecified");
                         }
                         *square = FieldValue(Some((color, *piece_type))).into();
@@ -170,11 +170,11 @@ impl ThreePlayerChess {
                             {
                                 return Err("each player must have one king");
                             }
-                            self.king_positions[u8::from(color) as usize - 1] = Some(loc);
+                            self.king_positions[usize::from(color)] = Some(loc);
                         }
                     }
                     file_count = 0;
-                } else if b >= 'A'.try_into().unwrap() && b <= 'L'.try_into().unwrap() {
+                } else if c >= 'A' && c <= 'L' {
                     if file_count == ROW_SIZE {
                         return Err("file list too long");
                     }
@@ -183,13 +183,33 @@ impl ThreePlayerChess {
                 }
             }
         }
-        self.possible_castling[u8::from(color) as usize - 1] = match bytes[i].into() {
-            'B' => Ok((true, true)),
-            'K' => Ok((false, true)),
-            'Q' => Ok((true, false)),
-            'N' => Ok((false, false)),
-            _ => Err("invalid castling rights specification"),
-        }?;
+        for rook_i in 0..2 {
+            if i == bytes.len() {
+                return Err("unexpected end of string");
+            }
+            let b = bytes[i];
+            i += 1;
+            if b >= 'A'.try_into().unwrap() && b <= 'L'.try_into().unwrap() {
+                let field =  FieldLocation::from_utf8([
+                    b,
+                    FieldLocation::from(usize::from(color) * HB_SIZE).rank_char(),
+                ]);
+                if field.is_some() {
+                    self.possible_rooks_for_castling[usize::from(color)][rook_i] = field;
+                }
+                else{
+                    return Err("invalid castling file");
+                }
+            } else {
+                break;
+            }
+        }
+        if i == bytes.len() {
+            return Err("unexpected end of string");
+        }
+        if bytes[i] != '/'.try_into().unwrap() {
+            return Err("expected '/' after castling files");
+        }
         i += 1;
         let pstr = std::str::from_utf8(&pstr.as_bytes()[i..]).unwrap();
         let pipe_pos = pstr
@@ -203,14 +223,14 @@ impl ThreePlayerChess {
             let ep_square = FieldLocation::from_str(ep_str)
                 .map(|l| Ok(l))
                 .unwrap_or(Err("invalid en passant square"))?;
-            self.possible_en_passant[u8::from(color) as usize - 1] = Some(ep_square);
+            self.possible_en_passant[usize::from(color)] = Some(ep_square);
             Result::Ok(end)
         }
     }
     pub fn from_str(pstr: &str) -> Result<ThreePlayerChess, &'static str> {
         let mut tpc = ThreePlayerChess::new();
         let mut pstr_it = pstr;
-        for c in u8::from(Color::C1)..u8::from(Color::C3) + 1 {
+        for c in u8::from(Color::C0)..u8::from(Color::C2) + 1 {
             pstr_it = tpc.player_from_str(Color::from(c), pstr_it)?;
         }
         let pipe_pos = pstr_it
@@ -228,9 +248,9 @@ impl ThreePlayerChess {
     }
     pub fn to_string<'a>(&self, result_buffer: &'a mut [u8; MAX_POSITION_STRING_SIZE]) -> &'a str {
         let mut cursor = std::io::Cursor::new(&mut result_buffer[..]);
-        for c in u8::from(Color::C1)..u8::from(Color::C3) + 1 {
+        for c in u8::from(Color::C0)..u8::from(Color::C2) + 1 {
             for piece_type in PieceType::iter() {
-                for hb in u8::from(Color::C1)..u8::from(Color::C3) + 1 {
+                for hb in u8::from(Color::C0)..u8::from(Color::C2) + 1 {
                     for rank in 1..HB_ROW_COUNT as i8 + 1 {
                         let mut piece_found = false;
                         for file in 1..ROW_SIZE as i8 + 1 {
@@ -259,18 +279,13 @@ impl ThreePlayerChess {
                 }
                 cursor.write(&"/".as_bytes()).unwrap();
             }
-            cursor
-                .write(
-                    &match self.possible_castling[c as usize - 1] {
-                        (true, true) => "B",
-                        (false, true) => "K",
-                        (true, false) => "Q",
-                        _ => "N",
-                    }
-                    .as_bytes(),
-                )
-                .unwrap();
-            if let Some(loc) = self.possible_en_passant[c as usize - 1] {
+            for i in 0..2 {
+                if let Some(loc) = self.possible_rooks_for_castling[c as usize][i] {
+                    cursor.write_fmt(format_args!("{}", loc.file_char() as char)).unwrap();
+                }
+            }
+            cursor.write(&"/".as_bytes()).unwrap();
+            if let Some(loc) = self.possible_en_passant[c as usize] {
                 cursor.write_fmt(format_args!("{}", loc)).unwrap();
             }
             cursor.write(&"|".as_bytes()).unwrap();
@@ -286,6 +301,18 @@ impl ThreePlayerChess {
     }
 }
 
+impl std::ops::Deref for FieldValue {
+    type Target = Option<(Color, PieceType)>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl std::ops::DerefMut for FieldValue {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
 impl std::convert::TryFrom<&str> for ThreePlayerChess {
     type Error = &'static str;
     fn try_from(pstr: &str) -> Result<Self, Self::Error> {
@@ -427,6 +454,11 @@ impl std::convert::From<u8> for Color {
         Color::from_u8(v).unwrap()
     }
 }
+impl std::convert::From<Color> for usize {
+    fn from(v: Color) -> usize {
+        u8::from(v) as usize
+    }
+}
 impl std::convert::From<usize> for FieldLocation {
     fn from(v: usize) -> FieldLocation {
         FieldLocation::from(u8::try_from(v).unwrap())
@@ -465,9 +497,7 @@ impl FieldLocation {
     }
     pub fn new(hb: Color, file: i8, rank: i8) -> FieldLocation {
         FieldLocation::from(
-            (u8::from(hb) as usize - 1) * HB_SIZE
-                + (rank - 1) as usize * ROW_SIZE
-                + (file - 1) as usize,
+            (usize::from(hb)) * HB_SIZE + (rank - 1) as usize * ROW_SIZE + (file - 1) as usize,
         )
     }
     pub fn file_char(&self) -> u8 {
@@ -481,7 +511,8 @@ impl std::convert::From<FieldValue> for PackedFieldValue {
     fn from(v: FieldValue) -> PackedFieldValue {
         match v {
             FieldValue(Some((color, piece_type))) => {
-                ToPrimitive::to_u8(&color).unwrap() << 3 | ToPrimitive::to_u8(&piece_type).unwrap()
+                ToPrimitive::to_u8(&piece_type).unwrap() << 2
+                    | (ToPrimitive::to_u8(&color).unwrap() + 1)
             }
             FieldValue(None) => 0 as PackedFieldValue,
         }
@@ -489,9 +520,12 @@ impl std::convert::From<FieldValue> for PackedFieldValue {
 }
 impl std::convert::From<PackedFieldValue> for FieldValue {
     fn from(v: PackedFieldValue) -> FieldValue {
-        if let Some(color) = Color::from_u8(v >> 3) {
-            if let Some(piece_type) = PieceType::from_u8(v & 0x7) {
-                return FieldValue(Some((color, piece_type)));
+        let color_val = v & 0x3;
+        if color_val != 0 {
+            if let Some(color) = Color::from_u8(color_val - 1) {
+                if let Some(piece_type) = PieceType::from_u8(v >> 2) {
+                    return FieldValue(Some((color, piece_type)));
+                }
             }
         }
         FieldValue(None)
