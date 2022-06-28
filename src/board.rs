@@ -4,7 +4,6 @@ use num_traits::{FromPrimitive, ToPrimitive};
 use crate::movegen::*;
 use std::char;
 use std::collections::HashMap;
-use std::fs::File;
 use std::io::Write;
 
 pub const ROW_SIZE: usize = 8; // row == rank
@@ -58,7 +57,7 @@ pub enum Color {
 
 impl Default for Color {
     fn default() -> Self {
-        Self::C1
+        Self::C0
     }
 }
 
@@ -190,14 +189,13 @@ impl ThreePlayerChess {
             let b = bytes[i];
             i += 1;
             if b >= 'A'.try_into().unwrap() && b <= 'L'.try_into().unwrap() {
-                let field =  FieldLocation::from_utf8([
+                let field = FieldLocation::from_utf8([
                     b,
                     FieldLocation::from(usize::from(color) * HB_SIZE).rank_char(),
                 ]);
                 if field.is_some() {
                     self.possible_rooks_for_castling[usize::from(color)][rook_i] = field;
-                }
-                else{
+                } else {
                     return Err("invalid castling file");
                 }
             } else {
@@ -241,9 +239,10 @@ impl ThreePlayerChess {
         tpc.last_capture_or_pawn_move_index = cpi
             .parse()
             .or_else(|_| Err("capture/pawn move index is not a valid integer"))?;
-        tpc.last_capture_or_pawn_move_index = mi[1..]
+        tpc.move_index = mi[1..]
             .parse()
             .or_else(|_| Err("move index is not a valid integer"))?;
+        tpc.turn = Color::from((tpc.move_index % HB_COUNT as u16) as u8);
         Ok(tpc)
     }
     pub fn to_string<'a>(&self, result_buffer: &'a mut [u8; MAX_POSITION_STRING_SIZE]) -> &'a str {
@@ -281,7 +280,9 @@ impl ThreePlayerChess {
             }
             for i in 0..2 {
                 if let Some(loc) = self.possible_rooks_for_castling[c as usize][i] {
-                    cursor.write_fmt(format_args!("{}", loc.file_char() as char)).unwrap();
+                    cursor
+                        .write_fmt(format_args!("{}", loc.file_char() as char))
+                        .unwrap();
                 }
             }
             cursor.write(&"/".as_bytes()).unwrap();
@@ -401,7 +402,7 @@ impl std::fmt::Display for PieceType {
 }
 impl std::fmt::Display for Color {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}", ToPrimitive::to_i8(self).unwrap())
+        write!(f, "{}", ToPrimitive::to_i8(self).unwrap() + 1)
     }
 }
 impl std::fmt::Display for FieldValue {
