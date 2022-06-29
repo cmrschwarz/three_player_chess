@@ -4,8 +4,8 @@ use crate::board::*;
 pub fn print_board() {
     let tpc = ThreePlayerChess::default();
     println!("{}", tpc);
-    let mut board_str_buffer = [0u8; MAX_POSITION_STRING_SIZE];
-    let board_str = tpc.to_string(&mut board_str_buffer);
+    let mut board_str = String::new();
+    tpc.write_state_str(&mut board_str);
     println!("{}", board_str);
     assert_eq!(board_str, START_POSITION_STRING);
 }

@@ -13,6 +13,8 @@ pub const COLOR_COUNT: u8 = HB_COUNT as u8;
 pub const HB_SIZE: usize = ROW_SIZE * HB_ROW_COUNT;
 pub const BOARD_SIZE: usize = HB_SIZE * HB_COUNT; // 96
 
+pub const BOARD_STRING: &'static str = include_str!("board.txt");
+
 pub const START_POSITION_STRING: &'static str = concat!(
     "ABCDEFGH2/BG1/CF1/AH1/D1/E1/AH/|",
     "LKJIDCBA7/KB8/JC8/LA8/I8/D8/LA/|",
@@ -78,7 +80,7 @@ pub enum DrawReason {
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum GameStatus {
-    Ongoing(),
+    Ongoing,
     Win(Color, WinReason),
     Draw(DrawReason),
 }
@@ -118,13 +120,13 @@ impl ThreePlayerChess {
             king_positions: [None; HB_COUNT],
             move_index: 0,
             last_capture_or_pawn_move_index: 0,
-            game_status: GameStatus::Ongoing(),
+            game_status: GameStatus::Ongoing,
             resigned_player: None,
             board: [FieldValue(None).into(); BOARD_SIZE],
             check_possibilities: CheckPossibilities::new(),
         }
     }
-    fn player_from_str<'a>(
+    fn player_state_from_str<'a>(
         &mut self,
         color: Color,
         pstr: &'a str,
@@ -229,7 +231,7 @@ impl ThreePlayerChess {
         let mut tpc = ThreePlayerChess::new();
         let mut pstr_it = pstr;
         for c in u8::from(Color::C0)..u8::from(Color::C2) + 1 {
-            pstr_it = tpc.player_from_str(Color::from(c), pstr_it)?;
+            pstr_it = tpc.player_state_from_str(Color::from(c), pstr_it)?;
         }
         let pipe_pos = pstr_it
             .find("|")
@@ -245,8 +247,10 @@ impl ThreePlayerChess {
         tpc.turn = Color::from((tpc.move_index % HB_COUNT as u16) as u8);
         Ok(tpc)
     }
-    pub fn to_string<'a>(&self, result_buffer: &'a mut [u8; MAX_POSITION_STRING_SIZE]) -> &'a str {
-        let mut cursor = std::io::Cursor::new(&mut result_buffer[..]);
+    pub fn write_state_str<'a, W: std::fmt::Write>(
+        &self,
+        writer: W,
+    ) -> Result<(), std::fmt::Error> {
         for c in u8::from(Color::C0)..u8::from(Color::C2) + 1 {
             for piece_type in PieceType::iter() {
                 for hb in u8::from(Color::C0)..u8::from(Color::C2) + 1 {
@@ -258,47 +262,37 @@ impl ThreePlayerChess {
                                 self.board[usize::from(loc)].into()
                             {
                                 if col == c.into() && piece == *piece_type {
-                                    cursor
-                                        .write_fmt(format_args!("{}", loc.file_char() as char))
-                                        .unwrap();
+                                    writer
+                                        .write_fmt(format_args!("{}", loc.file_char() as char))?;
                                     piece_found = true;
                                 }
                             }
                         }
                         if piece_found {
-                            cursor
-                                .write_fmt(format_args!(
-                                    "{}",
-                                    FieldLocation::new(Color::from(hb), 1, rank).rank_char()
-                                        as char
-                                ))
-                                .unwrap();
+                            writer.write_char(
+                                FieldLocation::new(Color::from(hb), 1, rank).rank_char() as char,
+                            )?;
                         }
                     }
                 }
-                cursor.write(&"/".as_bytes()).unwrap();
+                writer.write_char('/')?;
             }
             for i in 0..2 {
                 if let Some(loc) = self.possible_rooks_for_castling[c as usize][i] {
-                    cursor
-                        .write_fmt(format_args!("{}", loc.file_char() as char))
-                        .unwrap();
+                    writer.write_char(loc.file_char() as char)?;
                 }
             }
-            cursor.write(&"/".as_bytes()).unwrap();
+            writer.write_char('/')?;
             if let Some(loc) = self.possible_en_passant[c as usize] {
-                cursor.write_fmt(format_args!("{}", loc)).unwrap();
+                writer.write_fmt(format_args!("{}", loc))?;
             }
-            cursor.write(&"|".as_bytes()).unwrap();
+            writer.write_char('|')?;
         }
-        cursor
-            .write_fmt(format_args!(
-                "{}|{}",
-                self.last_capture_or_pawn_move_index, self.move_index
-            ))
-            .unwrap();
-        let pos = cursor.position() as usize;
-        &std::str::from_utf8(result_buffer).unwrap()[0..pos]
+        writer.write_fmt(format_args!(
+            "{}|{}",
+            self.last_capture_or_pawn_move_index, self.move_index
+        ))?;
+        Ok(())
     }
 }
 
@@ -327,8 +321,6 @@ impl Default for ThreePlayerChess {
             .unwrap()
     }
 }
-
-const BOARD_STRING: &'static str = include_str!("board.txt");
 
 lazy_static! {
     static ref BOARD_NOTATION: [[u8; 2]; BOARD_SIZE] = {
