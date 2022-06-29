@@ -30,12 +30,12 @@ pub const MAX_POSITION_STRING_SIZE: usize = BOARD_SIZE * 2 + 3 * (7 + 2 + 2 + 1)
 #[repr(u8)]
 #[derive(Copy, Clone, PartialEq, Eq, FromPrimitive, ToPrimitive, Debug)]
 pub enum PieceType {
-    Pawn = 0,
-    Knight = 1,
-    Bishop = 2,
-    Rook = 3,
-    Queen = 4,
-    King = 5,
+    Pawn = 'P' as u8,
+    Knight = 'N' as u8,
+    Bishop = 'B' as u8,
+    Rook = 'R' as u8,
+    Queen = 'Q' as u8,
+    King = 'K' as u8,
 }
 
 impl PieceType {
@@ -55,6 +55,13 @@ pub enum Color {
     C0 = 0,
     C1 = 1,
     C2 = 2,
+}
+
+impl Color {
+    pub fn iter() -> std::slice::Iter<'static, Color> {
+        static COLORS: [Color; 3] = [Color::C0, Color::C1, Color::C2];
+        COLORS.iter()
+    }
 }
 
 impl Default for Color {
@@ -91,24 +98,25 @@ pub enum GameStatus {
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub struct FieldValue(pub Option<(Color, PieceType)>);
 
-pub type PackedFieldValue = u8;
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
+pub struct PackedFieldValue(u8);
 
 #[repr(transparent)]
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct FieldLocation(std::num::NonZeroU8);
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct ThreePlayerChess {
     pub turn: Color,
     pub possible_en_passant: [Option<FieldLocation>; HB_COUNT],
     pub possible_rooks_for_castling: [[Option<FieldLocation>; 2]; HB_COUNT],
-    pub king_positions: [Option<FieldLocation>; HB_COUNT],
+    pub king_positions: [FieldLocation; HB_COUNT],
     pub move_index: u16,
     pub last_capture_or_pawn_move_index: u16,
     pub game_status: GameStatus,
     pub resigned_player: Option<Color>,
     pub board: [PackedFieldValue; BOARD_SIZE],
-    pub check_possibilities: CheckPossibilities,
+    pub check_possibilities: [CheckPossibilities; HB_COUNT],
 }
 
 impl ThreePlayerChess {
@@ -117,13 +125,13 @@ impl ThreePlayerChess {
             turn: Color::C1,
             possible_en_passant: [None; HB_COUNT],
             possible_rooks_for_castling: Default::default(),
-            king_positions: [None; HB_COUNT],
+            king_positions: Default::default(),
             move_index: 0,
             last_capture_or_pawn_move_index: 0,
             game_status: GameStatus::Ongoing,
             resigned_player: None,
             board: [FieldValue(None).into(); BOARD_SIZE],
-            check_possibilities: CheckPossibilities::new(),
+            check_possibilities: Default::default(),
         }
     }
     fn player_state_from_str<'a>(
@@ -171,7 +179,7 @@ impl ThreePlayerChess {
                             {
                                 return Err("each player must have one king");
                             }
-                            self.king_positions[usize::from(color)] = Some(loc);
+                            self.king_positions[usize::from(color)] = loc;
                         }
                     }
                     file_count = 0;
@@ -230,8 +238,8 @@ impl ThreePlayerChess {
     pub fn from_str(pstr: &str) -> Result<ThreePlayerChess, &'static str> {
         let mut tpc = ThreePlayerChess::new();
         let mut pstr_it = pstr;
-        for c in u8::from(Color::C0)..u8::from(Color::C2) + 1 {
-            pstr_it = tpc.player_state_from_str(Color::from(c), pstr_it)?;
+        for c in Color::iter() {
+            pstr_it = tpc.player_state_from_str(*c, pstr_it)?;
         }
         let pipe_pos = pstr_it
             .find("|")
@@ -245,13 +253,17 @@ impl ThreePlayerChess {
             .parse()
             .or_else(|_| Err("move index is not a valid integer"))?;
         tpc.turn = Color::from((tpc.move_index % HB_COUNT as u16) as u8);
+        for c in Color::iter() {
+            tpc.check_possibilities[usize::from(*c)]
+                .build_for_king_pos(tpc.king_positions[usize::from(*c)])
+        }
         Ok(tpc)
     }
     pub fn write_state_str<'a, W: std::fmt::Write>(
         &self,
-        writer: W,
+        writer: &mut W,
     ) -> Result<(), std::fmt::Error> {
-        for c in u8::from(Color::C0)..u8::from(Color::C2) + 1 {
+        for c in Color::iter() {
             for piece_type in PieceType::iter() {
                 for hb in u8::from(Color::C0)..u8::from(Color::C2) + 1 {
                     for rank in 1..HB_ROW_COUNT as i8 + 1 {
@@ -261,7 +273,7 @@ impl ThreePlayerChess {
                             if let FieldValue(Some((col, piece))) =
                                 self.board[usize::from(loc)].into()
                             {
-                                if col == c.into() && piece == *piece_type {
+                                if col == *c && piece == *piece_type {
                                     writer
                                         .write_fmt(format_args!("{}", loc.file_char() as char))?;
                                     piece_found = true;
@@ -278,12 +290,12 @@ impl ThreePlayerChess {
                 writer.write_char('/')?;
             }
             for i in 0..2 {
-                if let Some(loc) = self.possible_rooks_for_castling[c as usize][i] {
+                if let Some(loc) = self.possible_rooks_for_castling[usize::from(*c)][i] {
                     writer.write_char(loc.file_char() as char)?;
                 }
             }
             writer.write_char('/')?;
-            if let Some(loc) = self.possible_en_passant[c as usize] {
+            if let Some(loc) = self.possible_en_passant[usize::from(*c)] {
                 writer.write_fmt(format_args!("{}", loc))?;
             }
             writer.write_char('|')?;
@@ -376,22 +388,6 @@ lazy_static! {
     };
 }
 
-impl std::fmt::Display for PieceType {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(
-            f,
-            "{}",
-            match *self {
-                PieceType::Pawn => "P",
-                PieceType::Knight => "N",
-                PieceType::Bishop => "B",
-                PieceType::Rook => "R",
-                PieceType::Queen => "Q",
-                PieceType::King => "K",
-            }
-        )
-    }
-}
 impl std::fmt::Display for Color {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{}", ToPrimitive::to_i8(self).unwrap() + 1)
@@ -432,6 +428,14 @@ impl std::convert::From<u8> for FieldLocation {
         FieldLocation(std::num::NonZeroU8::new(v + 1).unwrap())
     }
 }
+impl FieldLocation {
+    pub fn from_checked(v: u8) -> Result<FieldLocation, ()> {
+        if v >= BOARD_SIZE as u8 {
+            return Err(());
+        }
+        Ok(FieldLocation(std::num::NonZeroU8::new(v + 1).unwrap()))
+    }
+}
 impl std::convert::From<FieldLocation> for u8 {
     fn from(v: FieldLocation) -> u8 {
         v.0.get() - 1
@@ -465,6 +469,22 @@ impl std::convert::From<FieldLocation> for usize {
 impl std::convert::From<FieldLocation> for [u8; 2] {
     fn from(v: FieldLocation) -> [u8; 2] {
         BOARD_NOTATION[usize::from(v)]
+    }
+}
+impl std::convert::From<PieceType> for u8 {
+    fn from(v: PieceType) -> u8 {
+        ToPrimitive::to_u8(&v).unwrap()
+    }
+}
+impl std::convert::TryFrom<u8> for PieceType {
+    type Error = ();
+    fn try_from(v: u8) -> Result<PieceType, ()> {
+        PieceType::from_u8(v).ok_or(())
+    }
+}
+impl std::fmt::Display for PieceType {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}", u8::from(*self) as char)
     }
 }
 impl std::convert::From<FieldLocation> for &str {
@@ -502,25 +522,46 @@ impl FieldLocation {
 }
 impl std::convert::From<FieldValue> for PackedFieldValue {
     fn from(v: FieldValue) -> PackedFieldValue {
-        match v {
+        let val_raw = match v {
             FieldValue(Some((color, piece_type))) => {
                 ToPrimitive::to_u8(&piece_type).unwrap() << 2
                     | (ToPrimitive::to_u8(&color).unwrap() + 1)
             }
-            FieldValue(None) => 0 as PackedFieldValue,
+            FieldValue(None) => 0,
+        };
+        PackedFieldValue(val_raw)
+    }
+}
+
+impl std::convert::From<PackedFieldValue> for FieldValue {
+    fn from(v: PackedFieldValue) -> FieldValue {
+        let v = u8::from(v);
+        if v == 0 {
+            FieldValue(None)
+        } else {
+            FieldValue(Some((
+                Color::from_u8(v & 0x3 - 1).unwrap(),
+                PieceType::from_u8(v >> 2).unwrap(),
+            )))
         }
     }
 }
-impl std::convert::From<PackedFieldValue> for FieldValue {
-    fn from(v: PackedFieldValue) -> FieldValue {
-        let color_val = v & 0x3;
-        if color_val != 0 {
-            if let Some(color) = Color::from_u8(color_val - 1) {
-                if let Some(piece_type) = PieceType::from_u8(v >> 2) {
-                    return FieldValue(Some((color, piece_type)));
-                }
-            }
+
+impl std::convert::From<PackedFieldValue> for u8 {
+    fn from(v: PackedFieldValue) -> u8 {
+        v.0
+    }
+}
+
+impl std::convert::TryFrom<u8> for PackedFieldValue {
+    type Error = ();
+    fn try_from(v: u8) -> Result<PackedFieldValue, ()> {
+        if v == 0 {
+            Ok(PackedFieldValue(v))
+        } else {
+            Color::from_u8(v & 0x3 - 1).ok_or(())?;
+            PieceType::from_u8(v >> 2).ok_or(())?;
+            Ok(PackedFieldValue(v))
         }
-        FieldValue(None)
     }
 }

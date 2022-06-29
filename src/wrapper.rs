@@ -1,11 +1,10 @@
-use surena_game::*;
-
-use std::ffi::CStr;
-use std::fmt::Write;
-
 use crate::board::*;
 use crate::movegen::*;
+use num_traits::FromPrimitive;
+use std::ffi::CStr;
+use std::fmt::Write;
 use surena_game;
+use surena_game::*;
 use MoveType::*;
 
 const BUF_SIZER: buf_sizer = buf_sizer {
@@ -20,48 +19,114 @@ const BUF_SIZER: buf_sizer = buf_sizer {
     print_str: BOARD_STRING.len(),
 };
 
-impl std::convert::From<usize> for Move {
-    fn from(v: usize) -> Self {
-        let source = v & 0xFF;
-        let target = (v >> 8) & 0xFF;
-        let mtv = v >> 16;
-        let move_type = match mtv & 0xFF {
+impl std::convert::TryFrom<u64> for Move {
+    type Error = ();
+    fn try_from(v: u64) -> std::result::Result<Move, ()> {
+        let source = (v & 0xFF) as u8;
+        let target = ((v >> 8) & 0xFF) as u8;
+        let mtype = ((v >> 16) & 0xFF) as u8;
+        let b1 = ((v >> 24) & 0xFF) as u8;
+        let b2 = ((v >> 32) & 0xFF) as u8;
+        let move_type = match mtype {
             0 => Slide,
-            1 => PawnDoubleMove,
-            2 => Capture(PieceType::from(mtv >> 8)),
-            3 => EnPassant(
-                PieceType::from(mtv >> 8 & 0xFF),
-                FieldLocation::from(mtv >> 16),
+            1 => Capture(b1.try_into()?),
+            2 => EnPassant(b1.try_into()?, FieldLocation::from_checked(b2)?),
+            3 => Castle(
+                FieldLocation::from_checked(b1)?,
+                FieldLocation::from_checked(b2)?,
             ),
-            4 => Castle(
-                FieldLocation::from(mtv >> 8 & 0xFF),
-                FieldLocation::from(mtv >> 16),
-            ),
-            5 => Promotion(PieceType::from(mtv >> 8)),
-            6 => ThreefoldRepetitionClaim,
-            7 => FiftyMoveRuleClaim,
+            4 => Promotion(PieceType::from_u8(b1).ok_or(())?),
+            5 => ClaimDraw,
+            _ => return Err(()),
         };
-        Move {
+        Ok(Move {
             move_type,
-            source: source.into(),
-            target: target.into(),
-        }
+            source: FieldLocation::from_checked(source as u8)?,
+            target: FieldLocation::from_checked(target as u8)?,
+        })
     }
 }
 
-impl std::convert::From<Move> for usize {
+impl std::convert::From<Move> for u64 {
     fn from(m: Move) -> Self {
-        let move_type: usize = match m.move_type {
+        let move_type: u64 = match m.move_type {
             Slide => 0,
-            PawnDoubleMove => 1,
-            Capture(piece) => 2 | usize::from(piece) << 8,
-            EnPassant(piece, loc) => 3 | usize::from(piece) << 8 | usize::from(loc) << 16,
-            Castle(src, tgt) => 4 | usize::from(src) << 8 | usize::from(tgt) << 16,
-            Promotion(piece) => 5 | usize::from(piece) << 8,
-            ThreefoldRepetitionClaim => 6,
-            FiftyMoveRuleClaim => 7,
+            Capture(piece) => 1 | (u8::from(piece) as u64) << 8,
+            EnPassant(piece, loc) => {
+                2 | (u8::from(piece) as u64) << 8 | (u8::from(loc) as u64) << 16
+            }
+            Castle(src, tgt) => 3 | (u8::from(src) as u64) << 8 | (u8::from(tgt) as u64) << 16,
+            Promotion(piece) => 4 | (u8::from(piece) as u64) << 8,
+            ClaimDraw => 5,
         };
-        move_type << 16 | usize::from(m.source) << 8 | usize::from(m.target)
+        move_type << 16 | (u8::from(m.source) as u64) << 8 | (u8::from(m.target) as u64)
+    }
+}
+
+fn parse_move_string(game: &mut ThreePlayerChess, string: &str) -> Option<Move> {
+    if string == "O-O" {
+        return game.gen_move_castling(false);
+    }
+    if string == "O-O-O" {
+        return game.gen_move_castling(true);
+    }
+    if string == "draw" {
+        return Some(Move {
+            source: Default::default(),
+            target: Default::default(),
+            move_type: MoveType::ClaimDraw,
+        });
+    }
+
+    let src = AnnotatedFieldLocation::from_field_with_origin(
+        game.turn,
+        FieldLocation::from_str(&string[0..2])?,
+    );
+    let tgt = AnnotatedFieldLocation::from_field_with_origin(
+        game.turn,
+        FieldLocation::from_str(&string[2..4])?,
+    );
+
+    let src_val = FieldValue::from(game.board[usize::from(src.loc)]);
+
+    if src_val.is_none() {
+        return None;
+    }
+
+    let tgt_val = FieldValue::from(game.board[usize::from(src.loc)]);
+
+    if string.len() > 4 {
+        let promotion: [u8; 2] = string[4..].as_bytes().try_into().ok()?;
+        if promotion[0] != '='.try_into().unwrap() {
+            return None;
+        }
+        let piece_type = PieceType::try_from(promotion[1]).ok()?;
+        return Some(Move {
+            move_type: MoveType::Promotion(piece_type),
+            source: src.loc,
+            target: tgt.loc,
+        });
+    }
+    let (_, src_piece_type) = src_val.unwrap();
+    if tgt_val.is_some() {
+        Some(Move {
+            move_type: MoveType::Capture(tgt_val.into()),
+            source: src.loc,
+            target: tgt.loc,
+        })
+    } else if src_piece_type == PieceType::Pawn && tgt.file != src.file {
+        let ep_square = move_rank(tgt, false)?;
+        Some(Move {
+            move_type: MoveType::EnPassant(game.board[usize::from(ep_square.loc)], ep_square.loc),
+            source: src.loc,
+            target: tgt.loc,
+        })
+    } else {
+        Some(Move {
+            move_type: MoveType::Slide,
+            source: src.loc,
+            target: tgt.loc,
+        })
     }
 }
 
@@ -77,7 +142,7 @@ impl GameMethods for ThreePlayerChess {
     }
 
     fn copy_from(&mut self, other: &mut Self) -> Result<()> {
-        *self = *other;
+        *self = other.clone();
         Ok(())
     }
 
@@ -128,57 +193,37 @@ impl GameMethods for ThreePlayerChess {
         if player != u8::from(self.turn) + 1 {
             return Ok(());
         }
-        for mov in 1..=self.max_sub.min(self.counter) {
-            moves.push(mov.into());
+        //TODO: optimize away this copy + allocation?
+        for mov in self.gen_moves() {
+            moves.push(u64::from(mov));
         }
         Ok(())
     }
 
     fn is_legal_move(&mut self, player: player_id, mov: move_code, _sync_ctr: u32) -> Result<()> {
-        if self.counter == 0 {
-            return Err(Error::new_static(
-                ErrorCode::InvalidInput,
-                b"game already over\0",
-            ));
-        }
-        if mov == 0 {
-            return Err(Error::new_static(
-                ErrorCode::InvalidInput,
-                b"need to subtract at least one\0",
-            ));
-        }
-        if player != self.player_id() {
-            return Err(Error::new_static(
-                ErrorCode::InvalidInput,
-                b"this player is not to move\0",
-            ));
-        }
-        sub_too_large(mov as Counter, self.counter)?;
         Ok(())
     }
 
     fn make_move(&mut self, _player: player_id, mov: move_code) -> Result<()> {
-        self.counter -= mov as Counter;
-        self.turn = !self.turn;
+        let mov = Move::try_from(mov)
+            .map_err(|_| Error::new_static(ErrorCode::InvalidInput, b"invalid move code\0"))?;
+        self.make_move(mov);
+        self.apply_move_sideeffects(mov);
         Ok(())
     }
 
     fn get_results(&mut self, players: &mut PtrVec<player_id>) -> Result<()> {
-        if self.counter == 0 {
-            players.push(self.player_id());
+        match self.game_status {
+            GameStatus::Win(color, _) => players.push(u8::from(color) + 1),
+            _ => (),
         }
         Ok(())
     }
 
     fn get_move_code(&mut self, _player: player_id, string: &str) -> Result<move_code> {
-        let mov: Counter = string.parse().map_err(|e| {
-            Error::new_dynamic(
-                ErrorCode::InvalidInput,
-                format!("move parsing error: {}", e),
-            )
-        })?;
-        sub_too_large(mov, self.max_sub)?;
-        Ok(mov.into())
+        parse_move_string(self, string)
+            .map(|mov| mov.into())
+            .ok_or_else(|| Error::new_static(ErrorCode::InvalidInput, b"failed to parse move\0"))
     }
 
     fn debug_print(&mut self, str_buf: &mut StrBuf) -> Result<()> {
@@ -206,30 +251,8 @@ fn example_game_methods() -> game_methods {
     })
 }
 
-fn sub_too_large(mov: Counter, max: Counter) -> Result<()> {
-    if mov > max.into() {
-        Err(Error::new_dynamic(
-            ErrorCode::InvalidInput,
-            format!("can subtract at most {}", max),
-        ))
-    } else {
-        Ok(())
-    }
-}
-
 fn cstr(bytes: &[u8]) -> &CStr {
     CStr::from_bytes_with_nul(bytes).expect("invalid C string")
-}
-
-const fn digits(mut n: Counter) -> Counter {
-    let mut digits = 1;
-    loop {
-        n /= 10;
-        if n == 0 {
-            return digits;
-        }
-        digits += 1;
-    }
 }
 
 plugin_get_game_methods!(example_game_methods());

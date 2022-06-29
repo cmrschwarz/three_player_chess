@@ -9,13 +9,11 @@ const RS: i8 = ROW_SIZE as i8;
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum MoveType {
     Slide,
-    PawnDoubleMove,
     Capture(PackedFieldValue),
     EnPassant(PackedFieldValue, FieldLocation),
     Castle(FieldLocation, FieldLocation),
     Promotion(PieceType),
-    ThreefoldRepetitionClaim,
-    FiftyMoveRuleClaim,
+    ClaimDraw,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -38,7 +36,7 @@ const CHECK_LINES_DIAGONALS_MAX_SQUARES: usize = 17;
 const CHECK_LINES_DIAGONALS_COUNT: usize = 5;
 const MAX_KNIGHT_MOVES_PER_SQUARE: usize = 10;
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, Default)]
 pub struct CheckPossibilities {
     knight_moves: ArrayVec<FieldLocation, MAX_KNIGHT_MOVES_PER_SQUARE>,
 
@@ -134,10 +132,11 @@ impl CheckPossibilities {
             rank: Default::default(),
         }
     }
-    pub fn build_for_king_pos(&mut self, king_pos: AnnotatedFieldLocation) {
-        get_knight_moves_for_field(king_pos, &mut self.knight_moves);
-        self.add_cardinal_directions(king_pos);
-        self.add_diagonal_directions(king_pos);
+    pub fn build_for_king_pos(&mut self, king_pos: FieldLocation) {
+        let afl = AnnotatedFieldLocation::from_field(king_pos);
+        get_knight_moves_for_field(afl, &mut self.knight_moves);
+        self.add_cardinal_directions(afl);
+        self.add_diagonal_directions(afl);
     }
 }
 
@@ -238,7 +237,7 @@ fn get_file(field: FieldLocation, color: Color) -> i8 {
     adjust_coord(get_raw_file(field), get_hb(field) != color)
 }
 
-fn move_rank(field: AnnotatedFieldLocation, up: bool) -> Option<AnnotatedFieldLocation> {
+pub fn move_rank(field: AnnotatedFieldLocation, up: bool) -> Option<AnnotatedFieldLocation> {
     let tgt_rank = field.rank + coord_dir(up);
     if !coord_in_bounds(tgt_rank) {
         return None;
@@ -268,7 +267,7 @@ fn move_rank(field: AnnotatedFieldLocation, up: bool) -> Option<AnnotatedFieldLo
     ))
 }
 
-fn move_file(field: AnnotatedFieldLocation, right: bool) -> Option<AnnotatedFieldLocation> {
+pub fn move_file(field: AnnotatedFieldLocation, right: bool) -> Option<AnnotatedFieldLocation> {
     let inverted = field.hb != field.origin;
     let tgt_file = field.file + coord_dir(right);
     let dir_raw = coord_dir(inverted != right);
@@ -378,11 +377,11 @@ fn move_diagonal(
 }
 
 impl ThreePlayerChess {
-    fn make_move(&mut self, m: Move) {
+    pub fn make_move(&mut self, m: Move) {
         let src = usize::from(m.source);
         let tgt = usize::from(m.target);
         match m.move_type {
-            MoveType::Slide | MoveType::PawnDoubleMove => {
+            MoveType::Slide => {
                 self.board[tgt] = self.board[src];
                 self.board[src] = Default::default();
             }
@@ -406,10 +405,10 @@ impl ThreePlayerChess {
                 self.board[tgt] = FieldValue(Some((self.turn, piece_type))).into();
                 self.board[src] = Default::default();
             }
-            MoveType::ThreefoldRepetitionClaim | MoveType::FiftyMoveRuleClaim => return,
+            MoveType::ClaimDraw => return,
         }
     }
-    fn apply_move_sideeffects(&mut self, m: Move) {
+    pub fn apply_move_sideeffects(&mut self, m: Move) {
         let player_to_move = self.turn;
         let pid = usize::from(player_to_move);
         self.turn = get_next_hb(self.turn, true);
@@ -418,13 +417,22 @@ impl ThreePlayerChess {
         match m.move_type {
             MoveType::Slide => match FieldValue::from(self.board[usize::from(m.target)]).unwrap() {
                 (_, PieceType::King) => {
-                    self.king_positions[usize::from(player_to_move)] = Some(m.target);
+                    self.king_positions[usize::from(player_to_move)] = m.target;
                     for r in self.possible_rooks_for_castling[pid].iter_mut() {
                         *r = None;
                     }
+                    self.check_possibilities[usize::from(player_to_move)]
+                        .build_for_king_pos(m.target);
                 }
                 (_, PieceType::Pawn) => {
                     self.last_capture_or_pawn_move_index = self.move_index;
+                    let source =
+                        AnnotatedFieldLocation::from_field_with_origin(player_to_move, m.source);
+                    let target =
+                        AnnotatedFieldLocation::from_field_with_origin(player_to_move, m.target);
+                    if source.rank == 2 && target.rank == 4 {
+                        self.possible_en_passant[pid] = Some(move_rank(source, true).unwrap().loc);
+                    }
                 }
                 (_, PieceType::Rook) => {
                     for r in self.possible_rooks_for_castling[pid].iter_mut() {
@@ -435,25 +443,17 @@ impl ThreePlayerChess {
                 }
                 _ => {}
             },
-            MoveType::PawnDoubleMove => {
-                self.last_capture_or_pawn_move_index = self.move_index;
-                self.possible_en_passant[pid] = Some(
-                    move_rank(AnnotatedFieldLocation::from_field(m.source), true)
-                        .unwrap()
-                        .loc,
-                );
-            }
             MoveType::Castle(_, _) => {
                 self.possible_rooks_for_castling[pid] = Default::default();
             }
             _ => (),
         }
     }
-    fn undo_move(&mut self, m: Move) {
+    pub fn undo_move(&mut self, m: Move) {
         let src = usize::from(m.source);
         let tgt = usize::from(m.target);
         match m.move_type {
-            MoveType::Slide | MoveType::PawnDoubleMove => {
+            MoveType::Slide => {
                 self.board[src] = self.board[tgt];
                 self.board[tgt] = Default::default();
             }
@@ -478,7 +478,18 @@ impl ThreePlayerChess {
                 self.board[tgt] = Default::default();
                 self.board[src] = FieldValue(Some((self.turn, PieceType::Pawn))).into();
             }
-            MoveType::ThreefoldRepetitionClaim | MoveType::FiftyMoveRuleClaim => return,
+            MoveType::ClaimDraw => return,
+        }
+    }
+    fn append_move_unless_check(&mut self, mv: Move, moves: &mut Vec<Move>) -> bool {
+        self.make_move(mv);
+        let would_be_check = self.is_king_capturable();
+        self.undo_move(mv);
+        if would_be_check {
+            false
+        } else {
+            moves.push(mv);
+            true
         }
     }
     fn gen_move_unless_check(
@@ -493,27 +504,17 @@ impl ThreePlayerChess {
             source: src.loc,
             target: tgt.loc,
         };
-        self.make_move(m);
-        let would_be_check = self.is_king_capturable();
-        self.undo_move(m);
-        if would_be_check {
-            false
-        } else {
-            moves.push(m);
-            true
-        }
+        self.append_move_unless_check(m, moves)
     }
     fn is_king_capturable(&mut self) -> bool {
+        let cp = &self.check_possibilities[usize::from(self.turn)];
         let kp = self.king_positions[usize::from(self.turn)];
-        if kp.is_none() {
-            return false;
-        }
-        let kp = AnnotatedFieldLocation::from_field(kp.unwrap());
+        let kp = AnnotatedFieldLocation::from_field(kp);
         for fields in [
-            &self.check_possibilities.file[0..kp.rank as usize - 1],
-            &self.check_possibilities.file[kp.rank as usize..ROW_SIZE],
-            &self.check_possibilities.rank[0..kp.file as usize - 1],
-            &self.check_possibilities.rank[kp.file as usize..ROW_SIZE],
+            &cp.file[0..kp.rank as usize - 1],
+            &cp.file[kp.rank as usize..ROW_SIZE],
+            &cp.rank[0..kp.file as usize - 1],
+            &cp.rank[kp.file as usize..ROW_SIZE],
         ] {
             for f in fields {
                 let board_val = self.board[usize::from(*f)];
@@ -527,8 +528,8 @@ impl ThreePlayerChess {
             }
         }
         let mut line_start = 0;
-        for line_end in self.check_possibilities.diagonal_line_ends {
-            for f in &self.check_possibilities.diagonal_lines[line_start..line_end] {
+        for line_end in cp.diagonal_line_ends {
+            for f in &cp.diagonal_lines[line_start..line_end] {
                 let board_val = self.board[usize::from(*f)];
                 match *FieldValue::from(board_val) {
                     None => continue,
@@ -547,7 +548,7 @@ impl ThreePlayerChess {
             }
             line_start = line_end;
         }
-        for f in self.check_possibilities.knight_moves.iter() {
+        for f in cp.knight_moves.iter() {
             let board_val = self.board[usize::from(*f)];
             match *FieldValue::from(board_val) {
                 None => continue,
@@ -664,6 +665,9 @@ impl ThreePlayerChess {
             self.gen_move(field, AnnotatedFieldLocation::from_field(m), moves);
         }
     }
+    pub fn gen_move_castling(&mut self, long: bool) -> Option<Move> {
+        unimplemented!()
+    }
     fn gen_moves_king(&mut self, field: AnnotatedFieldLocation, moves: &mut Vec<Move>) {
         for tgt in [
             move_file(field, false),
@@ -682,6 +686,11 @@ impl ThreePlayerChess {
                     }
                     None => {}
                 }
+            }
+        }
+        for castle in [self.gen_move_castling(false), self.gen_move_castling(true)] {
+            if let Some(mv) = castle {
+                self.append_move_unless_check(mv, moves);
             }
         }
     }
@@ -722,7 +731,7 @@ impl ThreePlayerChess {
                 if src.rank == 2 {
                     let up2 = move_rank(up, true).unwrap();
                     if let FieldValue(None) = self.get_field_value(up2.loc) {
-                        self.gen_move_unless_check(src, up2, MoveType::PawnDoubleMove, moves);
+                        self.gen_move_unless_check(src, up2, MoveType::Slide, moves);
                     }
                 }
             }
@@ -744,11 +753,6 @@ impl ThreePlayerChess {
         self.gen_moves_bishop(field, moves);
     }
     pub fn gen_moves(&mut self) -> Vec<Move> {
-        if let Some(king_pos) = self.king_positions[usize::from(self.turn)] {
-            self.check_possibilities
-                .build_for_king_pos(AnnotatedFieldLocation::from_field(king_pos));
-        }
-
         let mut moves = Vec::new();
         for i in 0..self.board.len() {
             match FieldValue::from(self.board[i]) {
