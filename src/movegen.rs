@@ -132,11 +132,13 @@ impl CheckPossibilities {
             rank: Default::default(),
         }
     }
-    pub fn build_for_king_pos(&mut self, king_pos: FieldLocation) {
+    pub fn from_king_pos(king_pos: FieldLocation) -> CheckPossibilities {
+        let mut cp = CheckPossibilities::default();
         let afl = AnnotatedFieldLocation::from_field(king_pos);
-        get_knight_moves_for_field(afl, &mut self.knight_moves);
-        self.add_cardinal_directions(afl);
-        self.add_diagonal_directions(afl);
+        get_knight_moves_for_field(afl, &mut cp.knight_moves);
+        cp.add_cardinal_directions(afl);
+        cp.add_diagonal_directions(afl);
+        cp
     }
 }
 
@@ -223,17 +225,17 @@ fn adjust_coord(coord: i8, invert: bool) -> i8 {
         coord
     }
 }
-fn get_raw_rank(field: FieldLocation) -> i8 {
+pub fn get_raw_rank(field: FieldLocation) -> i8 {
     ((u8::from(field) % HB_SIZE as u8) / RS as u8 + 1) as i8
 }
-fn get_rank(field: FieldLocation, color: Color) -> i8 {
+pub fn get_rank(field: FieldLocation, color: Color) -> i8 {
     adjust_coord(get_raw_rank(field), get_hb(field) != color)
 }
 
-fn get_raw_file(field: FieldLocation) -> i8 {
+pub fn get_raw_file(field: FieldLocation) -> i8 {
     (u8::from(field) % RS as u8 + 1) as i8
 }
-fn get_file(field: FieldLocation, color: Color) -> i8 {
+pub fn get_file(field: FieldLocation, color: Color) -> i8 {
     adjust_coord(get_raw_file(field), get_hb(field) != color)
 }
 
@@ -421,8 +423,8 @@ impl ThreePlayerChess {
                     for r in self.possible_rooks_for_castling[pid].iter_mut() {
                         *r = None;
                     }
-                    self.check_possibilities[usize::from(player_to_move)]
-                        .build_for_king_pos(m.target);
+                    self.check_possibilities[usize::from(player_to_move)] =
+                        CheckPossibilities::from_king_pos(m.target);
                 }
                 (_, PieceType::Pawn) => {
                     self.last_capture_or_pawn_move_index = self.move_index;
@@ -506,9 +508,7 @@ impl ThreePlayerChess {
         };
         self.append_move_unless_check(m, moves)
     }
-    fn is_king_capturable(&mut self) -> bool {
-        let cp = &self.check_possibilities[usize::from(self.turn)];
-        let kp = self.king_positions[usize::from(self.turn)];
+    fn is_king_capturable_at(&self, kp: FieldLocation, cp: &CheckPossibilities) -> bool {
         let kp = AnnotatedFieldLocation::from_field(kp);
         for fields in [
             &cp.file[0..kp.rank as usize - 1],
@@ -559,6 +559,11 @@ impl ThreePlayerChess {
             }
         }
         false
+    }
+    fn is_king_capturable(&mut self) -> bool {
+        let cp = &self.check_possibilities[usize::from(self.turn)];
+        let kp = self.king_positions[usize::from(self.turn)];
+        self.is_king_capturable_at(kp, cp)
     }
     fn gen_move(
         &mut self,
@@ -666,7 +671,67 @@ impl ThreePlayerChess {
         }
     }
     pub fn gen_move_castling(&mut self, long: bool) -> Option<Move> {
-        unimplemented!()
+        let hb = self.turn;
+        let rook_src = self.possible_rooks_for_castling[usize::from(hb)][long as usize]?;
+        let rook_tgt = AnnotatedFieldLocation::from_file_and_rank(hb, hb, [7, 3][long as usize], 1);
+        let king_tgt = AnnotatedFieldLocation::from_file_and_rank(hb, hb, [6, 4][long as usize], 1);
+        for tgt in [king_tgt, rook_tgt] {
+            if FieldValue::from(self.board[usize::from(tgt.loc)]).is_some() {
+                return None;
+            }
+        }
+        let king_src = AnnotatedFieldLocation::from_field(self.king_positions[usize::from(hb)]);
+        let (fbegin, fend) = [
+            (king_src.file + 1, king_tgt.file),
+            (king_tgt.file, king_src.file - 1),
+        ][long as usize];
+        let mut conflict = false;
+        self.board[usize::from(rook_tgt.loc)] = self.board[usize::from(rook_src)];
+        self.board[usize::from(rook_src)] = FieldValue(None).into();
+        let king_val = self.board[usize::from(king_src.loc)];
+        self.board[usize::from(king_src.loc)] = FieldValue(None).into();
+        for f in fbegin..fend {
+            self.board[usize::from(rook_src)] = FieldValue(None).into();
+            let kp = AnnotatedFieldLocation::from_file_and_rank(hb, hb, f, 1);
+            let cp = CheckPossibilities::from_king_pos(kp.loc);
+            self.board[usize::from(kp.loc)] = king_val;
+            conflict = self.is_king_capturable_at(kp.loc, &cp);
+            self.board[usize::from(kp.loc)] = FieldValue(None).into();
+            if conflict {
+                break;
+            }
+        }
+        if conflict {
+            return None;
+        }
+        self.board[usize::from(king_src.loc)] = king_val;
+        self.board[usize::from(rook_src)] = self.board[usize::from(rook_tgt.loc)];
+        self.board[usize::from(rook_tgt.loc)] = FieldValue(None).into();
+        Some(Move {
+            move_type: MoveType::Castle(rook_src, rook_tgt.loc),
+            source: king_src.loc,
+            target: king_tgt.loc,
+        })
+    }
+    fn gen_king_move_unless_check(
+        &mut self,
+        src: FieldLocation,
+        tgt: FieldLocation,
+    ) -> Option<Move> {
+        let cp = CheckPossibilities::from_king_pos(src);
+        let mov = Move {
+            move_type: MoveType::Slide,
+            source: src,
+            target: tgt,
+        };
+        self.make_move(mov);
+        let would_be_check = self.is_king_capturable_at(tgt, &cp);
+        self.undo_move(mov);
+        if would_be_check {
+            None
+        } else {
+            Some(mov)
+        }
     }
     fn gen_moves_king(&mut self, field: AnnotatedFieldLocation, moves: &mut Vec<Move>) {
         for tgt in [
@@ -675,23 +740,28 @@ impl ThreePlayerChess {
             move_rank(field, false),
             move_rank(field, false),
         ] {
-            self.gen_move_opt(field, tgt, moves);
+            if let Some(tgt) = tgt {
+                self.gen_king_move_unless_check(field.loc, tgt.loc)
+                    .map(|mov| moves.push(mov));
+            }
         }
         for right in [true, false] {
             for up in [true, false] {
                 match move_diagonal(field, up, right) {
                     Some((one, two)) => {
-                        self.gen_move(field, one, moves);
-                        self.gen_move_opt(field, two, moves);
+                        for tgt in [Some(one), two] {
+                            tgt.map(|tgt| {
+                                self.gen_king_move_unless_check(field.loc, tgt.loc)
+                                    .map(|mov| moves.push(mov))
+                            });
+                        }
                     }
                     None => {}
                 }
             }
         }
         for castle in [self.gen_move_castling(false), self.gen_move_castling(true)] {
-            if let Some(mv) = castle {
-                self.append_move_unless_check(mv, moves);
-            }
+            castle.map(|mov| moves.push(mov));
         }
     }
     fn try_gen_pawn_capture(

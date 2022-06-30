@@ -141,6 +141,7 @@ impl ThreePlayerChess {
     ) -> Result<&'a str, &'static str> {
         let mut files = [0u8; ROW_SIZE];
         let bytes = pstr.as_bytes();
+        let ci = usize::from(color);
         let mut i = 0;
 
         for piece_type in PieceType::iter() {
@@ -179,7 +180,7 @@ impl ThreePlayerChess {
                             {
                                 return Err("each player must have one king");
                             }
-                            self.king_positions[usize::from(color)] = loc;
+                            self.king_positions[ci] = loc;
                         }
                     }
                     file_count = 0;
@@ -192,22 +193,21 @@ impl ThreePlayerChess {
                 }
             }
         }
-        for rook_i in 0..2 {
+        for _ in 0..2 {
             if i == bytes.len() {
                 return Err("unexpected end of string");
             }
             let b = bytes[i];
             i += 1;
             if b >= 'A'.try_into().unwrap() && b <= 'L'.try_into().unwrap() {
-                let field = FieldLocation::from_utf8([
-                    b,
-                    FieldLocation::from(usize::from(color) * HB_SIZE).rank_char(),
-                ]);
-                if field.is_some() {
-                    self.possible_rooks_for_castling[usize::from(color)][rook_i] = field;
-                } else {
-                    return Err("invalid castling file");
+                let field =
+                    FieldLocation::from_utf8([b, FieldLocation::from(ci * HB_SIZE).rank_char()])
+                        .ok_or("invalid castling file")?;
+                let long = get_raw_file(field) < get_raw_file(self.king_positions[ci]);
+                if self.possible_rooks_for_castling[ci][long as usize].is_some() {
+                    return Err("conflicting castling files");
                 }
+                self.possible_rooks_for_castling[ci][long as usize] = Some(field);
             } else {
                 break;
             }
@@ -254,8 +254,8 @@ impl ThreePlayerChess {
             .or_else(|_| Err("move index is not a valid integer"))?;
         tpc.turn = Color::from((tpc.move_index % HB_COUNT as u16) as u8);
         for c in Color::iter() {
-            tpc.check_possibilities[usize::from(*c)]
-                .build_for_king_pos(tpc.king_positions[usize::from(*c)])
+            tpc.check_possibilities[usize::from(*c)] =
+                CheckPossibilities::from_king_pos(tpc.king_positions[usize::from(*c)])
         }
         Ok(tpc)
     }
