@@ -59,7 +59,7 @@ impl std::convert::From<Move> for u64 {
             Promotion(piece) => 4 | (u8::from(piece) as u64) << 8,
             ClaimDraw => 5,
         };
-        move_type << 16 | (u8::from(m.source) as u64) << 8 | (u8::from(m.target) as u64)
+        move_type << 16 | (u8::from(m.target) as u64) << 8 | (u8::from(m.source) as u64)
     }
 }
 
@@ -142,6 +142,17 @@ pub fn check_move_valid(game: &mut ThreePlayerChess, mov: Move) -> bool {
     false
 }
 
+pub fn check_player_to_move(game: &mut ThreePlayerChess, player: player_id) -> Result<()> {
+    if player != surena_game::PLAYER_NONE && Color::from(player - 1) != game.turn {
+        Err(Error::new_static(
+            ErrorCode::InvalidInput,
+            b"wrong player\0",
+        ))
+    } else {
+        Ok(())
+    }
+}
+
 impl GameMethods for ThreePlayerChess {
     fn create_default() -> Result<(Self, buf_sizer)> {
         let game = ThreePlayerChess::default();
@@ -190,10 +201,7 @@ impl GameMethods for ThreePlayerChess {
                 players.push(u8::from(self.turn) + 1);
                 Ok(())
             }
-            _ => Err(Error::new_static(
-                ErrorCode::InvalidInput,
-                b"game already over\0",
-            )),
+            _ => Ok(()),
         }
     }
 
@@ -214,7 +222,8 @@ impl GameMethods for ThreePlayerChess {
     fn is_legal_move(&mut self, player: player_id, mov: move_code, _sync_ctr: u32) -> Result<()> {
         let mov = Move::try_from(mov)
             .map_err(|_| Error::new_static(ErrorCode::InvalidInput, b"invalid move code\0"))?;
-        if Color::from(player) == self.turn && check_move_valid(self, mov) {
+        check_player_to_move(self, player)?;
+        if check_move_valid(self, mov) {
             Ok(())
         } else {
             Err(Error::new_static(
@@ -224,7 +233,8 @@ impl GameMethods for ThreePlayerChess {
         }
     }
 
-    fn make_move(&mut self, _player: player_id, mov: move_code) -> Result<()> {
+    fn make_move(&mut self, player: player_id, mov: move_code) -> Result<()> {
+        check_player_to_move(self, player)?;
         let mov = Move::try_from(mov)
             .map_err(|_| Error::new_static(ErrorCode::InvalidInput, b"invalid move code\0"))?;
         self.make_move(mov);
@@ -240,15 +250,10 @@ impl GameMethods for ThreePlayerChess {
         Ok(())
     }
 
-    fn get_move_code(&mut self, _player: player_id, string: &str) -> Result<move_code> {
+    fn get_move_code(&mut self, player: player_id, string: &str) -> Result<move_code> {
+        check_player_to_move(self, player)?;
         parse_move_string(self, string)
-            .and_then(|mov| {
-                if check_move_valid(self, mov) {
-                    Some(mov.into())
-                } else {
-                    None
-                }
-            })
+            .map(|mov| mov.into())
             .ok_or_else(|| Error::new_static(ErrorCode::InvalidInput, b"failed to parse move\0"))
     }
 

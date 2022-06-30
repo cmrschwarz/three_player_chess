@@ -103,8 +103,7 @@ pub enum WinReason {
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum DrawReason {
     Stalemate(Color),
-    Agreement,
-    InsufficientMaterial,
+    InsufficientMaterial, //TODO: implement this
     FiftyMoveRule,
     ThreefoldRepetition,
 }
@@ -256,7 +255,7 @@ impl ThreePlayerChess {
                 .map(|l| Ok(l))
                 .unwrap_or(Err("invalid en passant square"))?;
             self.possible_en_passant[usize::from(color)] = Some(ep_square);
-            Result::Ok(end)
+            Result::Ok(&end[1..])
         }
     }
     pub fn from_str(pstr: &str) -> Result<ThreePlayerChess, &'static str> {

@@ -448,7 +448,29 @@ impl ThreePlayerChess {
             MoveType::Castle(_, _) => {
                 self.possible_rooks_for_castling[pid] = Default::default();
             }
+            MoveType::EnPassant(_, _) => {
+                self.last_capture_or_pawn_move_index = self.move_index;
+            }
+            MoveType::ClaimDraw => {
+                self.game_status = GameStatus::Draw(if self.fifty_move_rule_applies() {
+                    DrawReason::FiftyMoveRule
+                } else {
+                    DrawReason::ThreefoldRepetition
+                });
+            }
             _ => (),
+        }
+        if self.is_king_capturable(None) {
+            // PERF: don't do full movegen here, one legal move suffices
+            if self.gen_moves().is_empty() {
+                let next_player = get_next_hb(self.turn, true);
+                let winner = if self.is_king_capturable(Some(next_player)) {
+                    next_player
+                } else {
+                    player_to_move
+                };
+                self.game_status = GameStatus::Win(winner, WinReason::Checkmate(self.turn))
+            }
         }
     }
     pub fn undo_move(&mut self, m: Move) {
@@ -485,7 +507,7 @@ impl ThreePlayerChess {
     }
     fn append_move_unless_check(&mut self, mv: Move, moves: &mut Vec<Move>) -> bool {
         self.make_move(mv);
-        let would_be_check = self.is_king_capturable();
+        let would_be_check = self.is_king_capturable(None);
         self.undo_move(mv);
         if !would_be_check {
             moves.push(mv);
@@ -506,7 +528,19 @@ impl ThreePlayerChess {
         };
         self.append_move_unless_check(m, moves)
     }
-    fn is_king_capturable_at(&self, kp: FieldLocation, cp: &CheckPossibilities) -> bool {
+    fn is_king_capturable_at(
+        &self,
+        kp: FieldLocation,
+        cp: &CheckPossibilities,
+        capturing_color: Option<Color>,
+    ) -> bool {
+        fn color_may_capture(
+            tpc: &ThreePlayerChess,
+            col: Color,
+            capturing_color: Option<Color>,
+        ) -> bool {
+            col != tpc.turn && capturing_color.map(|cc| cc == col).unwrap_or(true)
+        }
         let kp = AnnotatedFieldLocation::from_field(kp);
         for fields in [
             &cp.file[0..kp.rank as usize - 1],
@@ -519,7 +553,11 @@ impl ThreePlayerChess {
                 match *FieldValue::from(board_val) {
                     None => continue,
                     Some((color, piece_type)) => match piece_type {
-                        PieceType::Rook | PieceType::Queen if color != self.turn => return true,
+                        PieceType::Rook | PieceType::Queen
+                            if color_may_capture(self, color, capturing_color) =>
+                        {
+                            return true
+                        }
                         _ => break,
                     },
                 }
@@ -532,8 +570,12 @@ impl ThreePlayerChess {
                 match *FieldValue::from(board_val) {
                     None => continue,
                     Some((color, piece_type)) => match piece_type {
-                        PieceType::Bishop | PieceType::Queen if color != self.turn => return true,
-                        PieceType::Pawn if color != self.turn => {
+                        PieceType::Bishop | PieceType::Queen
+                            if color_may_capture(self, color, capturing_color) =>
+                        {
+                            return true
+                        }
+                        PieceType::Pawn if color_may_capture(self, color, capturing_color) => {
                             let pos = AnnotatedFieldLocation::from_field(*f);
                             if pos.rank + 1 == kp.reorient(pos.hb).rank {
                                 return true;
@@ -551,17 +593,19 @@ impl ThreePlayerChess {
             match *FieldValue::from(board_val) {
                 None => continue,
                 Some((color, piece_type)) => match piece_type {
-                    PieceType::Knight if color != self.turn => return true,
+                    PieceType::Knight if color_may_capture(self, color, capturing_color) => {
+                        return true
+                    }
                     _ => break,
                 },
             }
         }
         false
     }
-    fn is_king_capturable(&mut self) -> bool {
+    fn is_king_capturable(&mut self, capturing_color: Option<Color>) -> bool {
         let cp = &self.check_possibilities[usize::from(self.turn)];
         let kp = self.king_positions[usize::from(self.turn)];
-        self.is_king_capturable_at(kp, cp)
+        self.is_king_capturable_at(kp, cp, capturing_color)
     }
     fn gen_move(
         &mut self,
@@ -573,7 +617,8 @@ impl ThreePlayerChess {
         match FieldValue::from(piece_value) {
             FieldValue(None) => self.gen_move_unless_check(src, tgt, MoveType::Slide, moves),
             FieldValue(Some((color, _))) if color != self.turn => {
-                self.gen_move_unless_check(src, tgt, MoveType::Capture(piece_value), moves)
+                self.gen_move_unless_check(src, tgt, MoveType::Capture(piece_value), moves);
+                false // we don't want to continue in this direction regardless of check
             }
             _ => false,
         }
@@ -684,7 +729,7 @@ impl ThreePlayerChess {
             let kp = AnnotatedFieldLocation::from_file_and_rank(hb, hb, f, 1);
             let cp = CheckPossibilities::from_king_pos(kp.loc);
             self.board[usize::from(kp.loc)] = king_val;
-            conflict = self.is_king_capturable_at(kp.loc, &cp);
+            conflict = self.is_king_capturable_at(kp.loc, &cp, None);
             self.board[usize::from(kp.loc)] = FieldValue(None).into();
             if conflict {
                 break;
@@ -710,14 +755,14 @@ impl ThreePlayerChess {
         if FieldValue::from(self.board[usize::from(tgt)]).is_some() {
             return None;
         }
-        let cp = CheckPossibilities::from_king_pos(src);
+        let cp = CheckPossibilities::from_king_pos(tgt);
         let mov = Move {
             move_type: MoveType::Slide,
             source: src,
             target: tgt,
         };
         self.make_move(mov);
-        let would_be_check = self.is_king_capturable_at(tgt, &cp);
+        let would_be_check = self.is_king_capturable_at(tgt, &cp, None);
         self.undo_move(mov);
         if would_be_check {
             None
@@ -814,8 +859,17 @@ impl ThreePlayerChess {
         self.gen_moves_rook(field, moves);
         self.gen_moves_bishop(field, moves);
     }
+    pub fn fifty_move_rule_applies(&self) -> bool {
+        self.move_index >= self.last_capture_or_pawn_move_index + 50 * HB_COUNT as u16
+    }
+    pub fn threefold_repetition_applies(&self) -> bool {
+        false //TODO: implement this
+    }
     pub fn gen_moves(&mut self) -> Vec<Move> {
         let mut moves = Vec::new();
+        if self.game_status != GameStatus::Ongoing {
+            return moves;
+        }
         for i in 0..self.board.len() {
             match FieldValue::from(self.board[i]) {
                 FieldValue(Some((color, piece_type))) if color == self.turn => {
@@ -832,6 +886,13 @@ impl ThreePlayerChess {
                 }
                 _ => {}
             }
+        }
+        if self.fifty_move_rule_applies() || self.threefold_repetition_applies() {
+            moves.push(Move {
+                move_type: MoveType::ClaimDraw,
+                source: Default::default(),
+                target: Default::default(),
+            });
         }
         moves
     }

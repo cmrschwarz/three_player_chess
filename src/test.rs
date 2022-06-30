@@ -1,4 +1,5 @@
 use crate::board::*;
+use crate::movegen::*;
 use crate::wrapper::*;
 
 #[test]
@@ -11,8 +12,10 @@ pub fn state_str() {
 }
 
 #[test]
-pub fn gen_moves() {
-    let mut tpc = ThreePlayerChess::default();
+pub fn en_passent() {
+    let mut tpc = ThreePlayerChess::from_str(
+        "ABCDFGH2E4/BG1/CF1/AH1/H9/E1/AH/|A4LKJIDCB7/KB8/JC8/LA8/I8/D8/LA/|HGFEILbJaK9/GKc/FJc/HLc/Ec/Ic/HL/Ka|6|6"
+    ).unwrap();
 
     let moves = tpc.gen_moves();
     for m in moves {
@@ -20,14 +23,29 @@ pub fn gen_moves() {
     }
     println!("{}", tpc);
 }
+
+#[test]
+pub fn checkmate() {
+    let mut tpc = ThreePlayerChess::from_str(
+        "BCDEFGH2A5/BG1/CF1/AH1/D1/E1/AH/|LKIDCBA7J6/KB8/JC8/LA8/L5/D8/LA/|HGFEILbJaK9/GKc/FJc/HLc/Ec/Ic/HL/Ka|7|7"
+    ).unwrap();
+    let mov = parse_move_string(&mut tpc, "L5L9").unwrap();
+    assert!(check_move_valid(&mut tpc, mov));
+    tpc.make_move(mov);
+    tpc.apply_move_sideeffects(mov);
+    assert!(tpc.game_status == GameStatus::Win(Color::C1, WinReason::Checkmate(Color::C2)));
+}
 #[test]
 pub fn make_move() {
     let mut tpc = ThreePlayerChess::default();
-    let mov = parse_move_string(&mut tpc, "A2A3").unwrap();
-    assert!(check_move_valid(&mut tpc, mov));
+    let mov = parse_move_string(&mut tpc, "E2E4").unwrap();
+    let movcode = u64::from(mov);
+    let mov_reenc = Move::try_from(movcode).unwrap();
+    assert_eq!(mov, mov_reenc);
+    assert!(check_move_valid(&mut tpc, mov_reenc));
     tpc.make_move(mov);
     const STR_AFTER_MOVE: &'static str = concat!(
-        "BCDEFGH2A3/BG1/CF1/AH1/D1/E1/AH/|",
+        "ABCDFGH2E4/BG1/CF1/AH1/D1/E1/AH/|",
         "LKJIDCBA7/KB8/JC8/LA8/I8/D8/LA/|",
         "HGFEIJKLb/GKc/FJc/HLc/Ec/Ic/HL/|",
         "0|0"
