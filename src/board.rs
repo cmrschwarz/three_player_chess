@@ -17,13 +17,13 @@ pub const BOARD_SIZE: usize = HB_SIZE * HB_COUNT; // 96
 pub const BOARD_STRING: &'static str = include_str!("board.txt");
 
 pub const START_POSITION_STRING: &'static str = concat!(
-    "ABCDEFGH2/BG1/CF1/AH1/D1/E1/AH/|",
-    "LKJIDCBA7/KB8/JC8/LA8/I8/D8/LA/|",
-    "HGFEIJKLb/GKc/FJc/HLc/Ec/Ic/HL/|",
-    "0|0"
+    "ABCDEFGH2/BG1/CF1/AH1/D1/E1/AH/:",
+    "LKJIDCBA7/KB8/JC8/LA8/I8/D8/LA/:",
+    "HGFEIJKLb/GKc/FJc/HLc/Ec/Ic/HL/:",
+    "0:0"
 );
 // 2 characters for each board cell
-// for each player: 7 slashes + 2 castling + 2 e.p. + 1 '|'
+// for each player: 7 slashes + 2 castling + 2 e.p. + 1 ':'
 // 2 times 5 characters for move and pawn/capture index each (max value 65535)
 // 1 final character for the bar between the two indices
 pub const MAX_POSITION_STRING_SIZE: usize = BOARD_SIZE * 2 + 3 * (7 + 2 + 2 + 1) + 2 * 5 + 1;
@@ -244,9 +244,9 @@ impl ThreePlayerChess {
         i += 1;
         let pstr = std::str::from_utf8(&pstr.as_bytes()[i..]).unwrap();
         let pipe_pos = pstr
-            .find("|")
+            .find(":")
             .map(|p| Ok(p))
-            .unwrap_or(Err("expected en passant location or '|'"))?;
+            .unwrap_or(Err("expected en passant location or ':'"))?;
         if pipe_pos == 0 {
             Ok(&pstr[1..])
         } else {
@@ -265,9 +265,9 @@ impl ThreePlayerChess {
             pstr_it = tpc.player_state_from_str(*c, pstr_it)?;
         }
         let pipe_pos = pstr_it
-            .find("|")
+            .find(":")
             .map(|x| Ok(x))
-            .unwrap_or(Err("expected capture/pawn move index followed by '|'"))?;
+            .unwrap_or(Err("expected capture/pawn move index followed by ':'"))?;
         let (cpi, mi) = pstr_it.split_at(pipe_pos);
         tpc.last_capture_or_pawn_move_index = cpi
             .parse()
@@ -320,10 +320,10 @@ impl ThreePlayerChess {
             if let Some(loc) = self.possible_en_passant[usize::from(*c)] {
                 writer.write_fmt(format_args!("{}", loc))?;
             }
-            writer.write_char('|')?;
+            writer.write_char(':')?;
         }
         writer.write_fmt(format_args!(
-            "{}|{}",
+            "{}:{}",
             self.last_capture_or_pawn_move_index, self.move_index
         ))?;
         Ok(())

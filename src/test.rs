@@ -14,7 +14,7 @@ pub fn state_str() {
 #[test]
 pub fn en_passent() {
     let mut tpc = ThreePlayerChess::from_str(
-        "ABCDFGH2E4/BG1/CF1/AH1/H9/E1/AH/|A4LKJIDCB7/KB8/JC8/LA8/I8/D8/LA/|HGFEILbJaK9/GKc/FJc/HLc/Ec/Ic/HL/Ka|6|6"
+        "ABCDFGH2E4/BG1/CF1/AH1/H9/E1/AH/:A4LKJIDCB7/KB8/JC8/LA8/I8/D8/LA/:HGFEILbJaK9/GKc/FJc/HLc/Ec/Ic/HL/Ka:6:6"
     ).unwrap();
 
     let moves = tpc.gen_moves();
@@ -27,7 +27,7 @@ pub fn en_passent() {
 #[test]
 pub fn checkmate() {
     let mut tpc = ThreePlayerChess::from_str(
-        "BCDEFGH2A5/BG1/CF1/AH1/D1/E1/AH/|LKIDCBA7J6/KB8/JC8/LA8/L5/D8/LA/|HGFEILbJaK9/GKc/FJc/HLc/Ec/Ic/HL/Ka|7|7"
+        "BCDEFGH2A5/BG1/CF1/AH1/D1/E1/AH/:LKIDCBA7J6/KB8/JC8/LA8/L5/D8/LA/:HGFEILbJaK9/GKc/FJc/HLc/Ec/Ic/HL/Ka:7:7"
     ).unwrap();
     let mov = parse_move_string(&mut tpc, "L5L9").unwrap();
     assert!(check_move_valid(&mut tpc, mov));
@@ -45,10 +45,10 @@ pub fn make_move() {
     assert!(check_move_valid(&mut tpc, mov_reenc));
     tpc.make_move(mov);
     const STR_AFTER_MOVE: &'static str = concat!(
-        "ABCDFGH2E4/BG1/CF1/AH1/D1/E1/AH/|",
-        "LKJIDCBA7/KB8/JC8/LA8/I8/D8/LA/|",
-        "HGFEIJKLb/GKc/FJc/HLc/Ec/Ic/HL/|",
-        "0|0"
+        "ABCDFGH2E4/BG1/CF1/AH1/D1/E1/AH/:",
+        "LKJIDCBA7/KB8/JC8/LA8/I8/D8/LA/:",
+        "HGFEIJKLb/GKc/FJc/HLc/Ec/Ic/HL/:",
+        "0:0"
     );
     assert_eq!(tpc.state_string(), STR_AFTER_MOVE);
 }
