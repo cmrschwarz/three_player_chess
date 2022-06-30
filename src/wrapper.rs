@@ -130,6 +130,17 @@ fn parse_move_string(game: &mut ThreePlayerChess, string: &str) -> Option<Move> 
     }
 }
 
+fn check_move_valid(game: &mut ThreePlayerChess, mov: Move) -> bool {
+    // this is not used by engines, and therfore not performance critical
+    // we are therefore fine with using a rather inefficient implementation
+    for candidate_move in game.gen_moves() {
+        if mov == candidate_move {
+            return true;
+        }
+    }
+    false
+}
+
 impl GameMethods for ThreePlayerChess {
     fn create_default() -> Result<(Self, buf_sizer)> {
         let game = ThreePlayerChess::default();
@@ -199,9 +210,17 @@ impl GameMethods for ThreePlayerChess {
         }
         Ok(())
     }
-
     fn is_legal_move(&mut self, player: player_id, mov: move_code, _sync_ctr: u32) -> Result<()> {
-        Ok(())
+        let mov = Move::try_from(mov)
+            .map_err(|_| Error::new_static(ErrorCode::InvalidInput, b"invalid move code\0"))?;
+        if Color::from(player) == self.turn && check_move_valid(self, mov) {
+            Ok(())
+        } else {
+            Err(Error::new_static(
+                ErrorCode::InvalidInput,
+                b"illegal move\0",
+            ))
+        }
     }
 
     fn make_move(&mut self, _player: player_id, mov: move_code) -> Result<()> {
@@ -222,7 +241,13 @@ impl GameMethods for ThreePlayerChess {
 
     fn get_move_code(&mut self, _player: player_id, string: &str) -> Result<move_code> {
         parse_move_string(self, string)
-            .map(|mov| mov.into())
+            .and_then(|mov| {
+                if check_move_valid(self, mov) {
+                    Some(mov.into())
+                } else {
+                    None
+                }
+            })
             .ok_or_else(|| Error::new_static(ErrorCode::InvalidInput, b"failed to parse move\0"))
     }
 
