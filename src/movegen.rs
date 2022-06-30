@@ -580,17 +580,6 @@ impl ThreePlayerChess {
             _ => false,
         }
     }
-    fn gen_move_opt(
-        &mut self,
-        src: AnnotatedFieldLocation,
-        tgt: Option<AnnotatedFieldLocation>,
-        moves: &mut Vec<Move>,
-    ) -> bool {
-        match tgt {
-            Some(tgt) => self.gen_move(src, tgt, moves),
-            None => false,
-        }
-    }
     fn gen_moves_rook(&mut self, field: AnnotatedFieldLocation, moves: &mut Vec<Move>) {
         for (length, rank, increase) in [
             (RS - field.rank, true, true),  // up
@@ -670,11 +659,13 @@ impl ThreePlayerChess {
             self.gen_move(field, AnnotatedFieldLocation::from_field(m), moves);
         }
     }
-    pub fn gen_move_castling(&mut self, long: bool) -> Option<Move> {
+    pub fn gen_move_castling(&mut self, short: bool) -> Option<Move> {
         let hb = self.turn;
-        let rook_src = self.possible_rooks_for_castling[usize::from(hb)][long as usize]?;
-        let rook_tgt = AnnotatedFieldLocation::from_file_and_rank(hb, hb, [7, 3][long as usize], 1);
-        let king_tgt = AnnotatedFieldLocation::from_file_and_rank(hb, hb, [6, 4][long as usize], 1);
+        let rook_src = self.possible_rooks_for_castling[usize::from(hb)][short as usize]?;
+        let rook_tgt =
+            AnnotatedFieldLocation::from_file_and_rank(hb, hb, [3, 7][short as usize], 1);
+        let king_tgt =
+            AnnotatedFieldLocation::from_file_and_rank(hb, hb, [4, 6][short as usize], 1);
         for tgt in [king_tgt, rook_tgt] {
             if FieldValue::from(self.board[usize::from(tgt.loc)]).is_some() {
                 return None;
@@ -682,9 +673,9 @@ impl ThreePlayerChess {
         }
         let king_src = AnnotatedFieldLocation::from_field(self.king_positions[usize::from(hb)]);
         let (fbegin, fend) = [
-            (king_src.file + 1, king_tgt.file),
             (king_tgt.file, king_src.file - 1),
-        ][long as usize];
+            (king_src.file + 1, king_tgt.file),
+        ][short as usize];
         let mut conflict = false;
         self.board[usize::from(rook_tgt.loc)] = self.board[usize::from(rook_src)];
         self.board[usize::from(rook_src)] = FieldValue(None).into();

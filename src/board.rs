@@ -5,6 +5,7 @@ use crate::movegen::*;
 use std::char;
 use std::collections::HashMap;
 use std::io::Write;
+use PieceType::*;
 
 pub const ROW_SIZE: usize = 8; // row == rank
 pub const HB_ROW_COUNT: usize = 4; // each halfboard has 4 rows
@@ -30,21 +31,44 @@ pub const MAX_POSITION_STRING_SIZE: usize = BOARD_SIZE * 2 + 3 * (7 + 2 + 2 + 1)
 #[repr(u8)]
 #[derive(Copy, Clone, PartialEq, Eq, FromPrimitive, ToPrimitive, Debug)]
 pub enum PieceType {
-    Pawn = 'P' as u8,
-    Knight = 'N' as u8,
-    Bishop = 'B' as u8,
-    Rook = 'R' as u8,
-    Queen = 'Q' as u8,
-    King = 'K' as u8,
+    Pawn = 1,
+    Knight = 2,
+    Bishop = 3,
+    Rook = 4,
+    Queen = 5,
+    King = 6,
 }
 
 impl PieceType {
     pub fn iter() -> std::slice::Iter<'static, PieceType> {
-        use PieceType::*;
         // this is ordered by value (ascending). changing this order would
         // change the string representation
         static PIECE_TYPES: [PieceType; 6] = [Pawn, Knight, Bishop, Rook, Queen, King];
         PIECE_TYPES.iter()
+    }
+    pub fn from_ascii(chr: u8) -> Option<Self> {
+        match char::try_from(chr).ok()? {
+            'P' => Pawn,
+            'N' => Knight,
+            'B' => Bishop,
+            'R' => Rook,
+            'Q' => Queen,
+            'K' => King,
+            _ => return None,
+        }
+        .into()
+    }
+    pub fn to_ascii(self) -> u8 {
+        match self {
+            Pawn => 'P',
+            Knight => 'N',
+            Bishop => 'B',
+            Rook => 'R',
+            Queen => 'Q',
+            King => 'K',
+        }
+        .try_into()
+        .unwrap()
     }
 }
 
@@ -203,11 +227,11 @@ impl ThreePlayerChess {
                 let field =
                     FieldLocation::from_utf8([b, FieldLocation::from(ci * HB_SIZE).rank_char()])
                         .ok_or("invalid castling file")?;
-                let long = get_raw_file(field) < get_raw_file(self.king_positions[ci]);
-                if self.possible_rooks_for_castling[ci][long as usize].is_some() {
+                let short = get_raw_file(field) > get_raw_file(self.king_positions[ci]);
+                if self.possible_rooks_for_castling[ci][short as usize].is_some() {
                     return Err("conflicting castling files");
                 }
-                self.possible_rooks_for_castling[ci][long as usize] = Some(field);
+                self.possible_rooks_for_castling[ci][short as usize] = Some(field);
             } else {
                 break;
             }
@@ -265,11 +289,11 @@ impl ThreePlayerChess {
     ) -> Result<(), std::fmt::Error> {
         for c in Color::iter() {
             for piece_type in PieceType::iter() {
-                for hb in u8::from(Color::C0)..u8::from(Color::C2) + 1 {
+                for hb in Color::iter() {
                     for rank in 1..HB_ROW_COUNT as i8 + 1 {
                         let mut piece_found = false;
                         for file in 1..ROW_SIZE as i8 + 1 {
-                            let loc = FieldLocation::new(Color::from(hb), file, rank);
+                            let loc = FieldLocation::new(*hb, file, rank);
                             if let FieldValue(Some((col, piece))) =
                                 self.board[usize::from(loc)].into()
                             {
@@ -281,9 +305,8 @@ impl ThreePlayerChess {
                             }
                         }
                         if piece_found {
-                            writer.write_char(
-                                FieldLocation::new(Color::from(hb), 1, rank).rank_char() as char,
-                            )?;
+                            writer
+                                .write_char(FieldLocation::new(*hb, 1, rank).rank_char() as char)?;
                         }
                     }
                 }
@@ -484,7 +507,7 @@ impl std::convert::TryFrom<u8> for PieceType {
 }
 impl std::fmt::Display for PieceType {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}", u8::from(*self) as char)
+        write!(f, "{}", self.to_ascii() as char)
     }
 }
 impl std::convert::From<FieldLocation> for &str {
@@ -540,7 +563,7 @@ impl std::convert::From<PackedFieldValue> for FieldValue {
             FieldValue(None)
         } else {
             FieldValue(Some((
-                Color::from_u8(v & 0x3 - 1).unwrap(),
+                Color::from_u8((v & 0x3) - 1).unwrap(),
                 PieceType::from_u8(v >> 2).unwrap(),
             )))
         }

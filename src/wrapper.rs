@@ -65,10 +65,10 @@ impl std::convert::From<Move> for u64 {
 
 fn parse_move_string(game: &mut ThreePlayerChess, string: &str) -> Option<Move> {
     if string == "O-O" {
-        return game.gen_move_castling(false);
+        return game.gen_move_castling(true);
     }
     if string == "O-O-O" {
-        return game.gen_move_castling(true);
+        return game.gen_move_castling(false);
     }
     if string == "draw" {
         return Some(Move {
@@ -100,7 +100,7 @@ fn parse_move_string(game: &mut ThreePlayerChess, string: &str) -> Option<Move> 
         if promotion[0] != '='.try_into().unwrap() {
             return None;
         }
-        let piece_type = PieceType::try_from(promotion[1]).ok()?;
+        let piece_type = PieceType::from_ascii(promotion[1])?;
         return Some(Move {
             move_type: MoveType::Promotion(piece_type),
             source: src.loc,
@@ -148,7 +148,7 @@ impl GameMethods for ThreePlayerChess {
         Ok((game, sizer))
     }
 
-    fn export_options_str(&mut self, str_buf: &mut StrBuf) -> Result<()> {
+    fn export_options_str(&mut self, _str_buf: &mut StrBuf) -> Result<()> {
         Ok(())
     }
 

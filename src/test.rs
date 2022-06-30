@@ -5,8 +5,10 @@ pub fn print_board() {
     let tpc = ThreePlayerChess::default();
     println!("{}", tpc);
     let mut board_str = String::new();
-    tpc.write_state_str(&mut board_str);
+    tpc.write_state_str(&mut board_str).unwrap();
     println!("{}", board_str);
+    println!("{}", "-".repeat(80));
+    println!("{}", START_POSITION_STRING);
     assert_eq!(board_str, START_POSITION_STRING);
 }
 
