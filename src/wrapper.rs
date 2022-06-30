@@ -8,7 +8,7 @@ use surena_game::*;
 use MoveType::*;
 
 const BUF_SIZER: buf_sizer = buf_sizer {
-    options_str: 0,
+    options_str: 1,
     state_str: MAX_POSITION_STRING_SIZE,
     player_count: HB_COUNT as u8,
     max_players_to_move: 1,
@@ -16,7 +16,7 @@ const BUF_SIZER: buf_sizer = buf_sizer {
     max_actions: 0,
     max_results: 1,
     move_str: 4,
-    print_str: BOARD_STRING.len(),
+    print_str: BOARD_STRING.len() + 1,
 };
 
 impl std::convert::TryFrom<u64> for Move {
@@ -63,7 +63,7 @@ impl std::convert::From<Move> for u64 {
     }
 }
 
-fn parse_move_string(game: &mut ThreePlayerChess, string: &str) -> Option<Move> {
+pub fn parse_move_string(game: &mut ThreePlayerChess, string: &str) -> Option<Move> {
     if string == "O-O" {
         return game.gen_move_castling(true);
     }
@@ -93,7 +93,7 @@ fn parse_move_string(game: &mut ThreePlayerChess, string: &str) -> Option<Move> 
         return None;
     }
 
-    let tgt_val = FieldValue::from(game.board[usize::from(src.loc)]);
+    let tgt_val = FieldValue::from(game.board[usize::from(tgt.loc)]);
 
     if string.len() > 4 {
         let promotion: [u8; 2] = string[4..].as_bytes().try_into().ok()?;
@@ -130,10 +130,11 @@ fn parse_move_string(game: &mut ThreePlayerChess, string: &str) -> Option<Move> 
     }
 }
 
-fn check_move_valid(game: &mut ThreePlayerChess, mov: Move) -> bool {
+pub fn check_move_valid(game: &mut ThreePlayerChess, mov: Move) -> bool {
     // this is not used by engines, and therfore not performance critical
     // we are therefore fine with using a rather inefficient implementation
-    for candidate_move in game.gen_moves() {
+    let moves = game.gen_moves();
+    for candidate_move in moves {
         if mov == candidate_move {
             return true;
         }
@@ -169,7 +170,7 @@ impl GameMethods for ThreePlayerChess {
         } else {
             Err(Error::new_static(
                 ErrorCode::InvalidInput,
-                b"missing state string",
+                b"missing state string\0",
             ))
         }
     }
@@ -252,8 +253,7 @@ impl GameMethods for ThreePlayerChess {
     }
 
     fn debug_print(&mut self, str_buf: &mut StrBuf) -> Result<()> {
-        self.export_state(str_buf)?;
-        writeln!(str_buf).expect("failed to write print buffer");
+        write!(str_buf, "{}", self).expect("failed to write print buffer");
         Ok(())
     }
 }
@@ -264,7 +264,7 @@ fn example_game_methods() -> game_methods {
     features.set_options(true);
 
     create_game_methods::<ThreePlayerChess>(Metadata {
-        game_name: cstr(b"Three Player CHess\0"),
+        game_name: cstr(b"Three Player Chess\0"),
         variant_name: cstr(b"Standard\0"),
         impl_name: cstr(b"three_player_chess\0"),
         version: semver {

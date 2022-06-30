@@ -329,6 +329,11 @@ impl ThreePlayerChess {
         ))?;
         Ok(())
     }
+    pub fn state_string(&self) -> String {
+        let mut string = String::new();
+        self.write_state_str(&mut string).unwrap();
+        string
+    }
 }
 
 impl std::ops::Deref for FieldValue {

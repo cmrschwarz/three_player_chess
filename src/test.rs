@@ -1,14 +1,12 @@
 use crate::board::*;
+use crate::wrapper::*;
 
 #[test]
-pub fn print_board() {
+pub fn state_str() {
     let tpc = ThreePlayerChess::default();
     println!("{}", tpc);
-    let mut board_str = String::new();
-    tpc.write_state_str(&mut board_str).unwrap();
+    let board_str = tpc.state_string();
     println!("{}", board_str);
-    println!("{}", "-".repeat(80));
-    println!("{}", START_POSITION_STRING);
     assert_eq!(board_str, START_POSITION_STRING);
 }
 
@@ -21,4 +19,18 @@ pub fn gen_moves() {
         tpc.board[usize::from(m.target)] = FieldValue(Some((Color::C2, PieceType::King))).into();
     }
     println!("{}", tpc);
+}
+#[test]
+pub fn make_move() {
+    let mut tpc = ThreePlayerChess::default();
+    let mov = parse_move_string(&mut tpc, "A2A3").unwrap();
+    assert!(check_move_valid(&mut tpc, mov));
+    tpc.make_move(mov);
+    const STR_AFTER_MOVE: &'static str = concat!(
+        "BCDEFGH2A3/BG1/CF1/AH1/D1/E1/AH/|",
+        "LKJIDCBA7/KB8/JC8/LA8/I8/D8/LA/|",
+        "HGFEIJKLb/GKc/FJc/HLc/Ec/Ic/HL/|",
+        "0|0"
+    );
+    assert_eq!(tpc.state_string(), STR_AFTER_MOVE);
 }

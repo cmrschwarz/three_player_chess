@@ -487,12 +487,10 @@ impl ThreePlayerChess {
         self.make_move(mv);
         let would_be_check = self.is_king_capturable();
         self.undo_move(mv);
-        if would_be_check {
-            false
-        } else {
+        if !would_be_check {
             moves.push(mv);
-            true
         }
+        !would_be_check
     }
     fn gen_move_unless_check(
         &mut self,
@@ -704,11 +702,14 @@ impl ThreePlayerChess {
             target: king_tgt.loc,
         })
     }
-    fn gen_king_move_unless_check(
+    fn gen_king_slide_unless_check(
         &mut self,
         src: FieldLocation,
         tgt: FieldLocation,
     ) -> Option<Move> {
+        if FieldValue::from(self.board[usize::from(tgt)]).is_some() {
+            return None;
+        }
         let cp = CheckPossibilities::from_king_pos(src);
         let mov = Move {
             move_type: MoveType::Slide,
@@ -732,7 +733,7 @@ impl ThreePlayerChess {
             move_rank(field, false),
         ] {
             if let Some(tgt) = tgt {
-                self.gen_king_move_unless_check(field.loc, tgt.loc)
+                self.gen_king_slide_unless_check(field.loc, tgt.loc)
                     .map(|mov| moves.push(mov));
             }
         }
@@ -742,7 +743,7 @@ impl ThreePlayerChess {
                     Some((one, two)) => {
                         for tgt in [Some(one), two] {
                             tgt.map(|tgt| {
-                                self.gen_king_move_unless_check(field.loc, tgt.loc)
+                                self.gen_king_slide_unless_check(field.loc, tgt.loc)
                                     .map(|mov| moves.push(mov))
                             });
                         }
