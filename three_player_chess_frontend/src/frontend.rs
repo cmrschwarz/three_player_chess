@@ -23,7 +23,12 @@ pub const FONT: &'static [u8] = include_bytes!("../res/Roboto-Regular.ttf");
 pub struct Frontend<'a> {
     font: Font<'a>,
     board: ThreePlayerChess,
+    black: nv::Color,
+    white: nv::Color,
+    background: nv::Color,
+    border: nv::Color,
     prev_second: f32,
+    hex_board_coordinates: [[[f32; 2]; HB_ROW_COUNT + 1]; HB_ROW_COUNT + 1],
 }
 const HBRC: f32 = HB_ROW_COUNT as f32;
 
@@ -33,99 +38,114 @@ fn point(vec2: Vector2<f32>) -> (f32, f32) {
 
 impl<'a> Frontend<'a> {
     pub fn new(ctx: &'a Context) -> Frontend<'a> {
-        Frontend {
+        let mut fe = Frontend {
             prev_second: -1.0,
             board: Default::default(),
             font: nanovg::Font::from_memory(&ctx, "Roboto", FONT)
                 .expect("Failed to load font 'Roboto-Regular.ttf'"),
+            black: nv::Color::from_rgb(230, 230, 230),
+            white: nv::Color::from_rgb(130, 130, 130),
+            background: nv::Color::from_rgb(142, 83, 46),
+            border: nv::Color::from_rgb(0, 0, 0),
+            hex_board_coordinates: Default::default(),
+        };
+        let center_angle_half = 2. * PI / 12.;
+        let side_len = center_angle_half.sin();
+        let hex_height = center_angle_half.cos();
+        let top_right = [side_len + (1. - side_len) / 2., hex_height / 2.];
+        let bottom_right = [side_len, hex_height];
+        let right_flank = vec2_sub(top_right, bottom_right);
+        for r in 0..HB_ROW_COUNT + 1 {
+            let rank_frac = r as f32 / 4.;
+            // rank along the center axis
+            fe.hex_board_coordinates[0][r] = [0., hex_height * (1. - rank_frac)];
+            // rank along the right side
+            fe.hex_board_coordinates[HB_ROW_COUNT][r] =
+                vec2_add(bottom_right, vec2_scale(right_flank, rank_frac));
         }
+        for r in 0..HB_ROW_COUNT + 1 {
+            for f in 1..HB_ROW_COUNT {
+                let rank_left = fe.hex_board_coordinates[0][r];
+                let rank_right = fe.hex_board_coordinates[HB_ROW_COUNT][r];
+                fe.hex_board_coordinates[f][r] = vec2_add(
+                    rank_left,
+                    vec2_scale(vec2_sub(rank_right, rank_left), f as f32 / 4.),
+                );
+            }
+        }
+        fe
     }
     pub fn render(&mut self, dc: &DrawContext<'a>) {
+        let radius_board = std::cmp::min(dc.width, dc.height) as f32 * 0.45;
+        let radius_border = radius_board * 1.05;
+        dc.frame.path(
+            |path| {
+                path.rect((0., 0.), (dc.width as f32, dc.height as f32));
+                path.fill(self.background, Default::default());
+            },
+            Default::default(),
+        );
+        dc.frame.path(
+            |path| {
+                let center_angle = 2. * PI / 6.;
+                for i in 0..6 {
+                    let point = (
+                        (i as f32 * center_angle).cos(),
+                        (i as f32 * center_angle).sin(),
+                    );
+                    if i == 0 {
+                        path.move_to(point);
+                    } else {
+                        path.line_to(point);
+                    }
+                }
+                path.close();
+                path.fill(self.border, Default::default());
+            },
+            PathOptions {
+                transform: Some(
+                    nv::Transform::new()
+                        .translate(dc.width as f32 / 2., dc.height as f32 / 2.)
+                        .scale(radius_border, radius_border),
+                ),
+                ..Default::default()
+            },
+        );
         for c in Color::iter() {
             for right in [true, false] {
-                self.render_hex_board(dc, *c, right);
+                self.render_hex_board(dc, radius_board, *c, right);
             }
         }
     }
-    pub fn render_hex_board(&mut self, dc: &DrawContext, hb: Color, right: bool) {
+    pub fn render_hex_board(&mut self, dc: &DrawContext, radius: f32, hb: Color, right: bool) {
         let hex_num = (u8::from(hb) * 2 + u8::from(right) + 5) % 6; // bottom right is hex 0
         let rotation = (hex_num as f32 / 6.0) * 2.0 * PI;
-        let radius = std::cmp::min(dc.width, dc.height) as f32 * 0.45;
-        let center_angle_half = 2. * PI / 12.;
-        let side_len = center_angle_half.sin() * radius;
-        let hex_height = center_angle_half.cos() * radius;
-
-        let bottom_right = [side_len, hex_height];
-
-        let bottom_left = [0., hex_height];
-        let top_right = [side_len + (radius - side_len) / 2., hex_height / 2.];
-        let right_flank = vec2_sub(top_right, bottom_right);
 
         let transform = Some(
             Transform::new()
                 .translate(dc.width as f32 / 2., dc.height as f32 / 2.)
-                .rotate(rotation),
-        );
-        let frac = 1. / HB_ROW_COUNT as f32;
-        dc.frame.path(
-            |path| {
-                path.move_to(point([0., 0.]));
-                path.line_to(point(bottom_left));
-                path.line_to(point(bottom_right));
-                path.line_to(point(top_right));
-                path.line_to(point([0., 0.]));
-                path.fill(
-                    nv::Color::from_rgb(255, 255, 255),
-                    nv::FillOptions { antialias: true },
-                );
-            },
-            PathOptions {
-                composite_operation: CompositeOperation::Basic(BasicCompositeOperation::Lighter),
-                alpha: 1.0, //elapsed.cos() * 0.5 + 0.5,
-                transform,
-                ..Default::default()
-            },
+                .rotate(-rotation)
+                .scale(radius, radius),
         );
         for file in 0..HB_ROW_COUNT {
             for rank in 0..HB_ROW_COUNT {
-                let mut rng = rand_chacha::ChaChaRng::seed_from_u64(
-                    hex_num as u64 + file as u64 + rank as u64 * 4,
-                );
-
                 dc.frame.path(
                     |path| {
-                        let f = file as f32;
-                        let r = rank as f32;
-                        let center_bot = [0., hex_height * (HBRC - r) * frac];
-                        let center_top = [0., hex_height * (HBRC - r - 1.) * frac];
-                        let file_vec_bot = vec2_sub(
-                            vec2_add(bottom_right, vec2_scale(right_flank, r * frac)),
-                            center_bot,
-                        );
-                        let file_vec_top = vec2_sub(
-                            vec2_add(bottom_right, vec2_scale(right_flank, (r + 1.) * frac)),
-                            center_top,
-                        );
-                        let tl = vec2_add(center_top, vec2_scale(file_vec_top, f * frac));
-                        let tr = vec2_add(center_top, vec2_scale(file_vec_top, (f + 1.) * frac));
-                        let bl = vec2_add(center_bot, vec2_scale(file_vec_bot, f * frac));
-                        let br = vec2_add(center_bot, vec2_scale(file_vec_bot, (f + 1.) * frac));
-                        path.move_to(point(bl));
-                        path.line_to(point(br));
-                        path.line_to(point(tr));
-                        path.line_to(point(tl));
-                        path.line_to(point(bl));
+                        path.move_to(point(self.hex_board_coordinates[file][rank]));
+                        path.line_to(point(self.hex_board_coordinates[file + 1][rank]));
+                        path.line_to(point(self.hex_board_coordinates[file + 1][rank + 1]));
+                        path.line_to(point(self.hex_board_coordinates[file][rank + 1]));
+                        path.close();
                         path.fill(
-                            nv::Color::from_rgb(
-                                rng.next_u32() as u8,
-                                rng.next_u32() as u8,
-                                rng.next_u32() as u8,
-                            ),
+                            if ((file % 2) + (rank % 2) + (right as usize)) % 2 == 0 {
+                                self.black
+                            } else {
+                                self.white
+                            },
                             nv::FillOptions { antialias: true },
                         );
                     },
                     PathOptions {
-                        alpha: 1.0,
                         transform,
                         ..Default::default()
                     },
