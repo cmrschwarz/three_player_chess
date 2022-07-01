@@ -11,6 +11,7 @@ pub const ROW_SIZE: usize = 8; // row == rank
 pub const HB_ROW_COUNT: usize = 4; // each halfboard has 4 rows
 pub const HB_COUNT: usize = 3; // number of half boards
 pub const COLOR_COUNT: u8 = HB_COUNT as u8;
+pub const PIECE_COUNT: usize = 6;
 pub const HB_SIZE: usize = ROW_SIZE * HB_ROW_COUNT;
 pub const BOARD_SIZE: usize = HB_SIZE * HB_COUNT; // 96
 
@@ -31,19 +32,19 @@ pub const MAX_POSITION_STRING_SIZE: usize = BOARD_SIZE * 2 + 3 * (7 + 2 + 2 + 1)
 #[repr(u8)]
 #[derive(Copy, Clone, PartialEq, Eq, FromPrimitive, ToPrimitive, Debug)]
 pub enum PieceType {
-    Pawn = 1,
-    Knight = 2,
-    Bishop = 3,
-    Rook = 4,
-    Queen = 5,
-    King = 6,
+    Pawn = 0,
+    Knight = 1,
+    Bishop = 2,
+    Rook = 3,
+    Queen = 4,
+    King = 5,
 }
 
 impl PieceType {
     pub fn iter() -> std::slice::Iter<'static, PieceType> {
         // this is ordered by value (ascending). changing this order would
         // change the string representation
-        static PIECE_TYPES: [PieceType; 6] = [Pawn, Knight, Bishop, Rook, Queen, King];
+        static PIECE_TYPES: [PieceType; PIECE_COUNT] = [Pawn, Knight, Bishop, Rook, Queen, King];
         PIECE_TYPES.iter()
     }
     pub fn from_ascii(chr: u8) -> Option<Self> {
@@ -535,11 +536,17 @@ impl std::convert::TryFrom<u8> for PieceType {
         PieceType::from_u8(v).ok_or(())
     }
 }
+impl std::convert::From<PieceType> for usize {
+    fn from(v: PieceType) -> usize {
+        ToPrimitive::to_usize(&v).unwrap()
+    }
+}
 impl std::fmt::Display for PieceType {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{}", self.to_ascii() as char)
     }
 }
+
 impl std::convert::From<FieldLocation> for &str {
     fn from(v: FieldLocation) -> &'static str {
         unsafe {
