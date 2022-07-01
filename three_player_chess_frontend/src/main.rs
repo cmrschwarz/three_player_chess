@@ -35,7 +35,7 @@ fn main() {
     let mut running = true;
 
     let mut frontend = Frontend::new(&context);
-    while running {
+    loop {
         events_loop.poll_events(|event| match event {
             glutin::Event::WindowEvent { event, .. } => match event {
                 glutin::WindowEvent::Closed => running = false,
@@ -46,11 +46,18 @@ fn main() {
             },
             _ => {}
         });
+        if !running {
+            break;
+        };
         let (width, height) = gl_window.get_inner_size().unwrap();
         context.frame(
             (width as f32, height as f32),
             gl_window.hidpi_factor(),
             |frame| {
+                unsafe {
+                    gl::Viewport(0, 0, width as i32, height as i32);
+                    gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT | gl::STENCIL_BUFFER_BIT);
+                }
                 let dc = DrawContext {
                     frame,
                     width: width,

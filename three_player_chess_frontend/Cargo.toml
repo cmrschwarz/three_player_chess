@@ -8,7 +8,9 @@ glutin = "0.13.0"
 gl = "0.10.0"
 chrono = "0.4"
 rand = "0.4"
+rand_chacha = "0.3.1"
 lazy_static = "1.0"
+vecmath = "1.0.0"
 three_player_chess = {path = "../three_player_chess"}
 
 [dependencies.nanovg]
