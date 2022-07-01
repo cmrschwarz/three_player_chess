@@ -6,32 +6,6 @@ use std::option::Option::*;
 const HBRC: i8 = HB_ROW_COUNT as i8;
 const RS: i8 = ROW_SIZE as i8;
 
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
-pub enum MoveType {
-    Slide,
-    Capture(PackedFieldValue),
-    EnPassant(PackedFieldValue, FieldLocation),
-    Castle(FieldLocation, FieldLocation),
-    Promotion(PieceType),
-    ClaimDraw,
-}
-
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
-pub struct Move {
-    pub move_type: MoveType,
-    pub source: FieldLocation,
-    pub target: FieldLocation,
-}
-
-#[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
-pub struct AnnotatedFieldLocation {
-    pub origin: Color,
-    pub loc: FieldLocation,
-    pub hb: Color,
-    pub file: i8,
-    pub rank: i8,
-}
-
 const CHECK_LINES_DIAGONALS_MAX_SQUARES: usize = 17;
 const CHECK_LINES_DIAGONALS_COUNT: usize = 5;
 const MAX_KNIGHT_MOVES_PER_SQUARE: usize = 10;
@@ -901,5 +875,16 @@ impl ThreePlayerChess {
     }
     pub fn get_field_value(&self, field: FieldLocation) -> FieldValue {
         FieldValue::from(self.get_packed_field_value(field))
+    }
+    pub fn is_valid_move(&mut self, mov: Move) -> bool {
+        // this is not used by engines, and therfore not performance critical
+        // we are therefore fine with using a rather inefficient implementation
+        let moves = self.gen_moves();
+        for candidate_move in moves {
+            if mov == candidate_move {
+                return true;
+            }
+        }
+        false
     }
 }

@@ -1,4 +1,0 @@
-[submodule "deps/surena_game_rs"]
-	path = deps/surena_game_rs
-	url = git@github.com:vilaureu/surena_game_rs.git
-    branch = main

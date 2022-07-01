@@ -1,0 +1,16 @@
+[package]
+name = "three_player_chess_frontend"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+glutin = "0.13.0"
+gl = "0.10.0"
+chrono = "0.4"
+rand = "0.4"
+lazy_static = "1.0"
+three_player_chess = {path = "../three_player_chess"}
+
+[dependencies.nanovg]
+version = "1.0.2"
+features = ["gl3"]

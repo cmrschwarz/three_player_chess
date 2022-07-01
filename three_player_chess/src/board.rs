@@ -115,6 +115,32 @@ pub enum GameStatus {
     Draw(DrawReason),
 }
 
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum MoveType {
+    Slide,
+    Capture(PackedFieldValue),
+    EnPassant(PackedFieldValue, FieldLocation),
+    Castle(FieldLocation, FieldLocation),
+    Promotion(PieceType),
+    ClaimDraw,
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub struct Move {
+    pub move_type: MoveType,
+    pub source: FieldLocation,
+    pub target: FieldLocation,
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
+pub struct AnnotatedFieldLocation {
+    pub origin: Color,
+    pub loc: FieldLocation,
+    pub hb: Color,
+    pub file: i8,
+    pub rank: i8,
+}
+
 // this is not used for board storage because it's sadly
 // two bytes large. it can be converted from / into PackedFieldValue alias u8,
 // which is actually used for storage
@@ -589,6 +615,78 @@ impl std::convert::TryFrom<u8> for PackedFieldValue {
             Color::from_u8(v & 0x3 - 1).ok_or(())?;
             PieceType::from_u8(v >> 2).ok_or(())?;
             Ok(PackedFieldValue(v))
+        }
+    }
+}
+
+impl Move {
+    pub fn from_str(game: &mut ThreePlayerChess, string: &str) -> Option<Move> {
+        if string == "O-O" {
+            return game.gen_move_castling(true);
+        }
+        if string == "O-O-O" {
+            return game.gen_move_castling(false);
+        }
+        if string == "draw" {
+            return Some(Move {
+                source: Default::default(),
+                target: Default::default(),
+                move_type: MoveType::ClaimDraw,
+            });
+        }
+
+        let src = AnnotatedFieldLocation::from_field_with_origin(
+            game.turn,
+            FieldLocation::from_str(&string[0..2])?,
+        );
+        let tgt = AnnotatedFieldLocation::from_field_with_origin(
+            game.turn,
+            FieldLocation::from_str(&string[2..4])?,
+        );
+
+        let src_val = FieldValue::from(game.board[usize::from(src.loc)]);
+
+        if src_val.is_none() {
+            return None;
+        }
+
+        let tgt_val = FieldValue::from(game.board[usize::from(tgt.loc)]);
+
+        if string.len() > 4 {
+            let promotion: [u8; 2] = string[4..].as_bytes().try_into().ok()?;
+            if promotion[0] != '='.try_into().unwrap() {
+                return None;
+            }
+            let piece_type = PieceType::from_ascii(promotion[1])?;
+            return Some(Move {
+                move_type: MoveType::Promotion(piece_type),
+                source: src.loc,
+                target: tgt.loc,
+            });
+        }
+        let (_, src_piece_type) = src_val.unwrap();
+        if tgt_val.is_some() {
+            Some(Move {
+                move_type: MoveType::Capture(tgt_val.into()),
+                source: src.loc,
+                target: tgt.loc,
+            })
+        } else if src_piece_type == PieceType::Pawn && tgt.file != src.file {
+            let ep_square = move_rank(tgt, false)?;
+            Some(Move {
+                move_type: MoveType::EnPassant(
+                    game.board[usize::from(ep_square.loc)],
+                    ep_square.loc,
+                ),
+                source: src.loc,
+                target: tgt.loc,
+            })
+        } else {
+            Some(Move {
+                move_type: MoveType::Slide,
+                source: src.loc,
+                target: tgt.loc,
+            })
         }
     }
 }

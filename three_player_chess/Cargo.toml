@@ -1,0 +1,14 @@
+[package]
+name = "three_player_chess"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+surena_game = { git = "https://github.com/vilaureu/surena_game_rs.git", branch = "main"}
+num-traits = "0.2"
+num-derive = "0.3"
+lazy_static = "1.4"
+arrayvec = "0.7.2"
+
+[lib]
+name = "three_player_chess"

@@ -1,9 +1,7 @@
 use crate::board::*;
-use crate::movegen::*;
 use num_traits::FromPrimitive;
 use std::ffi::CStr;
 use std::fmt::Write;
-use surena_game;
 use surena_game::*;
 use MoveType::*;
 
@@ -61,85 +59,6 @@ impl std::convert::From<Move> for u64 {
         };
         move_type << 16 | (u8::from(m.target) as u64) << 8 | (u8::from(m.source) as u64)
     }
-}
-
-pub fn parse_move_string(game: &mut ThreePlayerChess, string: &str) -> Option<Move> {
-    if string == "O-O" {
-        return game.gen_move_castling(true);
-    }
-    if string == "O-O-O" {
-        return game.gen_move_castling(false);
-    }
-    if string == "draw" {
-        return Some(Move {
-            source: Default::default(),
-            target: Default::default(),
-            move_type: MoveType::ClaimDraw,
-        });
-    }
-
-    let src = AnnotatedFieldLocation::from_field_with_origin(
-        game.turn,
-        FieldLocation::from_str(&string[0..2])?,
-    );
-    let tgt = AnnotatedFieldLocation::from_field_with_origin(
-        game.turn,
-        FieldLocation::from_str(&string[2..4])?,
-    );
-
-    let src_val = FieldValue::from(game.board[usize::from(src.loc)]);
-
-    if src_val.is_none() {
-        return None;
-    }
-
-    let tgt_val = FieldValue::from(game.board[usize::from(tgt.loc)]);
-
-    if string.len() > 4 {
-        let promotion: [u8; 2] = string[4..].as_bytes().try_into().ok()?;
-        if promotion[0] != '='.try_into().unwrap() {
-            return None;
-        }
-        let piece_type = PieceType::from_ascii(promotion[1])?;
-        return Some(Move {
-            move_type: MoveType::Promotion(piece_type),
-            source: src.loc,
-            target: tgt.loc,
-        });
-    }
-    let (_, src_piece_type) = src_val.unwrap();
-    if tgt_val.is_some() {
-        Some(Move {
-            move_type: MoveType::Capture(tgt_val.into()),
-            source: src.loc,
-            target: tgt.loc,
-        })
-    } else if src_piece_type == PieceType::Pawn && tgt.file != src.file {
-        let ep_square = move_rank(tgt, false)?;
-        Some(Move {
-            move_type: MoveType::EnPassant(game.board[usize::from(ep_square.loc)], ep_square.loc),
-            source: src.loc,
-            target: tgt.loc,
-        })
-    } else {
-        Some(Move {
-            move_type: MoveType::Slide,
-            source: src.loc,
-            target: tgt.loc,
-        })
-    }
-}
-
-pub fn check_move_valid(game: &mut ThreePlayerChess, mov: Move) -> bool {
-    // this is not used by engines, and therfore not performance critical
-    // we are therefore fine with using a rather inefficient implementation
-    let moves = game.gen_moves();
-    for candidate_move in moves {
-        if mov == candidate_move {
-            return true;
-        }
-    }
-    false
 }
 
 pub fn check_player_to_move(game: &mut ThreePlayerChess, player: player_id) -> Result<()> {
@@ -219,11 +138,11 @@ impl GameMethods for ThreePlayerChess {
         }
         Ok(())
     }
-    fn is_legal_move(&mut self, player: player_id, mov: move_code, _sync_ctr: u32) -> Result<()> {
+    fn is_legal_move(&mut self, player: player_id, mov: move_code) -> Result<()> {
         let mov = Move::try_from(mov)
             .map_err(|_| Error::new_static(ErrorCode::InvalidInput, b"invalid move code\0"))?;
         check_player_to_move(self, player)?;
-        if check_move_valid(self, mov) {
+        if self.is_valid_move(mov) {
             Ok(())
         } else {
             Err(Error::new_static(
@@ -252,7 +171,7 @@ impl GameMethods for ThreePlayerChess {
 
     fn get_move_code(&mut self, player: player_id, string: &str) -> Result<move_code> {
         check_player_to_move(self, player)?;
-        parse_move_string(self, string)
+        Move::from_str(self, string)
             .map(|mov| mov.into())
             .ok_or_else(|| Error::new_static(ErrorCode::InvalidInput, b"failed to parse move\0"))
     }
@@ -263,15 +182,15 @@ impl GameMethods for ThreePlayerChess {
     }
 }
 
-fn example_game_methods() -> game_methods {
+pub fn three_player_chess_game_methods() -> game_methods {
     let mut features = game_feature_flags::default();
     features.set_print(true);
     features.set_options(true);
 
     create_game_methods::<ThreePlayerChess>(Metadata {
-        game_name: cstr(b"Three Player Chess\0"),
+        game_name: cstr(b"ThreePlayerChess\0"),
         variant_name: cstr(b"Standard\0"),
-        impl_name: cstr(b"three_player_chess\0"),
+        impl_name: cstr(b"three_player_chess_game\0"),
         version: semver {
             major: 0,
             minor: 1,
@@ -284,5 +203,3 @@ fn example_game_methods() -> game_methods {
 fn cstr(bytes: &[u8]) -> &CStr {
     CStr::from_bytes_with_nul(bytes).expect("invalid C string")
 }
-
-plugin_get_game_methods!(example_game_methods());
