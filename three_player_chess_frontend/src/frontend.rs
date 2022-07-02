@@ -67,7 +67,9 @@ const UNIT_SQUARE: [Vector2<f32>; 4] = [
     Vector2::new(1., 1.),
     Vector2::new(1., 0.),
 ];
+
 lazy_static! {
+    static ref UNIT_RECT: Rect = Rect::from_xywh(0., 0., 1., 1.);
     static ref HEX_SIDE_LEN: f32 = (HEX_CENTER_ANGLE / 2.).sin();
     static ref HEX_HEIGHT: f32 =  (HEX_CENTER_ANGLE / 2.).cos();
 
@@ -277,6 +279,15 @@ impl Frontend {
     pub fn render(&mut self, canvas: &mut Canvas) {
         let dim = canvas.image_info().dimensions();
 
+        self.hovered_square = None;
+        if self.dragged_square.is_some() {
+            if let Some(sq) = self.get_board_pos_from_screen_pos(self.cursor_pos) {
+                if self.possible_moves[usize::from(sq.loc)] {
+                    self.hovered_square = Some(sq);
+                }
+            }
+        }
+
         self.board_origin = Vector2::new(dim.width / 2, dim.height / 2);
         self.board_radius = std::cmp::min(dim.width, dim.height) as f32 * 0.46;
         let translation = self.board_origin.cast::<f32>();
@@ -334,7 +345,7 @@ impl Frontend {
 
         canvas.concat(&CELL_TRANSFORMS[file][rank]);
         let paint = Paint::new(&Color4f::from(field_color), None);
-        canvas.draw_rect(Rect::from_xywh(0., 0., 1., 1.), &paint);
+        canvas.draw_rect(&*UNIT_RECT, &paint);
 
         if let Some((color, piece_value)) =
             *FieldValue::from(self.board.board[usize::from(field.loc)])
@@ -353,15 +364,22 @@ impl Frontend {
                 canvas.scale((sx, sy));
                 canvas.translate(Point { x: -0.5, y: -0.5 });
             }
+            if self.hovered_square == Some(field) {
+                let paint = Paint::new(&Color4f::from(self.selection_color), None);
+                canvas.draw_rect(&*UNIT_RECT, &paint);
+            }
             canvas.draw_image_rect(
                 img,
                 Some((
                     &Rect::from_xywh(0., 0., img.width() as f32, img.height() as f32),
                     skia_safe::canvas::SrcRectConstraint::Fast,
                 )),
-                Rect::from_xywh(0., 0., 1., 1.),
+                &*UNIT_RECT,
                 &Paint::default(),
             );
+        } else if self.hovered_square == Some(field) {
+            let paint = Paint::new(&Color4f::from(self.selection_color), None);
+            canvas.draw_rect(&*UNIT_RECT, &paint);
         } else if possible_move {
             let selection_paint = Paint::new(&Color4f::from(self.selection_color), None);
             canvas.draw_circle(Point::new(0.5, 0.5), 0.2, &selection_paint);
