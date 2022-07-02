@@ -3,8 +3,8 @@ use arrayvec::ArrayVec;
 use num_traits::FromPrimitive;
 use std::cmp::min;
 use std::option::Option::*;
-const HBRC: i8 = HB_ROW_COUNT as i8;
-const RS: i8 = ROW_SIZE as i8;
+pub const HBRC: i8 = HB_ROW_COUNT as i8;
+pub const RS: i8 = ROW_SIZE as i8;
 
 const CHECK_LINES_DIAGONALS_MAX_SQUARES: usize = 17;
 const CHECK_LINES_DIAGONALS_COUNT: usize = 5;
