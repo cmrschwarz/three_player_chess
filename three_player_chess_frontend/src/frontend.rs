@@ -2,7 +2,7 @@ use nanovg as nv;
 use nanovg::{Context, Font, Frame, PathOptions, Transform};
 use std::f32::consts::PI;
 use std::ops::Mul;
-use vecmath::{vec2_add, vec2_scale, vec2_sub, Vector2};
+use vecmath::{vec2_add, vec2_dot, vec2_len, vec2_normalized, vec2_scale, vec2_sub, Vector2};
 
 use three_player_chess::board::*;
 
@@ -66,7 +66,7 @@ impl<'a> Frontend<'a> {
         });
         let mut fe = Frontend {
             prev_second: -1.0,
-            board: ThreePlayerChess::from_str("BCEFGH2A5D4D5H4/BG1/CF1/AH1/D1/E1/AH/:LKIDCBA7J6/KB8/JC8/LA8/L5/D8/LA/:HGFEILbJaK9/GKc/FJc/HLc/Ec/Ic/HL/Ka:7:7").unwrap(),//Default::default(),
+            board: ThreePlayerChess::from_str("BCEFGH2A5E4D5H4C5/BG1/CF1/AH1/D1/E1/AH/:LKIDCBA7J6/KB8/JC8/LA8/L5/D8/LA/:HGFEILbJaK9/GKc/FJc/HLc/Ec/Ic/HL/Ka:7:7").unwrap(),//Default::default(),
             font: nanovg::Font::from_memory(&ctx, "Roboto", FONT)
                 .expect("Failed to load font 'Roboto-Regular.ttf'"),
             black: nv::Color::from_rgb(230, 230, 230),
@@ -195,35 +195,65 @@ impl<'a> Frontend<'a> {
 
                     let mut field_tf = Transform::new();
 
-                    field_tf = field_tf.translate(tl[0], tl[1]);
-                    let width = ((br[0] - bl[0]) + (tr[0] - tl[0])) / 2.;
-                    let height = ((bl[1] - tl[1]) + (br[1] - tr[1])) / 1.95;
+                    let width = vec2_len(vec2_sub(br, bl)); //(vec2_len(vec2_sub(tr, tl)) + vec2_len(vec2_sub(br, bl))) / 2.;
+                    let height = vec2_len(vec2_sub(br, tr)); //(vec2_len(vec2_sub(br, tr)) + vec2_len(vec2_sub(bl, tl))) / 2.;
                     let skew_x = ((br[0] - tr[0]) + bl[0] - tl[0]) / 2.;
                     let skew_y = ((br[1] - bl[1]) + tr[1] - tl[1]) / 2.;
-                    field_tf = field_tf.skew_y(skew_y / height);
-                    field_tf = field_tf.skew_x(skew_x / width);
-                    field_tf = field_tf.scale(width, height);
-                    if !right || color != hb {
-                        field_tf = field_tf.translate(0.5, 0.5);
-                        let (mut sx, mut sy) = (1., 1.);
-                        if !right {
-                            sx = -1.;
-                        };
-                        if color != hb {
-                            sy = -1.;
-                        }
-                        field_tf = field_tf.scale(sx, sy);
-                        field_tf = field_tf.translate(-0.5, -0.5);
+                    let top = vec2_sub(tr, tl);
+                    let top_len = vec2_len(top);
+                    let shift = vec2_scale(vec2_normalized(top), top_len - (tr[0] - tl[0]));
+                    //field_tf = field_tf.translate(shift[0], shift[1]);
+
+                    let angle_top = ((tr[1] - tl[1]) / (tr[0] - tl[0])).atan();
+                    let angle_bot = ((br[1] - bl[1]) / (br[0] - bl[0])).atan();
+                    let angle = (angle_top + angle_bot) / 2.;
+
+                    let height = vec2_len(vec2_sub(br, tr));
+                    // field_tf = field_tf.skew_x(-skew_x / width / 2.);
+                    if color != hb {
+                        let width = vec2_len(vec2_sub(tr, tl));
+                        field_tf = field_tf.translate(tl[0], tl[1]);
+                        field_tf = field_tf.rotate(angle_top);
+                        field_tf = field_tf.scale(width, height);
+                    } else {
+                        field_tf = field_tf.translate(bl[0], bl[1] - height);
+                        let width = vec2_len(vec2_sub(br, bl));
+                        field_tf = field_tf.translate(0., height);
+                        field_tf = field_tf.rotate(angle_bot);
+                        field_tf = field_tf.translate(0., -height);
+                        field_tf = field_tf.scale(width, height);
                     }
+
+                    // field_tf = field_tf.skew_y(skew_y / height);
+                    // field_tf = field_tf.skew_x(skew_x / width );
+                    field_tf = field_tf.translate(0.5, 0.5);
+                    let (mut sx, mut sy) = (1., 1.);
+                    if !right {
+                        sx = -1.;
+                    };
+                    if color != hb {
+                        sy = -1.;
+                    }
+                    field_tf = field_tf.scale(sx, sy);
+                    field_tf = field_tf.translate(-0.5, -0.5);
                     // this is mat = transform * field_df. nanovg is weird
                     let mat = field_tf.mul(transform);
+                    let origin = (0., 0.);
+                    let size = (1., 1.);
+                    /* dc.frame.path(
+                        |path| {
+                            path.rect(origin, size);
+                            path.fill(nv::Color::from_rgb(255, 0, 0), Default::default());
+                        },
+                        PathOptions {
+                            transform: Some(mat),
+                            ..Default::default()
+                        },
+                    );*/
                     dc.frame.path(
                         |path| {
-                            let origin = (0., 0.);
-                            let size = (1., 1.);
                             path.rect(origin, size);
                             path.fill(
-                                //nv::Color::from_rgb(255, 0, 0),
                                 nv::ImagePattern {
                                     image: img,
                                     origin,
