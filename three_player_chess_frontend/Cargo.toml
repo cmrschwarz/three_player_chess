@@ -4,15 +4,16 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-glutin = "0.13.0"
+glutin = "0.28.0"
 gl = "0.10.0"
 chrono = "0.4"
 rand = "0.4"
 rand_chacha = "0.3.1"
 lazy_static = "1.0"
 vecmath = "1.0.0"
-three_player_chess = {path = "../three_player_chess"}
+nalgebra = "0.31.0"
 
-[dependencies.nanovg]
-version = "1.0.2"
-features = ["gl3"]
+three_player_chess = {path = "../three_player_chess"}
+[dependencies.skia-safe]
+version = "0.50"
+features = ["gl", "x11"]

@@ -1,17 +1,15 @@
-use nanovg as nv;
-use nanovg::{Context, Font, Frame, PathOptions, Transform};
+use nalgebra::{ArrayStorage, OMatrix, OVector, Point2, Transform2};
+use skia_safe::{
+    gpu::{gl::FramebufferInfo, BackendRenderTarget, SurfaceOrigin},
+    radians_to_degrees, Canvas, Color, Color4f, ColorType, Data, Document, Font, Image, Paint,
+    PaintStyle, Path, Point, Rect, Surface, Typeface,
+};
 use std::f32::consts::PI;
 use std::ops::Mul;
-use vecmath::{vec2_add, vec2_dot, vec2_len, vec2_normalized, vec2_scale, vec2_sub, Vector2};
+use vecmath::{vec2_add, vec2_len, vec2_normalized, vec2_scale, vec2_sub, Vector2};
 
+use three_player_chess::board;
 use three_player_chess::board::*;
-
-pub struct DrawContext<'a> {
-    pub frame: Frame<'a>,
-    pub width: u32,
-    pub height: u32,
-}
-
 pub const FONT: &'static [u8] = include_bytes!("../res/Roboto-Regular.ttf");
 
 pub const PIECES: [[&'static [u8]; PIECE_COUNT]; HB_COUNT] = [
@@ -41,14 +39,14 @@ pub const PIECES: [[&'static [u8]; PIECE_COUNT]; HB_COUNT] = [
     ],
 ];
 
-pub struct Frontend<'a> {
-    font: Font<'a>,
-    piece_images: [[nv::Image<'a>; PIECE_COUNT]; HB_COUNT],
+pub struct Frontend {
+    font: Font,
+    piece_images: [[Image; PIECE_COUNT]; HB_COUNT],
     board: ThreePlayerChess,
-    black: nv::Color,
-    white: nv::Color,
-    background: nv::Color,
-    border: nv::Color,
+    black: Color,
+    white: Color,
+    background: Color,
+    border: Color,
     prev_second: f32,
     hex_board_coordinates: [[[f32; 2]; HB_ROW_COUNT + 1]; HB_ROW_COUNT + 1],
 }
@@ -112,21 +110,20 @@ fn getTransform(from: [[f32; 2]; 4], to: [[f32; 2]; 4]) -> [[f32; 3]; 3] {
 
     h_res
 }
-impl<'a> Frontend<'a> {
-    pub fn new(ctx: &'a Context) -> Frontend<'a> {
+impl Frontend {
+    pub fn new() -> Frontend {
         let images = PIECES.map(|pieces_for_color| {
             pieces_for_color
-                .map(|piece_data| nv::Image::new(ctx).build_from_memory(piece_data).unwrap())
+                .map(|piece_data| Image::from_encoded(Data::new_copy(&piece_data)).unwrap())
         });
         let mut fe = Frontend {
             prev_second: -1.0,
             board: ThreePlayerChess::from_str("BCEFGH2A5E4D5H4C5/BG1/CF1/AH1/D1/E1/AH/:LKIDCBA7J6/KB8/JC8/LA8/L5/D8/LA/:HGFEILbJaK9/GKc/FJc/HLc/Ec/Ic/HL/Ka:7:7").unwrap(),//Default::default(),
-            font: nanovg::Font::from_memory(&ctx, "Roboto", FONT)
-                .expect("Failed to load font 'Roboto-Regular.ttf'"),
-            black: nv::Color::from_rgb(230, 230, 230),
-            white: nv::Color::from_rgb(130, 130, 130),
-            background: nv::Color::from_rgb(142, 83, 46),
-            border: nv::Color::from_rgb(0, 0, 0),
+            font:  Font::from_typeface(Typeface::from_data(Data::new_copy(&FONT), None).expect("Failed to load font 'Roboto-Regular.ttf'"), None),
+            black: Color::from_rgb(230, 230, 230),
+            white: Color::from_rgb(130, 130, 130),
+            background: Color::from_rgb(142, 83, 46),
+            border: Color::from_rgb(0, 0, 0),
             piece_images: images,
             hex_board_coordinates: Default::default(),
         };
@@ -156,79 +153,71 @@ impl<'a> Frontend<'a> {
         }
         fe
     }
-    pub fn render(&mut self, dc: &DrawContext<'a>) {
-        let radius_board = std::cmp::min(dc.width, dc.height) as f32 * 0.45;
+    pub fn render(&mut self, canvas: &mut Canvas) {
+        let dim = canvas.image_info().dimensions();
+        let radius_board = std::cmp::min(dim.width, dim.height) as f32 * 0.45;
         let radius_border = radius_board * 1.05;
-        dc.frame.path(
-            |path| {
-                path.rect((0., 0.), (dc.width as f32, dc.height as f32));
-                path.fill(self.background, Default::default());
-            },
-            Default::default(),
-        );
-        dc.frame.path(
-            |path| {
-                let center_angle = 2. * PI / 6.;
-                for i in 0..6 {
-                    let point = (
-                        (i as f32 * center_angle).cos(),
-                        (i as f32 * center_angle).sin(),
-                    );
-                    if i == 0 {
-                        path.move_to(point);
-                    } else {
-                        path.line_to(point);
-                    }
-                }
-                path.close();
-                path.fill(self.border, Default::default());
-            },
-            PathOptions {
-                transform: Some(
-                    nv::Transform::new()
-                        .translate(dc.width as f32 / 2., dc.height as f32 / 2.)
-                        .scale(radius_border, radius_border),
-                ),
-                ..Default::default()
-            },
-        );
-        self.render_hex_board(dc, radius_board, Color::C0, true);
-        for c in Color::iter() {
+        canvas.save();
+        canvas.clear(self.background);
+        canvas.translate(Point {
+            x: dim.width as f32 / 2.,
+            y: dim.height as f32 / 2.,
+        });
+        canvas.scale((radius_border, radius_border));
+        let path = Path::new();
+
+        let center_angle = 2. * PI / 6.;
+        for i in 0..6 {
+            let point = (
+                (i as f32 * center_angle).cos(),
+                (i as f32 * center_angle).sin(),
+            );
+            if i == 0 {
+                path.move_to(point);
+            } else {
+                path.line_to(point);
+            }
+        }
+        path.close();
+        let paint = Paint::new(&Color4f::from(self.border), None);
+        paint.set_style(PaintStyle::Fill);
+        canvas.draw_path(&path, &paint);
+        self.render_hex_board(canvas, radius_board, board::Color::C0, true);
+        for c in board::Color::iter() {
             for right in [true, false] {
-                self.render_hex_board(dc, radius_board, *c, right);
+                self.render_hex_board(canvas, radius_board, *c, right);
             }
         }
     }
-    pub fn render_hex_board(&mut self, dc: &DrawContext, radius: f32, hb: Color, right: bool) {
+    pub fn render_hex_board(
+        &mut self,
+        canvas: &mut Canvas,
+        radius: f32,
+        hb: board::Color,
+        right: bool,
+    ) {
         let rot = (1. / 3.) * 2.0 * PI;
-        let transform = Transform::new()
-            .translate(dc.width as f32 / 2., dc.height as f32 / 2.)
-            .rotate(usize::from(hb) as f32 * rot)
-            .scale(if !right { -radius } else { radius }, radius);
-        let wtf = transform.transform_point((0.125, 0.83));
+        canvas.save();
+        canvas.rotate(radians_to_degrees(rot), None);
+        canvas.scale((if !right { -radius } else { radius }, radius));
+        let path = Path::new();
+
         for file in 0..HB_ROW_COUNT {
             for rank in 0..HB_ROW_COUNT {
-                dc.frame.path(
-                    |path| {
-                        path.move_to(point(self.hex_board_coordinates[file][rank]));
-                        path.line_to(point(self.hex_board_coordinates[file + 1][rank]));
-                        path.line_to(point(self.hex_board_coordinates[file + 1][rank + 1]));
-                        path.line_to(point(self.hex_board_coordinates[file][rank + 1]));
-                        path.close();
-                        path.fill(
-                            if ((file % 2) + (rank % 2) + (right as usize)) % 2 == 0 {
-                                self.black
-                            } else {
-                                self.white
-                            },
-                            Default::default(),
-                        );
-                    },
-                    PathOptions {
-                        transform: Some(transform),
-                        ..Default::default()
-                    },
-                );
+                path.reset();
+
+                path.move_to(point(self.hex_board_coordinates[file][rank]));
+                path.line_to(point(self.hex_board_coordinates[file + 1][rank]));
+                path.line_to(point(self.hex_board_coordinates[file + 1][rank + 1]));
+                path.line_to(point(self.hex_board_coordinates[file][rank + 1]));
+                path.close();
+                let color = if ((file % 2) + (rank % 2) + (right as usize)) % 2 == 0 {
+                    self.black
+                } else {
+                    self.white
+                };
+                let paint = Paint::new(&Color4f::from(color), None);
+                canvas.draw_path(&path, &paint);
                 let mut f = file as i8;
                 let mut r = rank as i8;
                 if right {
@@ -247,84 +236,19 @@ impl<'a> Frontend<'a> {
                     let tr = self.hex_board_coordinates[file + 1][rank + 1];
                     let tl = self.hex_board_coordinates[file][rank + 1];
 
-                    let mut field_tf = Transform::new();
-
-                    let width = vec2_len(vec2_sub(br, bl)); //(vec2_len(vec2_sub(tr, tl)) + vec2_len(vec2_sub(br, bl))) / 2.;
-                    let height = vec2_len(vec2_sub(br, tr)); //(vec2_len(vec2_sub(br, tr)) + vec2_len(vec2_sub(bl, tl))) / 2.;
-                    let skew_x = ((br[0] - tr[0]) + bl[0] - tl[0]) / 2.;
-                    let skew_y = ((br[1] - bl[1]) + tr[1] - tl[1]) / 2.;
-                    let top = vec2_sub(tr, tl);
-                    let top_len = vec2_len(top);
-                    let shift = vec2_scale(vec2_normalized(top), top_len - (tr[0] - tl[0]));
-                    //field_tf = field_tf.translate(shift[0], shift[1]);
-
-                    let angle_top = ((tr[1] - tl[1]) / (tr[0] - tl[0])).atan();
-                    let angle_bot = ((br[1] - bl[1]) / (br[0] - bl[0])).atan();
-                    let angle = (angle_top + angle_bot) / 2.;
-
-                    let height = vec2_len(vec2_sub(br, tr));
-                    // field_tf = field_tf.skew_x(-skew_x / width / 2.);
-                    if color != hb {
-                        let width = vec2_len(vec2_sub(tr, tl));
-                        field_tf = field_tf.translate(tl[0], tl[1]);
-                        field_tf = field_tf.rotate(angle_top);
-                        field_tf = field_tf.scale(width, height);
-                    } else {
-                        field_tf = field_tf.translate(bl[0], bl[1] - height);
-                        let width = vec2_len(vec2_sub(br, bl));
-                        field_tf = field_tf.translate(0., height);
-                        field_tf = field_tf.rotate(angle_bot);
-                        field_tf = field_tf.translate(0., -height);
-                        field_tf = field_tf.scale(width, height);
-                    }
-
-                    // field_tf = field_tf.skew_y(skew_y / height);
-                    // field_tf = field_tf.skew_x(skew_x / width );
-                    field_tf = field_tf.translate(0.5, 0.5);
-                    let (mut sx, mut sy) = (1., 1.);
-                    if !right {
-                        sx = -1.;
-                    };
-                    if color != hb {
-                        sy = -1.;
-                    }
-                    field_tf = field_tf.scale(sx, sy);
-                    field_tf = field_tf.translate(-0.5, -0.5);
-                    // this is mat = transform * field_df. nanovg is weird
-                    let mat = field_tf.mul(transform);
-                    let origin = (0., 0.);
-                    let size = (1., 1.);
-                    /* dc.frame.path(
-                        |path| {
-                            path.rect(origin, size);
-                            path.fill(nv::Color::from_rgb(255, 0, 0), Default::default());
-                        },
-                        PathOptions {
-                            transform: Some(mat),
-                            ..Default::default()
-                        },
-                    );*/
-                    dc.frame.path(
-                        |path| {
-                            path.rect(origin, size);
-                            path.fill(
-                                nv::ImagePattern {
-                                    image: img,
-                                    origin,
-                                    size,
-                                    angle: 0.,
-                                    alpha: 1.,
-                                },
-                                Default::default(),
-                            );
-                        },
-                        PathOptions {
-                            transform: Some(mat),
-                            ..Default::default()
-                        },
+                    getTransform([[0.]], to)
+                    canvas.draw_image_rect(
+                        img,
+                        Some((
+                            &Rect::from_xywh(0., 0., img.width() as f32, img.height() as f32),
+                            skia_safe::canvas::SrcRectConstraint::Fast,
+                        )),
+                        Rect::from_xywh(0., 0., 1., 1.),
+                        &Paint::default(),
                     );
                 }
             }
         }
+        canvas.restore();
     }
 }
