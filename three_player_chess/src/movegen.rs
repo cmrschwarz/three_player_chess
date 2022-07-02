@@ -587,7 +587,10 @@ impl ThreePlayerChess {
     ) -> bool {
         let piece_value = self.get_packed_field_value(tgt.loc);
         match FieldValue::from(piece_value) {
-            FieldValue(None) => self.gen_move_unless_check(src, tgt, MoveType::Slide, moves),
+            FieldValue(None) => {
+                self.gen_move_unless_check(src, tgt, MoveType::Slide, moves);
+                true
+            }
             FieldValue(Some((color, _))) if color != self.turn => {
                 self.gen_move_unless_check(src, tgt, MoveType::Capture(piece_value), moves);
                 false // we don't want to continue in this direction regardless of check
@@ -611,7 +614,7 @@ impl ThreePlayerChess {
                 };
                 match res {
                     Some(tgt) => {
-                        if !self.gen_move(pos, tgt, moves) {
+                        if !self.gen_move(field, tgt, moves) {
                             break;
                         }
                         pos = tgt;
@@ -649,7 +652,7 @@ impl ThreePlayerChess {
                                 match move_diagonal(pos2, up != swap_dir, right != swap_dir) {
                                     None => break,
                                     Some((one, None)) => {
-                                        if !self.gen_move(pos2, one, moves) {
+                                        if !self.gen_move(field, one, moves) {
                                             break;
                                         }
                                         pos2 = one;
@@ -880,7 +883,8 @@ impl ThreePlayerChess {
     pub fn is_valid_move(&mut self, mov: Move) -> bool {
         // this is not used by engines, and therfore not performance critical
         // we are therefore fine with using a rather inefficient implementation
-        let moves = self.gen_moves();
+        let mut moves = Vec::new();
+        self.gen_moves_for_field(mov.source, &mut moves);
         for candidate_move in moves {
             if mov == candidate_move {
                 return true;

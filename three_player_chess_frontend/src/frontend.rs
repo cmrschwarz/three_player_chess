@@ -214,7 +214,7 @@ impl Frontend {
             font:  Font::from_typeface(Typeface::from_data(Data::new_copy(&FONT), None).expect("Failed to load font 'Roboto-Regular.ttf'"), None),
             black: Color::from_rgb(230, 230, 230),
             white: Color::from_rgb(130, 130, 130),
-            selection_color: Color::from_argb(128, 148, 195, 143),
+            selection_color: Color::from_argb(128, 148, 195, 183),
             background: Color::from_rgb(142, 83, 46),
             border: Color::from_rgb(0, 0, 0),
             transformed_pieces: true,
@@ -342,10 +342,11 @@ impl Frontend {
         };
 
         let possible_move = self.possible_moves[usize::from(field.loc)];
+        let selection_paint = Paint::new(&Color4f::from(self.selection_color), None);
+        let field_paint = Paint::new(&Color4f::from(field_color), None);
 
         canvas.concat(&CELL_TRANSFORMS[file][rank]);
-        let paint = Paint::new(&Color4f::from(field_color), None);
-        canvas.draw_rect(&*UNIT_RECT, &paint);
+        canvas.draw_rect(&*UNIT_RECT, &field_paint);
 
         if let Some((color, piece_value)) =
             *FieldValue::from(self.board.board[usize::from(field.loc)])
@@ -360,13 +361,22 @@ impl Frontend {
                 sy = -1.;
             }
             if sx < 0. || sy < 0. {
-                canvas.translate(Point { x: 0.5, y: 0.5 });
+                canvas.translate(Point::new(0.5, 0.5));
                 canvas.scale((sx, sy));
-                canvas.translate(Point { x: -0.5, y: -0.5 });
+                canvas.translate(Point::new(-0.5, -0.5));
             }
             if self.hovered_square == Some(field) {
-                let paint = Paint::new(&Color4f::from(self.selection_color), None);
-                canvas.draw_rect(&*UNIT_RECT, &paint);
+                canvas.draw_rect(&*UNIT_RECT, &selection_paint);
+            } else if possible_move {
+                let size = 0.35;
+                let mut path = Path::new();
+                for p in UNIT_SQUARE {
+                    path.move_to(Point::new(p.x, p.y));
+                    path.line_to(Point::new(p.x, if p.y > 0. { p.y - size } else { size }));
+                    path.line_to(Point::new(if p.x > 0. { p.x - size } else { size }, p.y));
+                    path.line_to(Point::new(p.x, p.y));
+                }
+                canvas.draw_path(&path, &selection_paint);
             }
             canvas.draw_image_rect(
                 img,
@@ -378,10 +388,8 @@ impl Frontend {
                 &Paint::default(),
             );
         } else if self.hovered_square == Some(field) {
-            let paint = Paint::new(&Color4f::from(self.selection_color), None);
-            canvas.draw_rect(&*UNIT_RECT, &paint);
+            canvas.draw_rect(&*UNIT_RECT, &selection_paint);
         } else if possible_move {
-            let selection_paint = Paint::new(&Color4f::from(self.selection_color), None);
             canvas.draw_circle(Point::new(0.5, 0.5), 0.2, &selection_paint);
         }
     }
@@ -463,15 +471,15 @@ impl Frontend {
     }
     pub fn released(&mut self) {
         let square = self.get_board_pos_from_screen_pos(self.cursor_pos);
-        if let Some(ds) = self.dragged_square {
-            if let Some(sq) = square {
-                if ds != sq && self.possible_moves[usize::from(sq.loc)] {
+        if let Some(src) = self.dragged_square {
+            if let Some(tgt) = square {
+                if src != tgt && self.possible_moves[usize::from(tgt.loc)] {
                     let mut mov = Move {
-                        source: ds.loc,
-                        target: sq.loc,
+                        source: src.loc,
+                        target: tgt.loc,
                         move_type: MoveType::Slide,
                     };
-                    let field_val = self.board.board[usize::from(sq.loc)];
+                    let field_val = self.board.board[usize::from(tgt.loc)];
                     if FieldValue::from(field_val).is_some() {
                         mov.move_type = MoveType::Capture(field_val);
                     }
