@@ -58,6 +58,60 @@ fn point(vec2: Vector2<f32>) -> (f32, f32) {
     (vec2[0], vec2[1])
 }
 
+fn getTransform(from: [[f32; 2]; 4], to: [[f32; 2]; 4]) -> [[f32; 3]; 3] {
+    let mut a = [[0f32; 8]; 8]; // 8x8
+    let mut ai = 0;
+    for i in 0..4 {
+        a[ai] = [
+            from[i][0],
+            from[i][1],
+            1.,
+            0.,
+            0.,
+            0.,
+            -from[i][0] * to[i][0],
+            -from[i][1] * to[i][0],
+        ];
+        a[ai + 1] = [
+            0.,
+            0.,
+            0.,
+            from[i][0],
+            from[i][1],
+            1.,
+            -from[i][0] * to[i][1],
+            -from[i][1] * to[i][1],
+        ];
+        ai += 2;
+    }
+    let mut b = [0f32; 8]; // 8x1
+    let mut bi = 0;
+    for i in 0..4 {
+        b[bi] = to[i][0];
+        b[bi + 1] = to[i][1];
+        bi += 2;
+    }
+    let a_mat = OMatrix::from_array_storage(ArrayStorage(a)).transpose();
+    let b_mat = OVector::from_array_storage(ArrayStorage([b]));
+
+    let h = a_mat.lu().solve(&b_mat).unwrap();
+
+    let h_res = [[h[0], h[1], h[2]], [h[3], h[4], h[5]], [h[6], h[7], 1.]];
+
+    // Sanity check that H actually maps `from` to `to`
+    let h_mat = Transform2::from_matrix_unchecked(
+        OMatrix::from_array_storage(ArrayStorage(h_res)).transpose(),
+    );
+    for i in 0..4 {
+        let res = h_mat.transform_point(&Point2::new(from[i][0], from[i][1]));
+        assert!(
+            vec2_len(vec2_sub(res.into(), to[i])) < 1e-5,
+            "transform creation failed"
+        )
+    }
+
+    h_res
+}
 impl<'a> Frontend<'a> {
     pub fn new(ctx: &'a Context) -> Frontend<'a> {
         let images = PIECES.map(|pieces_for_color| {
