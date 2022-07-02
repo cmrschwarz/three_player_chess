@@ -445,10 +445,26 @@ impl Frontend {
     }
     pub fn released(&mut self) {
         let square = self.get_board_pos_from_screen_pos(self.cursor_pos);
-        if self.dragged_square.is_some() {
-            self.dragged_square = None;
-            //TODO: maybe make move
+        if let Some(ds) = self.dragged_square {
+            if let Some(sq) = square {
+                if ds != sq && self.possible_moves[usize::from(sq.loc)] {
+                    let mut mov = Move {
+                        source: ds.loc,
+                        target: sq.loc,
+                        move_type: MoveType::Slide,
+                    };
+                    let field_val = self.board.board[usize::from(sq.loc)];
+                    if FieldValue::from(field_val).is_some() {
+                        mov.move_type = MoveType::Capture(field_val);
+                    }
+                    if self.board.is_valid_move(mov) {
+                        self.board.make_move(mov);
+                        self.board.apply_move_sideeffects(mov);
+                    }
+                }
+            }
         }
+        self.dragged_square = None;
         if square != self.selected_square {
             self.selected_square = None;
             self.possible_moves.set_all(false);

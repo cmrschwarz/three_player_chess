@@ -304,8 +304,10 @@ fn move_diagonal(
     up: bool,
     right: bool,
 ) -> Option<(AnnotatedFieldLocation, Option<AnnotatedFieldLocation>)> {
-    let tgt_rank = field.rank + coord_dir(up);
-    let tgt_file = field.file + coord_dir(right);
+    let rank_dir = coord_dir(up == (field.hb == field.origin));
+    let file_dir = coord_dir(right == (field.hb == field.origin));
+    let tgt_rank = field.rank + rank_dir;
+    let tgt_file = field.file + file_dir;
     if !coord_in_bounds(tgt_file) || !coord_in_bounds(tgt_rank) {
         return None;
     }
@@ -338,8 +340,7 @@ fn move_diagonal(
             None,
         ));
     }
-    let rank_dir = coord_dir(up == (field.hb == field.origin));
-    let file_dir = coord_dir(right == (field.hb == field.origin));
+
     Some((
         AnnotatedFieldLocation::new(
             field.origin,
