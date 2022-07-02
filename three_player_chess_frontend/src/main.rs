@@ -2,14 +2,14 @@
 extern crate lazy_static;
 use gl::types::*;
 use glutin::{
-    event::{Event, KeyboardInput, VirtualKeyCode, WindowEvent},
+    event::{ElementState, Event, KeyboardInput, MouseButton, VirtualKeyCode, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
     window::WindowBuilder,
     GlProfile,
 };
 use skia_safe::{
     gpu::{gl::FramebufferInfo, BackendRenderTarget, SurfaceOrigin},
-    Color, Color4f, ColorType, Data, Document, Image, Paint, Rect, Surface,
+    ColorType, Surface,
 };
 
 mod frontend;
@@ -120,12 +120,20 @@ fn main() {
                     env.windowed_context.resize(physical_size)
                 }
                 WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
+                WindowEvent::MouseInput {
+                    state: ElementState::Pressed,
+                    button: MouseButton::Left,
+                    ..
+                } => {
+                    fe.clicked();
+                }
+                WindowEvent::CursorMoved { position, .. } => {
+                    fe.cursor_pos = position.into();
+                }
                 WindowEvent::KeyboardInput {
                     input:
                         KeyboardInput {
-                            virtual_keycode,
-                            modifiers,
-                            ..
+                            virtual_keycode, ..
                         },
                     ..
                 } => {

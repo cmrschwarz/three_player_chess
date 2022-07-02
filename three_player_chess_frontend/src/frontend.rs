@@ -1,12 +1,10 @@
 use nalgebra::{ArrayStorage, OMatrix, OVector, Point2, Transform2};
 use skia_safe::{
-    gpu::{gl::FramebufferInfo, BackendRenderTarget, SurfaceOrigin},
-    radians_to_degrees, Canvas, Color, Color4f, ColorType, Data, Document, Font, Image, Matrix,
-    Paint, PaintStyle, Path, Point, Rect, Surface, Typeface,
+    radians_to_degrees, Canvas, Color, Color4f, Data, Font, Image, Matrix, Paint, PaintStyle, Path,
+    Point, Rect, Typeface,
 };
 use std::f32::consts::PI;
-use std::ops::Mul;
-use vecmath::{vec2_add, vec2_len, vec2_normalized, vec2_scale, vec2_sub, Vector2};
+use vecmath::{vec2_add, vec2_len, vec2_scale, vec2_sub, Vector2};
 
 use three_player_chess::board;
 use three_player_chess::board::*;
@@ -41,20 +39,28 @@ pub const PIECES: [[&'static [u8]; PIECE_COUNT]; HB_COUNT] = [
 
 pub struct Frontend {
     pub font: Font,
-    pub piece_images: [[Image; PIECE_COUNT]; HB_COUNT],
-    pub board: ThreePlayerChess,
+
     pub black: Color,
     pub white: Color,
     pub background: Color,
     pub border: Color,
     pub prev_second: f32,
     pub transformed_pieces: bool,
+    pub board: ThreePlayerChess,
+    pub selected_square: Option<FieldLocation>,
+    pub cursor_pos: Vector2<i32>,
 }
 fn point(vec2: Vector2<f32>) -> (f32, f32) {
     (vec2[0], vec2[1])
 }
 
 lazy_static! {
+    static ref PIECE_IMAGES: [[Image; PIECE_COUNT]; HB_COUNT] = {
+        PIECES.map(|pieces_for_color| {
+            pieces_for_color
+                .map(|piece_data| Image::from_encoded(Data::new_copy(&piece_data)).unwrap())
+        })
+    };
     static ref HEX_BOARD_COORDS: [[[f32; 2]; HB_ROW_COUNT + 1]; HB_ROW_COUNT + 1] = {
         let mut hbc: [[[f32; 2]; HB_ROW_COUNT + 1]; HB_ROW_COUNT + 1] = Default::default();
         let center_angle_half = 2. * PI / 12.;
@@ -92,7 +98,7 @@ lazy_static! {
                 let br = hbc[file + 1][rank];
                 let tr = hbc[file + 1][rank + 1];
                 let tl = hbc[file][rank + 1];
-                let t = getTransform([[0., 0.], [1., 0.], [1., 1.], [0., 1.]], [tl, tr, br, bl]);
+                let t = create_rect_transform([[0., 0.], [1., 0.], [1., 1.], [0., 1.]], [tl, tr, br, bl]).unwrap();
                 let mat = Matrix::new_all(
                     t[0][0], t[0][1], t[0][2], t[1][0], t[1][1], t[1][2], t[2][0], t[2][1], t[2][2],
                 );
@@ -103,7 +109,7 @@ lazy_static! {
     };
 }
 
-fn getTransform(from: [[f32; 2]; 4], to: [[f32; 2]; 4]) -> [[f32; 3]; 3] {
+fn create_rect_transform(from: [[f32; 2]; 4], to: [[f32; 2]; 4]) -> Option<[[f32; 3]; 3]> {
     let mut a = [[0f32; 8]; 8]; // 8x8
     let mut ai = 0;
     for i in 0..4 {
@@ -143,27 +149,23 @@ fn getTransform(from: [[f32; 2]; 4], to: [[f32; 2]; 4]) -> [[f32; 3]; 3] {
 
     let h_res = [[h[0], h[1], h[2]], [h[3], h[4], h[5]], [h[6], h[7], 1.]];
 
-    // Sanity check that H actually maps `from` to `to`
+    // check if h actually works (maps the points in 'from' to 'to')
+    // this might not be the case for concave rects
+    let epsilon = 1e-7; //the mistakes we get here are quite large
     let h_mat = Transform2::from_matrix_unchecked(
         OMatrix::from_array_storage(ArrayStorage(h_res)).transpose(),
     );
     for i in 0..4 {
         let res = h_mat.transform_point(&Point2::new(from[i][0], from[i][1]));
-        assert!(
-            vec2_len(vec2_sub(res.into(), to[i])) < 1e-5,
-            "transform creation failed"
-        )
+        if vec2_len(vec2_sub(res.into(), to[i])) > epsilon {
+            return None;
+        }
     }
-
-    h_res
+    Some(h_res)
 }
 impl Frontend {
     pub fn new() -> Frontend {
-        let images = PIECES.map(|pieces_for_color| {
-            pieces_for_color
-                .map(|piece_data| Image::from_encoded(Data::new_copy(&piece_data)).unwrap())
-        });
-        let mut fe = Frontend {
+        Frontend {
             prev_second: -1.0,
             board: ThreePlayerChess::from_str("BCEFGH2A5E4D5H4C5/BG1/CF1/AH1/D1/E1/AH/:LKIDCBA7J6/KB8/JC8/LA8/L5/D8/LA/:HGFEILbJaK9/GKc/FJc/HLc/Ec/Ic/HL/Ka:7:7").unwrap(),//Default::default(),
             font:  Font::from_typeface(Typeface::from_data(Data::new_copy(&FONT), None).expect("Failed to load font 'Roboto-Regular.ttf'"), None),
@@ -171,11 +173,10 @@ impl Frontend {
             white: Color::from_rgb(130, 130, 130),
             background: Color::from_rgb(142, 83, 46),
             border: Color::from_rgb(0, 0, 0),
-            piece_images: images,
-            transformed_pieces: true
-        };
-
-        fe
+            transformed_pieces: true,
+            selected_square: None,
+            cursor_pos: [-1; 2],
+        }
     }
     pub fn render_background(&mut self, canvas: &mut Canvas, radius_border: f32) {
         canvas.clear(self.background);
@@ -205,7 +206,7 @@ impl Frontend {
             x: dim.width as f32 / 2.,
             y: dim.height as f32 / 2.,
         });
-        let radius_board = std::cmp::min(dim.width, dim.height) as f32 * 0.45;
+        let radius_board = std::cmp::min(dim.width, dim.height) as f32 * 0.46;
         canvas.save();
         self.render_background(canvas, radius_board * 1.05);
         canvas.restore();
@@ -247,7 +248,7 @@ impl Frontend {
         if let Some((color, piece_value)) =
             *FieldValue::from(self.board.board[usize::from(loc.loc)])
         {
-            let img = &self.piece_images[usize::from(color)][usize::from(piece_value)];
+            let img = &PIECE_IMAGES[usize::from(color)][usize::from(piece_value)];
 
             let (mut sx, mut sy) = (1., 1.);
             if !right {
@@ -295,4 +296,5 @@ impl Frontend {
             }
         }
     }
+    pub fn clicked(&mut self) {}
 }
