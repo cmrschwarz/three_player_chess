@@ -839,27 +839,30 @@ impl ThreePlayerChess {
     pub fn threefold_repetition_applies(&self) -> bool {
         false //TODO: implement this
     }
+    pub fn gen_moves_for_field(&mut self, field: FieldLocation, moves: &mut Vec<Move>) {
+        match FieldValue::from(self.board[usize::from(field)]) {
+            FieldValue(Some((color, piece_type))) if color == self.turn => {
+                let field = field;
+                let field_a = AnnotatedFieldLocation::from_field(field);
+                match piece_type {
+                    PieceType::Pawn => self.gen_moves_pawn(field, moves),
+                    PieceType::Knight => self.gen_moves_knight(field_a, moves),
+                    PieceType::Bishop => self.gen_moves_bishop(field_a, moves),
+                    PieceType::Rook => self.gen_moves_rook(field_a, moves),
+                    PieceType::Queen => self.gen_moves_queen(field_a, moves),
+                    PieceType::King => self.gen_moves_king(field_a, moves),
+                }
+            }
+            _ => {}
+        }
+    }
     pub fn gen_moves(&mut self) -> Vec<Move> {
         let mut moves = Vec::new();
         if self.game_status != GameStatus::Ongoing {
             return moves;
         }
         for i in 0..self.board.len() {
-            match FieldValue::from(self.board[i]) {
-                FieldValue(Some((color, piece_type))) if color == self.turn => {
-                    let field = FieldLocation::from(i);
-                    let field_a = AnnotatedFieldLocation::from_field(field);
-                    match piece_type {
-                        PieceType::Pawn => self.gen_moves_pawn(field, &mut moves),
-                        PieceType::Knight => self.gen_moves_knight(field_a, &mut moves),
-                        PieceType::Bishop => self.gen_moves_bishop(field_a, &mut moves),
-                        PieceType::Rook => self.gen_moves_rook(field_a, &mut moves),
-                        PieceType::Queen => self.gen_moves_queen(field_a, &mut moves),
-                        PieceType::King => self.gen_moves_king(field_a, &mut moves),
-                    }
-                }
-                _ => {}
-            }
+            self.gen_moves_for_field(FieldLocation::from(i), &mut moves)
         }
         if self.fifty_move_rule_applies() || self.threefold_repetition_applies() {
             moves.push(Move {

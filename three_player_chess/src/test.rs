@@ -1,7 +1,4 @@
 use crate::board::*;
-use crate::game_wrapper::*;
-use crate::movegen::*;
-
 #[test]
 pub fn state_str() {
     let tpc = ThreePlayerChess::default();

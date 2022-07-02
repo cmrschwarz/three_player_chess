@@ -50,6 +50,9 @@ pub struct Frontend {
     pub transformed_pieces: bool,
     pub board: ThreePlayerChess,
     pub selected_square: Option<AnnotatedFieldLocation>,
+    pub hovered_square: Option<AnnotatedFieldLocation>,
+    pub dragged_piece: FieldValue,
+    pub possible_moves: bitvec::array::BitArray<bitvec::order::LocalBits, [u32; 3]>,
     pub cursor_pos: Vector2<i32>,
     pub board_radius: f32,
     pub board_origin: Vector2<i32>,
@@ -218,6 +221,10 @@ impl Frontend {
             board_radius: 1.,
             board_origin: Vector2::new(1, 1),
             origin: board::Color::C0,
+            possible_moves: Default::default(),
+            dragged_piece: FieldValue(None),
+            hovered_square: None
+
         }
     }
     pub fn render_background(&mut self, canvas: &mut Canvas) {
@@ -278,9 +285,9 @@ impl Frontend {
         } else {
             (file_rot, rank_rot) = (HB_ROW_COUNT as i8 - file_rot, rank_rot + 1);
         }
-        let loc = AnnotatedFieldLocation::from_file_and_rank(hb, hb, file_rot, rank_rot);
+        let field = AnnotatedFieldLocation::from_file_and_rank(hb, hb, file_rot, rank_rot);
 
-        let field_color = if Some(loc) == self.selected_square {
+        let field_color = if Some(field) == self.selected_square {
             self.selection_color
         } else if ((file % 2) + (rank % 2) + (right as usize)) % 2 == 0 {
             self.black
@@ -288,12 +295,14 @@ impl Frontend {
             self.white
         };
 
+        let possible_move = self.possible_moves[usize::from(field.loc)];
+
         canvas.concat(&CELL_TRANSFORMS[file][rank]);
         let paint = Paint::new(&Color4f::from(field_color), None);
         canvas.draw_rect(Rect::from_xywh(0., 0., 1., 1.), &paint);
 
         if let Some((color, piece_value)) =
-            *FieldValue::from(self.board.board[usize::from(loc.loc)])
+            *FieldValue::from(self.board.board[usize::from(field.loc)])
         {
             let img = &PIECE_IMAGES[usize::from(color)][usize::from(piece_value)];
 
@@ -318,6 +327,9 @@ impl Frontend {
                 Rect::from_xywh(0., 0., 1., 1.),
                 &Paint::default(),
             );
+        } else if possible_move {
+            let selection_paint = Paint::new(&Color4f::from(self.selection_color), None);
+            canvas.draw_circle(Point::new(0.5, 0.5), 0.2, &selection_paint);
         }
     }
     pub fn render_hex_board(&mut self, canvas: &mut Canvas, hb: board::Color, right: bool) {
@@ -374,7 +386,38 @@ impl Frontend {
     }
 
     pub fn clicked(&mut self) {
-        self.selected_square = self.get_board_pos_from_screen_pos(self.cursor_pos);
-        //TODO: recalculate possible moves
+        let square = self.get_board_pos_from_screen_pos(self.cursor_pos);
+        let prev = self.selected_square;
+        self.selected_square = None;
+        self.possible_moves.set_all(false);
+        if square == prev {
+            return;
+        }
+        if let Some(square) = square {
+            let field_value = FieldValue::from(self.board.board[usize::from(square.loc)]);
+            if let Some((color, _)) = *field_value {
+                if color != self.board.turn {
+                    return;
+                }
+                self.selected_square = Some(square);
+                self.dragged_piece = field_value;
+                let mut moves = Default::default();
+                self.board.gen_moves_for_field(square.loc, &mut moves);
+                for m in moves {
+                    self.possible_moves.set(usize::from(m.target), true);
+                }
+            }
+        }
+    }
+    pub fn released(&mut self) {
+        let square = self.get_board_pos_from_screen_pos(self.cursor_pos);
+        if self.dragged_piece.is_some() {
+            self.dragged_piece = FieldValue(None);
+            //TODO: maybe make move
+        }
+        if square != self.selected_square {
+            self.selected_square = None;
+            self.possible_moves.set_all(false);
+        }
     }
 }

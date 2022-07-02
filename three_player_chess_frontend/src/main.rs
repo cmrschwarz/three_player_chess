@@ -115,11 +115,14 @@ fn main() {
                 }
                 WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
                 WindowEvent::MouseInput {
-                    state: ElementState::Pressed,
+                    state,
                     button: MouseButton::Left,
                     ..
                 } => {
-                    fe.clicked();
+                    match state {
+                        ElementState::Pressed => fe.clicked(),
+                        ElementState::Released => fe.released(),
+                    }
                     env.windowed_context.window().request_redraw();
                 }
                 WindowEvent::CursorMoved { position, .. } => {
