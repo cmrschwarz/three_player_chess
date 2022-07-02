@@ -40,14 +40,15 @@ pub const PIECES: [[&'static [u8]; PIECE_COUNT]; HB_COUNT] = [
 ];
 
 pub struct Frontend {
-    font: Font,
-    piece_images: [[Image; PIECE_COUNT]; HB_COUNT],
-    board: ThreePlayerChess,
-    black: Color,
-    white: Color,
-    background: Color,
-    border: Color,
-    prev_second: f32,
+    pub font: Font,
+    pub piece_images: [[Image; PIECE_COUNT]; HB_COUNT],
+    pub board: ThreePlayerChess,
+    pub black: Color,
+    pub white: Color,
+    pub background: Color,
+    pub border: Color,
+    pub prev_second: f32,
+    pub transformed_pieces: bool,
 }
 fn point(vec2: Vector2<f32>) -> (f32, f32) {
     (vec2[0], vec2[1])
@@ -170,21 +171,14 @@ impl Frontend {
             white: Color::from_rgb(130, 130, 130),
             background: Color::from_rgb(142, 83, 46),
             border: Color::from_rgb(0, 0, 0),
-            piece_images: images
+            piece_images: images,
+            transformed_pieces: true
         };
 
         fe
     }
-    pub fn render(&mut self, canvas: &mut Canvas) {
-        let dim = canvas.image_info().dimensions();
-        let radius_board = std::cmp::min(dim.width, dim.height) as f32 * 0.45;
-        let radius_border = radius_board * 1.05;
+    pub fn render_background(&mut self, canvas: &mut Canvas, radius_border: f32) {
         canvas.clear(self.background);
-        canvas.translate(Point {
-            x: dim.width as f32 / 2.,
-            y: dim.height as f32 / 2.,
-        });
-        canvas.save();
         canvas.scale((radius_border, radius_border));
         let mut path = Path::new();
 
@@ -204,11 +198,79 @@ impl Frontend {
         let mut paint = Paint::new(&Color4f::from(self.border), None);
         paint.set_style(PaintStyle::Fill);
         canvas.draw_path(&path, &paint);
+    }
+    pub fn render(&mut self, canvas: &mut Canvas) {
+        let dim = canvas.image_info().dimensions();
+        canvas.translate(Point {
+            x: dim.width as f32 / 2.,
+            y: dim.height as f32 / 2.,
+        });
+        let radius_board = std::cmp::min(dim.width, dim.height) as f32 * 0.45;
+        canvas.save();
+        self.render_background(canvas, radius_board * 1.05);
         canvas.restore();
         for c in board::Color::iter() {
             for right in [true, false] {
+                canvas.save();
                 self.render_hex_board(canvas, radius_board, *c, right);
+                canvas.restore();
             }
+        }
+    }
+    pub fn draw_cell(
+        &mut self,
+        canvas: &mut Canvas,
+        hb: board::Color,
+        right: bool,
+        file: usize,
+        rank: usize,
+    ) {
+        let cell_color = if ((file % 2) + (rank % 2) + (right as usize)) % 2 == 0 {
+            self.black
+        } else {
+            self.white
+        };
+
+        let mut file_rot = file as i8;
+        let mut rank_rot = rank as i8;
+        if right {
+            (file_rot, rank_rot) = (HB_ROW_COUNT as i8 + file_rot + 1, rank_rot + 1);
+        } else {
+            (file_rot, rank_rot) = (HB_ROW_COUNT as i8 - file_rot, rank_rot + 1);
+        }
+
+        canvas.concat(&PIECE_TRANSFORMS[file][rank]);
+        let paint = Paint::new(&Color4f::from(cell_color), None);
+        canvas.draw_rect(Rect::from_xywh(0., 0., 1., 1.), &paint);
+
+        let loc = AnnotatedFieldLocation::from_file_and_rank(hb, hb, file_rot, rank_rot);
+        if let Some((color, piece_value)) =
+            *FieldValue::from(self.board.board[usize::from(loc.loc)])
+        {
+            let img = &self.piece_images[usize::from(color)][usize::from(piece_value)];
+
+            let (mut sx, mut sy) = (1., 1.);
+            if !right {
+                sx = -1.;
+            }
+            if hb != color {
+                sy = -1.;
+            }
+            if sx < 0. || sy < 0. {
+                canvas.translate(Point { x: 0.5, y: 0.5 });
+                canvas.scale((sx, sy));
+                canvas.translate(Point { x: -0.5, y: -0.5 });
+            }
+
+            canvas.draw_image_rect(
+                img,
+                Some((
+                    &Rect::from_xywh(0., 0., img.width() as f32, img.height() as f32),
+                    skia_safe::canvas::SrcRectConstraint::Fast,
+                )),
+                Rect::from_xywh(0., 0., 1., 1.),
+                &Paint::default(),
+            );
         }
     }
     pub fn render_hex_board(
@@ -218,7 +280,6 @@ impl Frontend {
         hb: board::Color,
         right: bool,
     ) {
-        canvas.save();
         let rot = (1. / 3.) * 2.0 * PI;
         canvas.rotate(radians_to_degrees(rot * usize::from(hb) as f32), None);
         if !right {
@@ -229,53 +290,9 @@ impl Frontend {
         for file in 0..HB_ROW_COUNT {
             for rank in 0..HB_ROW_COUNT {
                 canvas.save();
-                canvas.concat(&PIECE_TRANSFORMS[file][rank]);
-                let color = if ((file % 2) + (rank % 2) + (right as usize)) % 2 == 0 {
-                    self.black
-                } else {
-                    self.white
-                };
-                let mut paint = Paint::new(&Color4f::from(color), None);
-                canvas.draw_rect(Rect::from_xywh(0., 0., 1., 1.), &paint);
-                let mut f = file as i8;
-                let mut r = rank as i8;
-                if right {
-                    (f, r) = (HB_ROW_COUNT as i8 + f + 1, r + 1);
-                } else {
-                    (f, r) = (HB_ROW_COUNT as i8 - f, r + 1);
-                }
-                let loc = AnnotatedFieldLocation::from_file_and_rank(hb, hb, f, r);
-                if let Some((color, piece_value)) =
-                    *FieldValue::from(self.board.board[usize::from(loc.loc)])
-                {
-                    let img = &self.piece_images[usize::from(color)][usize::from(piece_value)];
-
-                    let (mut sx, mut sy) = (1., 1.);
-                    if !right {
-                        sx = -1.;
-                    }
-                    if hb != color {
-                        sy = -1.;
-                    }
-                    if sx < 0. || sy < 0. {
-                        canvas.translate(Point { x: 0.5, y: 0.5 });
-                        canvas.scale((sx, sy));
-                        canvas.translate(Point { x: -0.5, y: -0.5 });
-                    }
-
-                    canvas.draw_image_rect(
-                        img,
-                        Some((
-                            &Rect::from_xywh(0., 0., img.width() as f32, img.height() as f32),
-                            skia_safe::canvas::SrcRectConstraint::Fast,
-                        )),
-                        Rect::from_xywh(0., 0., 1., 1.),
-                        &Paint::default(),
-                    );
-                }
+                self.draw_cell(canvas, hb, right, file, rank);
                 canvas.restore();
             }
         }
-        canvas.restore();
     }
 }

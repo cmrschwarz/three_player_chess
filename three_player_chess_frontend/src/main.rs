@@ -129,11 +129,13 @@ fn main() {
                         },
                     ..
                 } => {
-                    if modifiers.logo() {
-                        if let Some(VirtualKeyCode::Q) = virtual_keycode {
-                            *control_flow = ControlFlow::Exit;
-                        }
+                    //if modifiers.logo() {
+                    if let Some(VirtualKeyCode::Q) = virtual_keycode {
+                        *control_flow = ControlFlow::Exit;
+                    } else if let Some(VirtualKeyCode::F) = virtual_keycode {
+                        fe.transformed_pieces = !fe.transformed_pieces;
                     }
+                    // }
                     //frame += 1;
                     env.windowed_context.window().request_redraw();
                 }
@@ -142,7 +144,9 @@ fn main() {
             Event::RedrawRequested(_) => {
                 {
                     let canvas = env.surface.canvas();
+                    canvas.save();
                     fe.render(canvas);
+                    canvas.restore();
                 }
                 env.surface.canvas().flush();
                 env.windowed_context.swap_buffers().unwrap();
@@ -151,5 +155,3 @@ fn main() {
         }
     });
 }
-
-pub const FONT: &'static [u8] = include_bytes!("../res/pbk.png");
