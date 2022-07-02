@@ -358,12 +358,9 @@ impl ThreePlayerChess {
         let src = usize::from(m.source);
         let tgt = usize::from(m.target);
         match m.move_type {
-            MoveType::Slide => {
+            MoveType::Slide | MoveType::Capture(_) => {
                 self.board[tgt] = self.board[src];
                 self.board[src] = Default::default();
-            }
-            MoveType::Capture(_) => {
-                self.board[tgt] = self.board[src];
             }
             MoveType::EnPassant(_, captured_pawn_loc) => {
                 self.board[tgt] = self.board[src];
