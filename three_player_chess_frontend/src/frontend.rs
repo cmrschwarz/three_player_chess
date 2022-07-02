@@ -48,12 +48,58 @@ pub struct Frontend {
     background: Color,
     border: Color,
     prev_second: f32,
-    hex_board_coordinates: [[[f32; 2]; HB_ROW_COUNT + 1]; HB_ROW_COUNT + 1],
 }
-const HBRC: f32 = HB_ROW_COUNT as f32;
-
 fn point(vec2: Vector2<f32>) -> (f32, f32) {
     (vec2[0], vec2[1])
+}
+
+lazy_static! {
+    static ref HEX_BOARD_COORDS: [[[f32; 2]; HB_ROW_COUNT + 1]; HB_ROW_COUNT + 1] = {
+        let mut hbc: [[[f32; 2]; HB_ROW_COUNT + 1]; HB_ROW_COUNT + 1] = Default::default();
+        let center_angle_half = 2. * PI / 12.;
+        let side_len = center_angle_half.sin();
+        let hex_height = center_angle_half.cos();
+        let top_right = [side_len + (1. - side_len) / 2., hex_height / 2.];
+        let bottom_right = [side_len, hex_height];
+        let right_flank = vec2_sub(top_right, bottom_right);
+        for r in 0..HB_ROW_COUNT + 1 {
+            let rank_frac = r as f32 / 4.;
+            // rank along the center axis
+            hbc[0][r] = [0., hex_height * (1. - rank_frac)];
+            // rank along the right side
+            hbc[HB_ROW_COUNT][r] =
+                vec2_add(bottom_right, vec2_scale(right_flank, rank_frac));
+        }
+        for r in 0..HB_ROW_COUNT + 1 {
+            for f in 1..HB_ROW_COUNT {
+                let rank_left = hbc[0][r];
+                let rank_right = hbc[HB_ROW_COUNT][r];
+                hbc[f][r] = vec2_add(
+                    rank_left,
+                    vec2_scale(vec2_sub(rank_right, rank_left), f as f32 / 4.),
+                );
+            }
+        }
+        hbc
+    };
+    static ref PIECE_TRANSFORMS: [[Matrix; HB_ROW_COUNT]; HB_ROW_COUNT] = {
+        let mut ptf: [[Matrix; HB_ROW_COUNT]; HB_ROW_COUNT] = Default::default();
+        let hbc = &HEX_BOARD_COORDS;
+        for file in 0..HB_ROW_COUNT {
+            for rank in 0..HB_ROW_COUNT {
+                let bl = hbc[file][rank];
+                let br = hbc[file + 1][rank];
+                let tr = hbc[file + 1][rank + 1];
+                let tl = hbc[file][rank + 1];
+                let t = getTransform([[0., 0.], [1., 0.], [1., 1.], [0., 1.]], [tl, tr, br, bl]);
+                let mat = Matrix::new_all(
+                    t[0][0], t[0][1], t[0][2], t[1][0], t[1][1], t[1][2], t[2][0], t[2][1], t[2][2],
+                );
+                ptf[file][rank] = mat;
+            }
+        }
+        ptf
+    };
 }
 
 fn getTransform(from: [[f32; 2]; 4], to: [[f32; 2]; 4]) -> [[f32; 3]; 3] {
@@ -124,33 +170,9 @@ impl Frontend {
             white: Color::from_rgb(130, 130, 130),
             background: Color::from_rgb(142, 83, 46),
             border: Color::from_rgb(0, 0, 0),
-            piece_images: images,
-            hex_board_coordinates: Default::default(),
+            piece_images: images
         };
-        let center_angle_half = 2. * PI / 12.;
-        let side_len = center_angle_half.sin();
-        let hex_height = center_angle_half.cos();
-        let top_right = [side_len + (1. - side_len) / 2., hex_height / 2.];
-        let bottom_right = [side_len, hex_height];
-        let right_flank = vec2_sub(top_right, bottom_right);
-        for r in 0..HB_ROW_COUNT + 1 {
-            let rank_frac = r as f32 / 4.;
-            // rank along the center axis
-            fe.hex_board_coordinates[0][r] = [0., hex_height * (1. - rank_frac)];
-            // rank along the right side
-            fe.hex_board_coordinates[HB_ROW_COUNT][r] =
-                vec2_add(bottom_right, vec2_scale(right_flank, rank_frac));
-        }
-        for r in 0..HB_ROW_COUNT + 1 {
-            for f in 1..HB_ROW_COUNT {
-                let rank_left = fe.hex_board_coordinates[0][r];
-                let rank_right = fe.hex_board_coordinates[HB_ROW_COUNT][r];
-                fe.hex_board_coordinates[f][r] = vec2_add(
-                    rank_left,
-                    vec2_scale(vec2_sub(rank_right, rank_left), f as f32 / 4.),
-                );
-            }
-        }
+
         fe
     }
     pub fn render(&mut self, canvas: &mut Canvas) {
@@ -204,24 +226,17 @@ impl Frontend {
         } else {
             canvas.scale((radius, radius));
         }
-
         for file in 0..HB_ROW_COUNT {
             for rank in 0..HB_ROW_COUNT {
-                let mut path = Path::new();
-
-                path.move_to(point(self.hex_board_coordinates[file][rank]));
-                path.line_to(point(self.hex_board_coordinates[file + 1][rank]));
-                path.line_to(point(self.hex_board_coordinates[file + 1][rank + 1]));
-                path.line_to(point(self.hex_board_coordinates[file][rank + 1]));
-                path.close();
+                canvas.save();
+                canvas.concat(&PIECE_TRANSFORMS[file][rank]);
                 let color = if ((file % 2) + (rank % 2) + (right as usize)) % 2 == 0 {
                     self.black
                 } else {
                     self.white
                 };
                 let mut paint = Paint::new(&Color4f::from(color), None);
-                paint.set_style(PaintStyle::Fill);
-                canvas.draw_path(&path, &paint);
+                canvas.draw_rect(Rect::from_xywh(0., 0., 1., 1.), &paint);
                 let mut f = file as i8;
                 let mut r = rank as i8;
                 if right {
@@ -235,21 +250,7 @@ impl Frontend {
                 {
                     let img = &self.piece_images[usize::from(color)][usize::from(piece_value)];
 
-                    let bl = self.hex_board_coordinates[file][rank];
-                    let br = self.hex_board_coordinates[file + 1][rank];
-                    let tr = self.hex_board_coordinates[file + 1][rank + 1];
-                    let tl = self.hex_board_coordinates[file][rank + 1];
-
-                    let t =
-                        getTransform([[0., 0.], [1., 0.], [1., 1.], [0., 1.]], [tl, tr, br, bl]);
-                    let mat = Matrix::new_all(
-                        t[0][0], t[0][1], t[0][2], t[1][0], t[1][1], t[1][2], t[2][0], t[2][1],
-                        t[2][2],
-                    );
-                    canvas.save();
-                    canvas.concat(&mat);
                     let (mut sx, mut sy) = (1., 1.);
-
                     if !right {
                         sx = -1.;
                     }
@@ -261,6 +262,7 @@ impl Frontend {
                         canvas.scale((sx, sy));
                         canvas.translate(Point { x: -0.5, y: -0.5 });
                     }
+
                     canvas.draw_image_rect(
                         img,
                         Some((
@@ -270,8 +272,8 @@ impl Frontend {
                         Rect::from_xywh(0., 0., 1., 1.),
                         &Paint::default(),
                     );
-                    canvas.restore();
                 }
+                canvas.restore();
             }
         }
         canvas.restore();

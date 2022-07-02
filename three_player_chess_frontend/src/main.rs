@@ -1,3 +1,5 @@
+#[macro_use]
+extern crate lazy_static;
 use gl::types::*;
 use glutin::{
     event::{Event, KeyboardInput, VirtualKeyCode, WindowEvent},
