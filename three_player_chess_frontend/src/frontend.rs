@@ -1,11 +1,7 @@
-use chrono::prelude::*;
 use nanovg as nv;
-use nanovg::{
-    Alignment, BasicCompositeOperation, CompositeOperation, Context, Font, Frame, Gradient,
-    PathOptions, StrokeOptions, TextOptions, Transform,
-};
+use nanovg::{Context, Font, Frame, PathOptions, Transform};
 use std::f32::consts::PI;
-use std::{thread, time};
+use std::ops::Mul;
 use vecmath::{vec2_add, vec2_scale, vec2_sub, Vector2};
 
 use three_player_chess::board::*;
@@ -70,7 +66,7 @@ impl<'a> Frontend<'a> {
         });
         let mut fe = Frontend {
             prev_second: -1.0,
-            board: Default::default(),
+            board: ThreePlayerChess::from_str("BCEFGH2A5D4D5H4/BG1/CF1/AH1/D1/E1/AH/:LKIDCBA7J6/KB8/JC8/LA8/L5/D8/LA/:HGFEILbJaK9/GKc/FJc/HLc/Ec/Ic/HL/Ka:7:7").unwrap(),//Default::default(),
             font: nanovg::Font::from_memory(&ctx, "Roboto", FONT)
                 .expect("Failed to load font 'Roboto-Regular.ttf'"),
             black: nv::Color::from_rgb(230, 230, 230),
@@ -142,6 +138,7 @@ impl<'a> Frontend<'a> {
                 ..Default::default()
             },
         );
+        self.render_hex_board(dc, radius_board, Color::C0, true);
         for c in Color::iter() {
             for right in [true, false] {
                 self.render_hex_board(dc, radius_board, *c, right);
@@ -149,15 +146,12 @@ impl<'a> Frontend<'a> {
         }
     }
     pub fn render_hex_board(&mut self, dc: &DrawContext, radius: f32, hb: Color, right: bool) {
-        let hex_num = (u8::from(hb) * 2 + u8::from(right) + 5) % 6; // bottom right is hex 0
-        let rotation = (hex_num as f32 / 6.0) * 2.0 * PI;
-
-        let transform = Some(
-            Transform::new()
-                .translate(dc.width as f32 / 2., dc.height as f32 / 2.)
-                .rotate(-rotation)
-                .scale(radius, radius),
-        );
+        let rot = (1. / 3.) * 2.0 * PI;
+        let transform = Transform::new()
+            .translate(dc.width as f32 / 2., dc.height as f32 / 2.)
+            .rotate(usize::from(hb) as f32 * rot)
+            .scale(if !right { -radius } else { radius }, radius);
+        let wtf = transform.transform_point((0.125, 0.83));
         for file in 0..HB_ROW_COUNT {
             for rank in 0..HB_ROW_COUNT {
                 dc.frame.path(
@@ -173,36 +167,63 @@ impl<'a> Frontend<'a> {
                             } else {
                                 self.white
                             },
-                            nv::FillOptions { antialias: true },
+                            Default::default(),
                         );
                     },
                     PathOptions {
-                        transform,
+                        transform: Some(transform),
                         ..Default::default()
                     },
                 );
-                let mut f = file as i8 + 1;
-                let mut r = rank as i8 + 1;
-                if !right {
-                    (r, f) = (HB_ROW_COUNT as i8 + 1 - f, r);
+                let mut f = file as i8;
+                let mut r = rank as i8;
+                if right {
+                    (f, r) = (HB_ROW_COUNT as i8 + f + 1, r + 1);
+                } else {
+                    (f, r) = (HB_ROW_COUNT as i8 - f, r + 1);
                 }
                 let loc = AnnotatedFieldLocation::from_file_and_rank(hb, hb, f, r);
                 if let Some((color, piece_value)) =
                     *FieldValue::from(self.board.board[usize::from(loc.loc)])
                 {
+                    let img = &self.piece_images[usize::from(color)][usize::from(piece_value)];
+
+                    let bl = self.hex_board_coordinates[file][rank];
+                    let br = self.hex_board_coordinates[file + 1][rank];
+                    let tr = self.hex_board_coordinates[file + 1][rank + 1];
+                    let tl = self.hex_board_coordinates[file][rank + 1];
+
+                    let mut field_tf = Transform::new();
+
+                    field_tf = field_tf.translate(tl[0], tl[1]);
+                    let width = ((br[0] - bl[0]) + (tr[0] - tl[0])) / 2.;
+                    let height = ((bl[1] - tl[1]) + (br[1] - tr[1])) / 1.95;
+                    let skew_x = ((br[0] - tr[0]) + bl[0] - tl[0]) / 2.;
+                    let skew_y = ((br[1] - bl[1]) + tr[1] - tl[1]) / 2.;
+                    field_tf = field_tf.skew_y(skew_y / height);
+                    field_tf = field_tf.skew_x(skew_x / width);
+                    field_tf = field_tf.scale(width, height);
+                    if !right || color != hb {
+                        field_tf = field_tf.translate(0.5, 0.5);
+                        let (mut sx, mut sy) = (1., 1.);
+                        if !right {
+                            sx = -1.;
+                        };
+                        if color != hb {
+                            sy = -1.;
+                        }
+                        field_tf = field_tf.scale(sx, sy);
+                        field_tf = field_tf.translate(-0.5, -0.5);
+                    }
+                    // this is mat = transform * field_df. nanovg is weird
+                    let mat = field_tf.mul(transform);
                     dc.frame.path(
                         |path| {
-                            let bl = self.hex_board_coordinates[file][rank];
-                            let br = self.hex_board_coordinates[file + 1][rank];
-                            let tr = self.hex_board_coordinates[file + 1][rank + 1];
-                            let tl = self.hex_board_coordinates[file][rank + 1];
-                            let origin = (tl[0], tl[1]);
-                            let size = (br[0] - bl[0], br[1] - tr[1]);
+                            let origin = (0., 0.);
+                            let size = (1., 1.);
                             path.rect(origin, size);
-                            let img =
-                                &self.piece_images[usize::from(color)][usize::from(piece_value)];
-                            let (w, h) = img.size();
                             path.fill(
+                                //nv::Color::from_rgb(255, 0, 0),
                                 nv::ImagePattern {
                                     image: img,
                                     origin,
@@ -214,7 +235,7 @@ impl<'a> Frontend<'a> {
                             );
                         },
                         PathOptions {
-                            transform,
+                            transform: Some(mat),
                             ..Default::default()
                         },
                     );

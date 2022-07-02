@@ -5,7 +5,7 @@ extern crate nanovg;
 
 use glutin::GlContext;
 
-const INIT_WINDOW_SIZE: (u32, u32) = (480, 480);
+const INIT_WINDOW_SIZE: (u32, u32) = (1480, 1480);
 
 pub mod frontend;
 use crate::frontend::{DrawContext, Frontend};
