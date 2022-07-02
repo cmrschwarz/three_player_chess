@@ -51,7 +51,7 @@ pub struct Frontend {
     pub board: ThreePlayerChess,
     pub selected_square: Option<AnnotatedFieldLocation>,
     pub hovered_square: Option<AnnotatedFieldLocation>,
-    pub dragged_piece: FieldValue,
+    pub dragged_square: Option<AnnotatedFieldLocation>,
     pub possible_moves: bitvec::array::BitArray<bitvec::order::LocalBits, [u32; 3]>,
     pub cursor_pos: Vector2<i32>,
     pub board_radius: f32,
@@ -212,7 +212,7 @@ impl Frontend {
             font:  Font::from_typeface(Typeface::from_data(Data::new_copy(&FONT), None).expect("Failed to load font 'Roboto-Regular.ttf'"), None),
             black: Color::from_rgb(230, 230, 230),
             white: Color::from_rgb(130, 130, 130),
-            selection_color: Color::from_rgb(255, 0, 0),
+            selection_color: Color::from_argb(128, 148, 195, 143),
             background: Color::from_rgb(142, 83, 46),
             border: Color::from_rgb(0, 0, 0),
             transformed_pieces: true,
@@ -222,9 +222,8 @@ impl Frontend {
             board_origin: Vector2::new(1, 1),
             origin: board::Color::C0,
             possible_moves: Default::default(),
-            dragged_piece: FieldValue(None),
+            dragged_square: None,
             hovered_square: None
-
         }
     }
     pub fn render_background(&mut self, canvas: &mut Canvas) {
@@ -248,19 +247,50 @@ impl Frontend {
         paint.set_style(PaintStyle::Fill);
         canvas.draw_path(&path, &paint);
     }
+    pub fn render_dragged_piece(&mut self, canvas: &mut Canvas) {
+        if let Some(field) = self.dragged_square {
+            if let Some((color, piece_type)) =
+                *FieldValue::from(self.board.board[usize::from(field.loc)])
+            {
+                let size = self.board_radius * 0.1;
+                let img = &PIECE_IMAGES[usize::from(color)][usize::from(piece_type)];
+                canvas.draw_image_rect(
+                    img,
+                    Some((
+                        &Rect::from_xywh(0., 0., img.width() as f32, img.height() as f32),
+                        skia_safe::canvas::SrcRectConstraint::Fast,
+                    )),
+                    Rect::from_xywh(
+                        self.cursor_pos.x as f32 - size,
+                        self.cursor_pos.y as f32 - size,
+                        2. * size,
+                        2. * size,
+                    ),
+                    &Paint::default(),
+                );
+            } else {
+                // can happen if the board was reloaded etc.
+                self.dragged_square = None;
+            }
+        }
+    }
     pub fn render(&mut self, canvas: &mut Canvas) {
         let dim = canvas.image_info().dimensions();
 
         self.board_origin = Vector2::new(dim.width / 2, dim.height / 2);
         self.board_radius = std::cmp::min(dim.width, dim.height) as f32 * 0.46;
         let translation = self.board_origin.cast::<f32>();
+
+        canvas.save();
         canvas.translate(Point {
             x: translation.x,
             y: translation.y,
         });
+
         canvas.save();
         self.render_background(canvas);
         canvas.restore();
+
         for c in board::Color::iter() {
             for right in [true, false] {
                 canvas.save();
@@ -268,6 +298,11 @@ impl Frontend {
                 canvas.restore();
             }
         }
+        canvas.restore();
+
+        canvas.save();
+        self.render_dragged_piece(canvas);
+        canvas.restore();
     }
     pub fn draw_cell(
         &mut self,
@@ -390,17 +425,16 @@ impl Frontend {
         let prev = self.selected_square;
         self.selected_square = None;
         self.possible_moves.set_all(false);
-        if square == prev {
-            return;
-        }
         if let Some(square) = square {
             let field_value = FieldValue::from(self.board.board[usize::from(square.loc)]);
             if let Some((color, _)) = *field_value {
                 if color != self.board.turn {
                     return;
                 }
-                self.selected_square = Some(square);
-                self.dragged_piece = field_value;
+                self.dragged_square = Some(square);
+                if Some(square) != prev {
+                    self.selected_square = self.dragged_square;
+                }
                 let mut moves = Default::default();
                 self.board.gen_moves_for_field(square.loc, &mut moves);
                 for m in moves {
@@ -411,8 +445,8 @@ impl Frontend {
     }
     pub fn released(&mut self) {
         let square = self.get_board_pos_from_screen_pos(self.cursor_pos);
-        if self.dragged_piece.is_some() {
-            self.dragged_piece = FieldValue(None);
+        if self.dragged_square.is_some() {
+            self.dragged_square = None;
             //TODO: maybe make move
         }
         if square != self.selected_square {

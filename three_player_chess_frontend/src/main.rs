@@ -128,6 +128,7 @@ fn main() {
                 WindowEvent::CursorMoved { position, .. } => {
                     fe.cursor_pos =
                         nalgebra::Vector2::<i32>::new(position.x as i32, position.y as i32);
+                    env.windowed_context.window().request_redraw();
                 }
                 WindowEvent::KeyboardInput {
                     input:
