@@ -1,8 +1,8 @@
 use nalgebra::{ArrayStorage, OMatrix, OVector, Point2, Transform2};
 use skia_safe::{
     gpu::{gl::FramebufferInfo, BackendRenderTarget, SurfaceOrigin},
-    radians_to_degrees, Canvas, Color, Color4f, ColorType, Data, Document, Font, Image, Paint,
-    PaintStyle, Path, Point, Rect, Surface, Typeface,
+    radians_to_degrees, Canvas, Color, Color4f, ColorType, Data, Document, Font, Image, Matrix,
+    Paint, PaintStyle, Path, Point, Rect, Surface, Typeface,
 };
 use std::f32::consts::PI;
 use std::ops::Mul;
@@ -157,18 +157,18 @@ impl Frontend {
         let dim = canvas.image_info().dimensions();
         let radius_board = std::cmp::min(dim.width, dim.height) as f32 * 0.45;
         let radius_border = radius_board * 1.05;
-        canvas.save();
         canvas.clear(self.background);
         canvas.translate(Point {
             x: dim.width as f32 / 2.,
             y: dim.height as f32 / 2.,
         });
+        canvas.save();
         canvas.scale((radius_border, radius_border));
-        let path = Path::new();
+        let mut path = Path::new();
 
         let center_angle = 2. * PI / 6.;
         for i in 0..6 {
-            let point = (
+            let point = Point::new(
                 (i as f32 * center_angle).cos(),
                 (i as f32 * center_angle).sin(),
             );
@@ -179,10 +179,10 @@ impl Frontend {
             }
         }
         path.close();
-        let paint = Paint::new(&Color4f::from(self.border), None);
+        let mut paint = Paint::new(&Color4f::from(self.border), None);
         paint.set_style(PaintStyle::Fill);
         canvas.draw_path(&path, &paint);
-        self.render_hex_board(canvas, radius_board, board::Color::C0, true);
+        canvas.restore();
         for c in board::Color::iter() {
             for right in [true, false] {
                 self.render_hex_board(canvas, radius_board, *c, right);
@@ -196,15 +196,18 @@ impl Frontend {
         hb: board::Color,
         right: bool,
     ) {
-        let rot = (1. / 3.) * 2.0 * PI;
         canvas.save();
-        canvas.rotate(radians_to_degrees(rot), None);
-        canvas.scale((if !right { -radius } else { radius }, radius));
-        let path = Path::new();
+        let rot = (1. / 3.) * 2.0 * PI;
+        canvas.rotate(radians_to_degrees(rot * usize::from(hb) as f32), None);
+        if !right {
+            canvas.scale((-radius, radius));
+        } else {
+            canvas.scale((radius, radius));
+        }
 
         for file in 0..HB_ROW_COUNT {
             for rank in 0..HB_ROW_COUNT {
-                path.reset();
+                let mut path = Path::new();
 
                 path.move_to(point(self.hex_board_coordinates[file][rank]));
                 path.line_to(point(self.hex_board_coordinates[file + 1][rank]));
@@ -216,7 +219,8 @@ impl Frontend {
                 } else {
                     self.white
                 };
-                let paint = Paint::new(&Color4f::from(color), None);
+                let mut paint = Paint::new(&Color4f::from(color), None);
+                paint.set_style(PaintStyle::Fill);
                 canvas.draw_path(&path, &paint);
                 let mut f = file as i8;
                 let mut r = rank as i8;
@@ -236,7 +240,27 @@ impl Frontend {
                     let tr = self.hex_board_coordinates[file + 1][rank + 1];
                     let tl = self.hex_board_coordinates[file][rank + 1];
 
-                    getTransform([[0.]], to)
+                    let t =
+                        getTransform([[0., 0.], [1., 0.], [1., 1.], [0., 1.]], [tl, tr, br, bl]);
+                    let mat = Matrix::new_all(
+                        t[0][0], t[0][1], t[0][2], t[1][0], t[1][1], t[1][2], t[2][0], t[2][1],
+                        t[2][2],
+                    );
+                    canvas.save();
+                    canvas.concat(&mat);
+                    let (mut sx, mut sy) = (1., 1.);
+
+                    if !right {
+                        sx = -1.;
+                    }
+                    if hb != color {
+                        sy = -1.;
+                    }
+                    if sx < 0. || sy < 0. {
+                        canvas.translate(Point { x: 0.5, y: 0.5 });
+                        canvas.scale((sx, sy));
+                        canvas.translate(Point { x: -0.5, y: -0.5 });
+                    }
                     canvas.draw_image_rect(
                         img,
                         Some((
@@ -246,6 +270,7 @@ impl Frontend {
                         Rect::from_xywh(0., 0., 1., 1.),
                         &Paint::default(),
                     );
+                    canvas.restore();
                 }
             }
         }

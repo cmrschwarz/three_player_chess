@@ -87,9 +87,6 @@ fn main() {
     let surface = create_surface(&windowed_context, &fb_info, &mut gr_context);
     // let sf = windowed_context.window().scale_factor() as f32;
     // surface.canvas().scale((sf, sf));
-
-    let mut frame = 0;
-
     // Guarantee the drop order inside the FnMut closure. `WindowedContext` _must_ be dropped after
     // `DirectContext`.
     //
@@ -106,7 +103,7 @@ fn main() {
         windowed_context,
     };
 
-    //let fe = Frontend::new(ctx);
+    let mut fe = Frontend::new();
 
     el.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
@@ -135,7 +132,7 @@ fn main() {
                             *control_flow = ControlFlow::Exit;
                         }
                     }
-                    frame += 1;
+                    //frame += 1;
                     env.windowed_context.window().request_redraw();
                 }
                 _ => (),
@@ -143,8 +140,7 @@ fn main() {
             Event::RedrawRequested(_) => {
                 {
                     let canvas = env.surface.canvas();
-                    canvas.clear(Color::WHITE);
-                    render_frame(frame % 360, 12, 60, canvas);
+                    fe.render(canvas);
                 }
                 env.surface.canvas().flush();
                 env.windowed_context.swap_buffers().unwrap();
@@ -155,20 +151,3 @@ fn main() {
 }
 
 pub const FONT: &'static [u8] = include_bytes!("../res/pbk.png");
-
-pub fn render_frame(frame: usize, fps: usize, bpm: usize, canvas: &mut skia_safe::canvas::Canvas) {
-    let img = Image::from_encoded(Data::new_copy(&FONT)).unwrap();
-    let dim = canvas.image_info().dimensions();
-    let (w, h) = (dim.width as f32, dim.height as f32);
-    let (iw, ih) = (img.width() as f32, img.height() as f32);
-    canvas.clear(Color4f::new(1., 0., 0., 1.));
-    canvas.draw_image_rect(
-        img,
-        Some((
-            &Rect::from_xywh(0., 0., iw, ih),
-            skia_safe::canvas::SrcRectConstraint::Fast,
-        )),
-        Rect::from_xywh(0., 0., w, h),
-        &Paint::default(),
-    );
-}
