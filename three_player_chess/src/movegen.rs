@@ -232,10 +232,14 @@ pub fn move_rank(field: AnnotatedFieldLocation, up: bool) -> Option<AnnotatedFie
         ));
     }
     let hb = get_next_hb(field.hb, (field.file <= HBRC) == up);
-    assert!(hb != field.origin || field.hb != field.origin);
+    // we don't have to support changing rank across the top center line,
+    // as AFLs for rook and queen moves get the origin of the field they
+    // are on. this way they don't have to change direction
+    assert!(hb == field.origin || field.hb == field.origin);
     let file = adjust_coord(field.file, field.origin != hb);
     Some(AnnotatedFieldLocation::new(
         field.origin,
+        // the *physical* target rank will always be the top on an hb change
         FieldLocation::new(hb, file, HBRC),
         hb,
         field.file,
@@ -304,27 +308,30 @@ fn move_diagonal(
     up: bool,
     right: bool,
 ) -> Option<(AnnotatedFieldLocation, Option<AnnotatedFieldLocation>)> {
-    let rank_dir = coord_dir(up == (field.hb == field.origin));
-    let file_dir = coord_dir(right == (field.hb == field.origin));
+    let rank_dir = coord_dir(up);
+    let file_dir = coord_dir(right);
     let tgt_rank = field.rank + rank_dir;
     let tgt_file = field.file + file_dir;
     if !coord_in_bounds(tgt_file) || !coord_in_bounds(tgt_rank) {
         return None;
     }
-    if (field.rank == HBRC && up) || (field.rank == HBRC + 1 && !up) {
-        if (field.file == HBRC && right) || (field.file == HBRC + 1 && !right) {
+    // moving from rank 4 to 5 or vice versa is the only way to change boards
+    if (tgt_rank == HBRC + 1 && up) || (tgt_rank == HBRC && !up) {
+        if (tgt_file == HBRC + 1 && right) || (tgt_file == HBRC && !right) {
             let hb1 = get_next_hb(field.hb, true);
             let hb2 = get_next_hb(hb1, true);
             let loc1 = get_field_on_next_hb(field.loc);
             let loc2 = get_field_on_next_hb(loc1);
+            let tgt_rank_1 = adjust_coord(HBRC, hb1 != field.origin);
+            let tgt_rank_2 = adjust_coord(HBRC, hb2 != field.origin);
             return Some((
-                AnnotatedFieldLocation::new(field.origin, loc1, hb1, tgt_file, tgt_rank),
+                AnnotatedFieldLocation::new(field.origin, loc1, hb1, tgt_rank_1, tgt_rank_1),
                 Some(AnnotatedFieldLocation::new(
                     field.origin,
                     loc2,
                     hb2,
-                    tgt_file,
-                    tgt_rank,
+                    tgt_rank_2,
+                    tgt_rank_2,
                 )),
             ));
         }
@@ -340,11 +347,15 @@ fn move_diagonal(
             None,
         ));
     }
-
+    let inverted = field.hb != field.origin;
     Some((
         AnnotatedFieldLocation::new(
             field.origin,
-            FieldLocation::new(field.hb, field.file + file_dir, field.rank + rank_dir),
+            FieldLocation::new(
+                field.hb,
+                adjust_coord(field.file, inverted) + coord_dir(right != inverted),
+                adjust_coord(field.rank, inverted) + coord_dir(up != inverted),
+            ),
             field.hb,
             tgt_file,
             tgt_rank,
@@ -598,7 +609,13 @@ impl ThreePlayerChess {
             _ => false,
         }
     }
+
     fn gen_moves_rook(&mut self, field: AnnotatedFieldLocation, moves: &mut Vec<Move>) {
+        // we want to avoid having to change directions when attempting
+        // to move up/down(!) across the upper center line
+        // therefore we use the native origin of the starting field
+        // so this can't happen
+        assert!(field.origin == field.hb);
         for (length, rank, increase) in [
             (RS - field.rank, true, true),  // up
             (field.rank - 1, true, false),  // down
@@ -644,6 +661,10 @@ impl ThreePlayerChess {
                     Some((mut one, Some(mut two))) => {
                         let swap_dir = pos.hb != field.origin;
                         if swap_dir && one.hb != field.origin {
+                            // to make sure that one doesn't have to swap directions
+                            // we come here because 'pos' and 'one' are both not the origin
+                            // on such a transition we need to change the order, which we want
+                            // to avoid for the outer loop
                             std::mem::swap(&mut one, &mut two);
                         }
                         if self.gen_move(field, two, moves) {
