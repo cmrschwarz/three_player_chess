@@ -85,6 +85,7 @@ impl CheckPossibilities {
                             lines_idx += 1;
                         }
                         line_begin = line_end;
+                        pos = one;
                     }
                 }
             }
