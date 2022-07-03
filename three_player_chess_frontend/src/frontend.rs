@@ -286,16 +286,21 @@ impl Frontend {
         path.close();
         let mut paint = Paint::default();
         paint.set_style(PaintStyle::Stroke);
-        paint.set_stroke_width(0.02);
-        canvas.scale((self.board_radius * 1.05, self.board_radius * 1.05));
+        let border_width = 0.02;
+        paint.set_stroke_width(border_width);
+        canvas.scale((
+            self.board_radius * (1. + border_width / 2.),
+            self.board_radius * (1. + border_width / 2.),
+        ));
         if self.board.game_status == GameStatus::Ongoing {
             paint.set_color(self.player_colors[usize::from(self.board.turn)]);
             canvas.draw_path(&path, &paint);
         } else if let GameStatus::Win(winner, _) = self.board.game_status {
             paint.set_color(self.player_colors[usize::from(winner)]);
             canvas.draw_path(&path, &paint);
-            canvas.scale((1.05, 1.05));
-            paint.set_stroke_width(0.02 / 1.05);
+            let border_2 = 1. + border_width * 2.;
+            canvas.scale((border_2, border_2));
+            paint.set_stroke_width(border_width / border_2);
             canvas.draw_path(&path, &paint);
         }
     }
