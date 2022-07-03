@@ -1541,6 +1541,7 @@ dependencies = [
 name = "three_player_chess_frontend"
 version = "0.1.0"
 dependencies = [
+ "arrayvec",
  "bitvec",
  "chrono",
  "gl",

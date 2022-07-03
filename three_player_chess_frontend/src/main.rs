@@ -138,17 +138,20 @@ fn main() {
                             ..
                         },
                     ..
-                } => {
-                    //if modifiers.logo() {
-                    if let Some(VirtualKeyCode::Q) = virtual_keycode {
+                } => match virtual_keycode {
+                    Some(VirtualKeyCode::Q) => {
                         *control_flow = ControlFlow::Exit;
-                    } else if let Some(VirtualKeyCode::F) = virtual_keycode {
-                        fe.transformed_pieces = !fe.transformed_pieces;
                     }
-                    // }
-                    //frame += 1;
-                    env.windowed_context.window().request_redraw();
-                }
+                    Some(VirtualKeyCode::F) => {
+                        fe.transformed_pieces = !fe.transformed_pieces;
+                        env.windowed_context.window().request_redraw();
+                    }
+                    Some(VirtualKeyCode::C) => {
+                        fe.recolor();
+                        env.windowed_context.window().request_redraw();
+                    }
+                    _ => (),
+                },
                 _ => (),
             },
             Event::RedrawRequested(_) => {

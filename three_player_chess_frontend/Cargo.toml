@@ -13,7 +13,7 @@ lazy_static = "1.0"
 vecmath = "1.0.0"
 nalgebra = "0.31.0"
 bitvec = "0.19.4"
-
+arrayvec = "0.7.2"
 three_player_chess = {path = "../three_player_chess"}
 [dependencies.skia-safe]
 version = "0.50"

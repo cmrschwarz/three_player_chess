@@ -1,7 +1,7 @@
 use nalgebra::{ArrayStorage, Matrix3, OMatrix, OVector, Transform2, Vector2};
 use skia_safe::{
-    radians_to_degrees, Canvas, Color, Color4f, Data, Font, Image, Matrix, Paint, PaintStyle, Path,
-    Point, Rect, Typeface,
+    radians_to_degrees, Bitmap, Canvas, Color, Color4f, ColorType, Data, Font, IPoint, Image,
+    ImageInfo, Matrix, Paint, PaintStyle, Path, Point, Rect, Typeface,
 };
 use std::f32::consts::PI;
 use std::ops::{Add, Sub};
@@ -58,6 +58,7 @@ pub struct Frontend {
     pub board_radius: f32,
     pub board_origin: Vector2<i32>,
     pub origin: board::Color,
+    pub pieces: [[Image; PIECE_COUNT]; HB_COUNT],
 }
 
 const HEX_CENTER_ANGLE: f32 = 2. * PI / 6.;
@@ -69,18 +70,92 @@ const UNIT_SQUARE: [Vector2<f32>; 4] = [
     Vector2::new(1., 0.),
 ];
 
+fn recolor_images<const COUNT: usize>(
+    images: &[Image; COUNT],
+    source_color: Color,
+    tgt_col: Color,
+    epsilon: u32,
+) -> [Image; COUNT] {
+    let sr = source_color.r() as u32;
+    let sg = source_color.g() as u32;
+    let sb = source_color.b() as u32;
+    let sa = source_color.a() as u32;
+    let origin = IPoint::new(0, 0);
+    let img_info = &images[0].image_info();
+    let info = ImageInfo::new(
+        img_info.dimensions(),
+        ColorType::RGBA8888,
+        img_info.alpha_type(),
+        img_info.color_space(),
+    );
+    let mut ok;
+    let mut bitmap = Bitmap::new();
+    ok = bitmap.set_info(&info, None);
+    assert!(ok);
+    bitmap.alloc_pixels();
+
+    let row_size = bitmap.row_bytes();
+    let img_size = row_size * bitmap.height() as usize;
+    let mut row_vec = Vec::with_capacity(img_size);
+    row_vec.resize(img_size, 0u8);
+    let mut pix_data = row_vec.into_boxed_slice();
+    let mut out_images = arrayvec::ArrayVec::<Image, COUNT>::new();
+    for img in images.iter() {
+        ok = img.read_pixels(
+            &info,
+            &mut pix_data,
+            row_size,
+            origin,
+            skia_safe::image::CachingHint::Disallow,
+        );
+        assert!(ok);
+
+        let mut i = 0;
+        let p = &mut pix_data;
+        for _ in 0..p.len() / 4 {
+            let diff = sr.abs_diff(p[i] as u32)
+                + sg.abs_diff(p[i + 1] as u32)
+                + sb.abs_diff(p[i + 2] as u32)
+                + sa.abs_diff(p[i + 3] as u32);
+            if diff <= epsilon {
+                p[i + 0] = tgt_col.r();
+                p[i + 1] = tgt_col.g();
+                p[i + 2] = tgt_col.b();
+                p[i + 3] = tgt_col.a();
+            }
+            i += 4;
+        }
+        out_images
+            .push(Image::from_raster_data(&info, Data::new_copy(&pix_data), row_size).unwrap());
+    }
+    out_images.into_inner().unwrap()
+}
+
+fn sk_paint_img() -> Paint {
+    let mut paint = Paint::default();
+    paint.set_anti_alias(true);
+    paint
+}
+
+fn sk_paint(color: Color, style: PaintStyle) -> Paint {
+    let mut paint = Paint::default();
+    paint.set_anti_alias(true);
+    paint.set_color(color);
+    paint.set_style(style);
+    paint
+}
+
 lazy_static! {
     static ref UNIT_RECT: Rect = Rect::from_xywh(0., 0., 1., 1.);
     static ref HEX_SIDE_LEN: f32 = (HEX_CENTER_ANGLE / 2.).sin();
     static ref HEX_HEIGHT: f32 =  (HEX_CENTER_ANGLE / 2.).cos();
-
     static ref PIECE_IMAGES: [[Image; PIECE_COUNT]; HB_COUNT] = {
         PIECES.map(|pieces_for_color| {
             pieces_for_color
                 .map(|piece_data| Image::from_encoded(Data::new_copy(&piece_data)).unwrap())
         })
     };
-
+    static ref ORIGINAL_PIECE_COLORS: [Color; HB_COUNT] = [Color::from_rgb(255, 255, 255), Color::from_rgb(0, 0, 0), Color::from_rgb(7, 16, 132)];
     static ref HEX_BOARD_COORDS: [[Vector2<f32>; HB_ROW_COUNT + 1]; HB_ROW_COUNT + 1] = {
         let hex_side_len: f32 = *HEX_SIDE_LEN;
         let hex_height: f32 = *HEX_HEIGHT;
@@ -264,8 +339,9 @@ impl Frontend {
             possible_moves: Default::default(),
             dragged_square: None,
             hovered_square: None,
-            player_colors: [Color::from_rgb(236, 236, 236), Color::from_rgb(11, 11, 11), Color::from_rgb(7, 16, 132)],
+            player_colors: [Color::from_rgb(190, 190, 190), Color::from_rgb(41, 41, 41), Color::from_rgb(36, 36, 128)],
             king_in_check: false,
+            pieces: PIECE_IMAGES.clone()
         }
     }
     pub fn render_background(&mut self, canvas: &mut Canvas) {
@@ -284,8 +360,10 @@ impl Frontend {
             }
         }
         path.close();
-        let mut paint = Paint::default();
-        paint.set_style(PaintStyle::Stroke);
+        let mut paint = sk_paint(
+            self.player_colors[usize::from(self.board.turn)],
+            PaintStyle::Stroke,
+        );
         let border_width = 0.02;
         paint.set_stroke_width(border_width);
         canvas.scale((
@@ -293,7 +371,6 @@ impl Frontend {
             self.board_radius * (1. + border_width / 2.),
         ));
         if self.board.game_status == GameStatus::Ongoing {
-            paint.set_color(self.player_colors[usize::from(self.board.turn)]);
             canvas.draw_path(&path, &paint);
         } else if let GameStatus::Win(winner, _) = self.board.game_status {
             paint.set_color(self.player_colors[usize::from(winner)]);
@@ -310,7 +387,7 @@ impl Frontend {
                 *FieldValue::from(self.board.board[usize::from(field.loc)])
             {
                 let size = self.board_radius * 0.1;
-                let img = &PIECE_IMAGES[usize::from(color)][usize::from(piece_type)];
+                let img = &self.pieces[usize::from(color)][usize::from(piece_type)];
                 canvas.draw_image_rect(
                     img,
                     Some((
@@ -323,7 +400,7 @@ impl Frontend {
                         2. * size,
                         2. * size,
                     ),
-                    &Paint::default(),
+                    &sk_paint_img(),
                 );
             } else {
                 // can happen if the board was reloaded etc.
@@ -399,8 +476,8 @@ impl Frontend {
         };
 
         let possible_move = self.possible_moves[usize::from(field.loc)];
-        let selection_paint = Paint::new(&Color4f::from(self.selection_color), None);
-        let field_paint = Paint::new(&Color4f::from(field_color), None);
+        let selection_paint = sk_paint(self.selection_color, PaintStyle::Fill);
+        let field_paint = sk_paint(field_color, PaintStyle::Fill);
         canvas.save();
         canvas.concat(&CELL_TRANSFORMS[file][rank]);
         canvas.draw_rect(&*UNIT_RECT, &field_paint);
@@ -409,7 +486,7 @@ impl Frontend {
         {
             let king_check =
                 self.king_in_check && piece_value == PieceType::King && color == self.board.turn;
-            let img = &PIECE_IMAGES[usize::from(color)][usize::from(piece_value)];
+            let img = &self.pieces[usize::from(color)][usize::from(piece_value)];
 
             let (mut sx, mut sy) = (1., 1.);
             if !right {
@@ -435,7 +512,7 @@ impl Frontend {
                     path.line_to(Point::new(p.x, p.y));
                 }
                 if king_check {
-                    let danger_paint = Paint::new(&Color4f::from(self.danger), None);
+                    let danger_paint = sk_paint(self.danger, PaintStyle::Fill);
                     canvas.draw_path(&path, &danger_paint);
                 } else {
                     canvas.draw_path(&path, &selection_paint);
@@ -450,7 +527,7 @@ impl Frontend {
                         skia_safe::canvas::SrcRectConstraint::Fast,
                     )),
                     &*UNIT_RECT,
-                    &Paint::default(),
+                    &sk_paint_img(),
                 );
                 canvas.restore();
             } else {
@@ -468,7 +545,7 @@ impl Frontend {
                         skia_safe::canvas::SrcRectConstraint::Fast,
                     )),
                     &Rect::from_xywh(-size_h, -size_h, size, size),
-                    &Paint::default(),
+                    &sk_paint_img(),
                 );
             }
         } else {
@@ -592,5 +669,24 @@ impl Frontend {
             }
         }
         None
+    }
+    pub fn recolor(&mut self) {
+        let player = 2; //rand::random::<usize>() % 3;
+        println!("recoloring player {} ...", player + 1);
+        let pc = self.player_colors[player];
+        let color = Color::from_rgb(
+            (rand::random::<u8>() / 2 + 50).wrapping_add(pc.b()),
+            (rand::random::<u8>() / 2 + 50).wrapping_add(pc.g()),
+            (rand::random::<u8>() / 2 + 50).wrapping_add(pc.r()),
+        );
+        let base_player = rand::random::<usize>() % 3;
+        self.pieces[player] = recolor_images(
+            &PIECE_IMAGES[base_player],
+            ORIGINAL_PIECE_COLORS[base_player],
+            color,
+            100,
+        );
+        println!("recoloring player {} is done", player + 1);
+        self.player_colors[player] = color;
     }
 }
