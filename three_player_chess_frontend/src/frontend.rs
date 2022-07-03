@@ -478,44 +478,37 @@ impl Frontend {
         let square = self.get_board_pos_from_screen_pos(self.cursor_pos);
         let prev = self.selected_square;
         self.selected_square = None;
-        self.possible_moves.set_all(false);
         if let Some(square) = square {
-            let field_value = FieldValue::from(self.board.board[usize::from(square.loc)]);
-            if let Some((color, _)) = *field_value {
-                if color != self.board.turn {
+            if prev
+                .map(|src| self.make_move(src.loc, square.loc))
+                .is_none()
+            {
+                let field_value = FieldValue::from(self.board.board[usize::from(square.loc)]);
+                if let Some((color, _)) = *field_value {
+                    if color != self.board.turn {
+                        return;
+                    }
+                    self.dragged_square = Some(square);
+                    if Some(square) != prev {
+                        self.selected_square = self.dragged_square;
+                    }
+                    let mut moves = Default::default();
+                    self.board.gen_moves_for_field(square.loc, &mut moves);
+                    self.possible_moves.set_all(false);
+                    for m in moves {
+                        self.possible_moves.set(usize::from(m.target), true);
+                    }
                     return;
-                }
-                self.dragged_square = Some(square);
-                if Some(square) != prev {
-                    self.selected_square = self.dragged_square;
-                }
-                let mut moves = Default::default();
-                self.board.gen_moves_for_field(square.loc, &mut moves);
-                for m in moves {
-                    self.possible_moves.set(usize::from(m.target), true);
                 }
             }
         }
+        self.possible_moves.set_all(false);
     }
     pub fn released(&mut self) {
         let square = self.get_board_pos_from_screen_pos(self.cursor_pos);
         if let Some(src) = self.dragged_square {
             if let Some(tgt) = square {
-                if src != tgt && self.possible_moves[usize::from(tgt.loc)] {
-                    let mut mov = Move {
-                        source: src.loc,
-                        target: tgt.loc,
-                        move_type: MoveType::Slide,
-                    };
-                    let field_val = self.board.board[usize::from(tgt.loc)];
-                    if FieldValue::from(field_val).is_some() {
-                        mov.move_type = MoveType::Capture(field_val);
-                    }
-                    if self.board.is_valid_move(mov) {
-                        self.board.make_move(mov);
-                        self.board.apply_move_sideeffects(mov);
-                    }
-                }
+                self.make_move(src.loc, tgt.loc);
             }
         }
         self.dragged_square = None;
@@ -523,5 +516,24 @@ impl Frontend {
             self.selected_square = None;
             self.possible_moves.set_all(false);
         }
+    }
+    pub fn make_move(&mut self, src: FieldLocation, tgt: FieldLocation) -> Option<Move> {
+        if src != tgt && self.possible_moves[usize::from(tgt)] {
+            let mut mov = Move {
+                source: src,
+                target: tgt,
+                move_type: MoveType::Slide,
+            };
+            let field_val = self.board.board[usize::from(tgt)];
+            if FieldValue::from(field_val).is_some() {
+                mov.move_type = MoveType::Capture(field_val);
+            }
+            if self.board.is_valid_move(mov) {
+                self.board.make_move(mov);
+                self.board.apply_move_sideeffects(mov);
+                return Some(mov);
+            }
+        }
+        None
     }
 }

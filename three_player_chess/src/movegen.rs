@@ -266,6 +266,8 @@ fn get_knight_moves_for_field(
     field: AnnotatedFieldLocation,
     moves: &mut arrayvec::ArrayVec<FieldLocation, MAX_KNIGHT_MOVES_PER_SQUARE>,
 ) {
+    // handles the (up to 8) moves from
+    // moving left / right first (by one or two squares)
     for right in [true, false] {
         if let Some(r1) = move_file(field, right) {
             for up in [true, false] {
@@ -280,22 +282,27 @@ fn get_knight_moves_for_field(
             }
         }
     }
-    for up in [true, false] {
-        let rank_adjusted = adjust_coord(field.rank, !up);
-        if rank_adjusted != HBRC - 1 && rank_adjusted != HBRC {
-            continue;
+    // handles the additional (up to three, but only in the center square)
+    // moves originating from moving up
+    // excluding the ones already covered
+    // because knight moves are calculated with the origin being set
+    // to the starting board, only moving up can change the board
+    assert!(field.hb == field.origin);
+    if field.rank == HBRC || field.rank == HBRC - 1 {
+        //these must exist because of the rank check above
+        let u1 = move_rank(field, true).unwrap();
+        let u2 = move_rank(u1, true).unwrap();
+
+        // if we are on the left hb, the new moves are up right
+        let move_right = field.file <= HBRC;
+        if field.rank == HBRC {
+            if coord_in_bounds(field.file + 2 * coord_dir(move_right)) {
+                let u1r1 = move_file(u1, move_right).unwrap();
+                let u1r2 = move_file(u1r1, move_right).unwrap();
+                moves.push(u1r2.loc);
+            }
         }
-        let u1 = move_rank(field, up).unwrap();
-        let u2 = move_rank(u1, up).unwrap();
-        for right in [true, false] {
-            move_file(u2, right).map(|m| moves.push(m.loc));
-        }
-        if rank_adjusted == HBRC && field.file > HBRC - 2 && field.file <= HBRC + 2 {
-            let right = field.file < HBRC + 1;
-            let u1r1 = move_file(u1, right).unwrap();
-            let u1r2 = move_file(u1r1, right).unwrap();
-            moves.push(u1r2.loc);
-        }
+        moves.push(move_file(u2, move_right).unwrap().loc);
     }
 }
 
@@ -704,9 +711,9 @@ impl ThreePlayerChess {
         let hb = self.turn;
         let rook_src = self.possible_rooks_for_castling[usize::from(hb)][short as usize]?;
         let rook_tgt =
-            AnnotatedFieldLocation::from_file_and_rank(hb, hb, [3, 7][short as usize], 1);
-        let king_tgt =
             AnnotatedFieldLocation::from_file_and_rank(hb, hb, [4, 6][short as usize], 1);
+        let king_tgt =
+            AnnotatedFieldLocation::from_file_and_rank(hb, hb, [3, 7][short as usize], 1);
         for tgt in [king_tgt, rook_tgt] {
             if FieldValue::from(self.board[usize::from(tgt.loc)]).is_some() {
                 return None;
