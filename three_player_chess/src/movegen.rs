@@ -325,12 +325,12 @@ fn move_diagonal(
             let tgt_rank_1 = adjust_coord(HBRC, hb1 != field.origin);
             let tgt_rank_2 = adjust_coord(HBRC, hb2 != field.origin);
             return Some((
-                AnnotatedFieldLocation::new(field.origin, loc1, hb1, tgt_rank_1, tgt_rank_1),
+                AnnotatedFieldLocation::new(field.origin, loc1, hb1, tgt_file, tgt_rank_1),
                 Some(AnnotatedFieldLocation::new(
                     field.origin,
                     loc2,
                     hb2,
-                    tgt_rank_2,
+                    tgt_file,
                     tgt_rank_2,
                 )),
             ));
@@ -443,6 +443,8 @@ impl ThreePlayerChess {
             }
             _ => (),
         }
+        //check whether the next player has no move to get out of check
+        // which would mean somebody won
         if self.is_king_capturable(None) {
             // PERF: don't do full movegen here, one legal move suffices
             if self.gen_moves().is_empty() {
@@ -559,8 +561,8 @@ impl ThreePlayerChess {
                             return true
                         }
                         PieceType::Pawn if color_may_capture(self, color, capturing_color) => {
-                            let pos = AnnotatedFieldLocation::from_field(*f);
-                            if pos.rank + 1 == kp.reorient(pos.hb).rank {
+                            let pos = AnnotatedFieldLocation::from_field_with_origin(color, *f);
+                            if pos.rank + 1 == kp.reorient(color).rank {
                                 return true;
                             }
                             break;
@@ -748,12 +750,17 @@ impl ThreePlayerChess {
         src: FieldLocation,
         tgt: FieldLocation,
     ) -> Option<Move> {
-        if FieldValue::from(self.board[usize::from(tgt)]).is_some() {
-            return None;
+        let mut move_type = MoveType::Slide;
+        let piece_val = self.board[usize::from(tgt)];
+        if let Some((color, _)) = *FieldValue::from(piece_val) {
+            if color == self.turn {
+                return None;
+            }
+            move_type = MoveType::Capture(piece_val);
         }
         let cp = CheckPossibilities::from_king_pos(tgt);
         let mov = Move {
-            move_type: MoveType::Slide,
+            move_type,
             source: src,
             target: tgt,
         };
@@ -768,10 +775,10 @@ impl ThreePlayerChess {
     }
     fn gen_moves_king(&mut self, field: AnnotatedFieldLocation, moves: &mut Vec<Move>) {
         for tgt in [
-            move_file(field, false),
+            move_rank(field, true),
+            move_rank(field, false),
             move_file(field, true),
-            move_rank(field, false),
-            move_rank(field, false),
+            move_file(field, false),
         ] {
             if let Some(tgt) = tgt {
                 self.gen_king_slide_unless_check(field.loc, tgt.loc)
