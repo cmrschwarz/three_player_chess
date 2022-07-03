@@ -133,7 +133,9 @@ fn main() {
                 WindowEvent::KeyboardInput {
                     input:
                         KeyboardInput {
-                            virtual_keycode, ..
+                            virtual_keycode,
+                            state: ElementState::Pressed,
+                            ..
                         },
                     ..
                 } => {

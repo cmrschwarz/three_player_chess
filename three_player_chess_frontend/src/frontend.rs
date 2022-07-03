@@ -5,7 +5,6 @@ use skia_safe::{
 };
 use std::f32::consts::PI;
 use std::ops::{Add, Sub};
-
 use three_player_chess::board;
 use three_player_chess::board::*;
 use three_player_chess::movegen::HBRC;
@@ -46,7 +45,6 @@ pub struct Frontend {
     pub selection_color: Color,
     pub danger: Color,
     pub background: Color,
-    pub border: Color,
     pub player_colors: [Color; HB_COUNT],
     pub prev_second: f32,
     pub transformed_pieces: bool,
@@ -209,16 +207,53 @@ fn point_in_quad(point: Vector2<f32>, quad: &[Vector2<f32>; 4]) -> bool {
     point_in_triangle(point, tri1) || point_in_triangle(point, tri2)
 }
 
+fn center_of_quad(quad: &[Vector2<f32>; 4]) -> Vector2<f32> {
+    let diag_half_1 = quad[0].add(quad[2].sub(quad[0]).scale(0.5));
+    let diag_half_2 = quad[1].add(quad[3].sub(quad[1]).scale(0.5));
+    diag_half_1.add(diag_half_2.sub(diag_half_1).scale(0.5))
+}
+
+fn drop_perpendicular(
+    point: Vector2<f32>,
+    line_p1: Vector2<f32>,
+    line_p2: Vector2<f32>,
+) -> Vector2<f32> {
+    let line_direction = line_p2.sub(line_p1).normalize();
+    line_p1.add(line_direction.scale(point.sub(line_p1).dot(&line_direction)))
+}
+
+fn square_in_quad(quad: &[Vector2<f32>; 4]) -> (Vector2<f32>, f32) {
+    let center = center_of_quad(quad);
+    let mut flank_centers: [Vector2<f32>; 4] = Default::default();
+    for i in 0..4 {
+        flank_centers[i] = drop_perpendicular(center, quad[i], quad[(i + 1) % 4]);
+    }
+    let mut bot = flank_centers[0].y;
+    let mut top = flank_centers[0].y;
+    let mut left = flank_centers[0].x;
+    let mut right = flank_centers[0].x;
+    for i in 1..4 {
+        bot = bot.min(flank_centers[i].y);
+        top = top.max(flank_centers[i].y);
+        left = left.max(flank_centers[i].x);
+        right = right.min(flank_centers[i].x);
+    }
+    let height = (center.y - bot).abs().min(top - center.y).abs() * 2.;
+    let width = (center.x - left).abs().min(right - center.x).abs() * 2.;
+    let size = height.min(width);
+    (center.sub(Vector2::new(size / 2., size / 2.)), size)
+}
+
 impl Frontend {
     pub fn new() -> Frontend {
         Frontend {
             prev_second: -1.0,
             board: ThreePlayerChess::from_str("BCEFGH2A5E4D5H4C5/BG1/CF1/AH1/D4/E1/AH/:LKIDCBA7J6/KB8/JC8/LA8/L5/D8/LA/:HGFEILbJaK9/GKc/FJc/HLc/Ec/Ic/HL/Ka:0:0").unwrap(),//Default::default(),
             font:  Font::from_typeface(Typeface::from_data(Data::new_copy(&FONT), None).expect("Failed to load font 'Roboto-Regular.ttf'"), None),
-            black: Color::from_rgb(230, 230, 230),
-            white: Color::from_rgb(130, 130, 130),
-            selection_color: Color::from_argb(128, 148, 195, 183),
-            background: Color::from_rgb(142, 83, 46),
+            black: Color::from_rgb(161, 119, 67),
+            white: Color::from_rgb(240, 217, 181) ,
+            selection_color: Color::from_argb(128, 56, 173, 105),
+            background: Color::from_rgb(201, 144, 73),
             danger: Color::from_rgb(232, 15, 13),
             transformed_pieces: true,
             selected_square: None,
@@ -229,9 +264,8 @@ impl Frontend {
             possible_moves: Default::default(),
             dragged_square: None,
             hovered_square: None,
-            player_colors: [Color::from_rgb(255, 255, 255), Color::from_rgb(0, 0, 0), Color::from_rgb(7, 16, 132)],
+            player_colors: [Color::from_rgb(236, 236, 236), Color::from_rgb(11, 11, 11), Color::from_rgb(7, 16, 132)],
             king_in_check: false,
-            border: Color::from_rgb(112, 63, 26),
         }
     }
     pub fn render_background(&mut self, canvas: &mut Canvas) {
@@ -250,14 +284,10 @@ impl Frontend {
             }
         }
         path.close();
-        let mut paint = Paint::new(&Color4f::from(self.border), None);
-        paint.set_style(PaintStyle::Fill);
-        canvas.scale((self.board_radius * 1.02, self.board_radius * 1.02));
-        canvas.draw_path(&path, &paint);
-
+        let mut paint = Paint::default();
         paint.set_style(PaintStyle::Stroke);
-        canvas.scale((1.05, 1.05));
         paint.set_stroke_width(0.02);
+        canvas.scale((self.board_radius * 1.05, self.board_radius * 1.05));
         if self.board.game_status == GameStatus::Ongoing {
             paint.set_color(self.player_colors[usize::from(self.board.turn)]);
             canvas.draw_path(&path, &paint);
@@ -343,6 +373,7 @@ impl Frontend {
         right: bool,
         file: usize,
         rank: usize,
+        rotation: f32,
     ) {
         let mut file_rot = file as i8;
         let mut rank_rot = rank as i8;
@@ -365,10 +396,9 @@ impl Frontend {
         let possible_move = self.possible_moves[usize::from(field.loc)];
         let selection_paint = Paint::new(&Color4f::from(self.selection_color), None);
         let field_paint = Paint::new(&Color4f::from(field_color), None);
-
+        canvas.save();
         canvas.concat(&CELL_TRANSFORMS[file][rank]);
         canvas.draw_rect(&*UNIT_RECT, &field_paint);
-
         if let Some((color, piece_value)) =
             *FieldValue::from(self.board.board[usize::from(field.loc)])
         {
@@ -406,26 +436,48 @@ impl Frontend {
                     canvas.draw_path(&path, &selection_paint);
                 }
             }
-            canvas.draw_image_rect(
-                img,
-                Some((
-                    &Rect::from_xywh(0., 0., img.width() as f32, img.height() as f32),
-                    skia_safe::canvas::SrcRectConstraint::Fast,
-                )),
-                &*UNIT_RECT,
-                &Paint::default(),
-            );
-        } else if self.hovered_square == Some(field) {
-            canvas.draw_rect(&*UNIT_RECT, &selection_paint);
-        } else if possible_move {
-            canvas.draw_circle(Point::new(0.5, 0.5), 0.2, &selection_paint);
+
+            if self.transformed_pieces {
+                canvas.draw_image_rect(
+                    img,
+                    Some((
+                        &Rect::from_xywh(0., 0., img.width() as f32, img.height() as f32),
+                        skia_safe::canvas::SrcRectConstraint::Fast,
+                    )),
+                    &*UNIT_RECT,
+                    &Paint::default(),
+                );
+                canvas.restore();
+            } else {
+                canvas.restore();
+                let (img_origin, size) = square_in_quad(&get_cell_quad(file, rank));
+                let size_h = size / 2.;
+                let t = img_origin.add(Vector2::new(size_h, size_h));
+                canvas.translate(Point::new(t.x, t.y));
+                canvas.scale((sx, 1.));
+                canvas.rotate(-rotation, None);
+                canvas.draw_image_rect(
+                    img,
+                    Some((
+                        &Rect::from_xywh(0., 0., img.width() as f32, img.height() as f32),
+                        skia_safe::canvas::SrcRectConstraint::Fast,
+                    )),
+                    &Rect::from_xywh(-size_h, -size_h, size, size),
+                    &Paint::default(),
+                );
+            }
+        } else {
+            if self.hovered_square == Some(field) {
+                canvas.draw_rect(&*UNIT_RECT, &selection_paint);
+            } else if possible_move {
+                canvas.draw_circle(Point::new(0.5, 0.5), 0.2, &selection_paint);
+            }
+            canvas.restore();
         }
     }
     pub fn render_hex_board(&mut self, canvas: &mut Canvas, hb: board::Color, right: bool) {
-        canvas.rotate(
-            radians_to_degrees(HEX_CENTER_ANGLE * 2. * usize::from(hb) as f32),
-            None,
-        );
+        let rotation = radians_to_degrees(HEX_CENTER_ANGLE * 2. * usize::from(hb) as f32);
+        canvas.rotate(rotation, None);
         if !right {
             canvas.scale((-self.board_radius, self.board_radius));
         } else {
@@ -434,7 +486,7 @@ impl Frontend {
         for file in 0..HB_ROW_COUNT {
             for rank in 0..HB_ROW_COUNT {
                 canvas.save();
-                self.draw_cell(canvas, hb, right, file, rank);
+                self.draw_cell(canvas, hb, right, file, rank, rotation);
                 canvas.restore();
             }
         }
