@@ -44,15 +44,18 @@ pub struct Frontend {
     pub black: Color,
     pub white: Color,
     pub selection_color: Color,
+    pub danger: Color,
     pub background: Color,
     pub border: Color,
+    pub player_colors: [Color; HB_COUNT],
     pub prev_second: f32,
     pub transformed_pieces: bool,
     pub board: ThreePlayerChess,
     pub selected_square: Option<AnnotatedFieldLocation>,
     pub hovered_square: Option<AnnotatedFieldLocation>,
     pub dragged_square: Option<AnnotatedFieldLocation>,
-    pub possible_moves: bitvec::array::BitArray<bitvec::order::LocalBits, [u32; 3]>,
+    pub possible_moves: bitvec::array::BitArray<bitvec::order::LocalBits, [u32; HB_COUNT]>,
+    pub king_in_check: bool,
     pub cursor_pos: Vector2<i32>,
     pub board_radius: f32,
     pub board_origin: Vector2<i32>,
@@ -216,7 +219,7 @@ impl Frontend {
             white: Color::from_rgb(130, 130, 130),
             selection_color: Color::from_argb(128, 148, 195, 183),
             background: Color::from_rgb(142, 83, 46),
-            border: Color::from_rgb(0, 0, 0),
+            danger: Color::from_rgb(232, 15, 13),
             transformed_pieces: true,
             selected_square: None,
             cursor_pos: Vector2::new(-1, -1),
@@ -225,13 +228,15 @@ impl Frontend {
             origin: board::Color::C0,
             possible_moves: Default::default(),
             dragged_square: None,
-            hovered_square: None
+            hovered_square: None,
+            player_colors: [Color::from_rgb(255, 255, 255), Color::from_rgb(0, 0, 0), Color::from_rgb(7, 16, 132)],
+            king_in_check: false,
+            border: Color::from_rgb(112, 63, 26),
         }
     }
     pub fn render_background(&mut self, canvas: &mut Canvas) {
         canvas.clear(self.background);
         //TODO: config option for this
-        canvas.scale((self.board_radius * 1.05, self.board_radius * 1.05));
         let mut path = Path::new();
         for i in 0..6 {
             let point = Point::new(
@@ -247,7 +252,22 @@ impl Frontend {
         path.close();
         let mut paint = Paint::new(&Color4f::from(self.border), None);
         paint.set_style(PaintStyle::Fill);
+        canvas.scale((self.board_radius * 1.02, self.board_radius * 1.02));
         canvas.draw_path(&path, &paint);
+
+        paint.set_style(PaintStyle::Stroke);
+        canvas.scale((1.05, 1.05));
+        paint.set_stroke_width(0.02);
+        if self.board.game_status == GameStatus::Ongoing {
+            paint.set_color(self.player_colors[usize::from(self.board.turn)]);
+            canvas.draw_path(&path, &paint);
+        } else if let GameStatus::Win(winner, _) = self.board.game_status {
+            paint.set_color(self.player_colors[usize::from(winner)]);
+            canvas.draw_path(&path, &paint);
+            canvas.scale((1.05, 1.05));
+            paint.set_stroke_width(0.02 / 1.05);
+            canvas.draw_path(&path, &paint);
+        }
     }
     pub fn render_dragged_piece(&mut self, canvas: &mut Canvas) {
         if let Some(field) = self.dragged_square {
@@ -287,6 +307,7 @@ impl Frontend {
                 }
             }
         }
+        self.king_in_check = self.board.is_king_capturable(None);
 
         self.board_origin = Vector2::new(dim.width / 2, dim.height / 2);
         self.board_radius = std::cmp::min(dim.width, dim.height) as f32 * 0.46;
@@ -351,6 +372,8 @@ impl Frontend {
         if let Some((color, piece_value)) =
             *FieldValue::from(self.board.board[usize::from(field.loc)])
         {
+            let king_check =
+                self.king_in_check && piece_value == PieceType::King && color == self.board.turn;
             let img = &PIECE_IMAGES[usize::from(color)][usize::from(piece_value)];
 
             let (mut sx, mut sy) = (1., 1.);
@@ -367,7 +390,7 @@ impl Frontend {
             }
             if self.hovered_square == Some(field) {
                 canvas.draw_rect(&*UNIT_RECT, &selection_paint);
-            } else if possible_move {
+            } else if possible_move || king_check {
                 let size = 0.35;
                 let mut path = Path::new();
                 for p in UNIT_SQUARE {
@@ -376,7 +399,12 @@ impl Frontend {
                     path.line_to(Point::new(if p.x > 0. { p.x - size } else { size }, p.y));
                     path.line_to(Point::new(p.x, p.y));
                 }
-                canvas.draw_path(&path, &selection_paint);
+                if king_check {
+                    let danger_paint = Paint::new(&Color4f::from(self.danger), None);
+                    canvas.draw_path(&path, &danger_paint);
+                } else {
+                    canvas.draw_path(&path, &selection_paint);
+                }
             }
             canvas.draw_image_rect(
                 img,

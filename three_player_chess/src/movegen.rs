@@ -585,7 +585,7 @@ impl ThreePlayerChess {
         }
         false
     }
-    fn is_king_capturable(&mut self, capturing_color: Option<Color>) -> bool {
+    pub fn is_king_capturable(&mut self, capturing_color: Option<Color>) -> bool {
         let cp = &self.check_possibilities[usize::from(self.turn)];
         let kp = self.king_positions[usize::from(self.turn)];
         self.is_king_capturable_at(kp, cp, capturing_color)
