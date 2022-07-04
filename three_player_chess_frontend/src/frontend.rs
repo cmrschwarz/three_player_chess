@@ -468,9 +468,9 @@ impl Frontend {
         let field = AnnotatedFieldLocation::from_file_and_rank(hb, hb, file_rot, rank_rot);
 
         let field_color = if ((file % 2) + (rank % 2) + (right as usize)) % 2 == 0 {
-            self.black
+            self.white // bottom right must be white
         } else {
-            self.white
+            self.black
         };
 
         let possible_move = self.possible_moves[usize::from(field.loc)];

@@ -34,7 +34,8 @@ impl std::convert::TryFrom<u64> for Move {
                 FieldLocation::from_checked(b2)?,
             ),
             4 => Promotion(PieceType::from_u8(b1).ok_or(())?),
-            5 => ClaimDraw,
+            5 => CapturePromotion(b1.try_into()?, PieceType::from_u8(b2).ok_or(())?),
+            6 => ClaimDraw,
             _ => return Err(()),
         };
         Ok(Move {
@@ -55,7 +56,10 @@ impl std::convert::From<Move> for u64 {
             }
             Castle(src, tgt) => 3 | (u8::from(src) as u64) << 8 | (u8::from(tgt) as u64) << 16,
             Promotion(piece) => 4 | (u8::from(piece) as u64) << 8,
-            ClaimDraw => 5,
+            CapturePromotion(cap, piece) => {
+                5 | (u8::from(piece) as u64) << 8 | (u8::from(cap) as u64) << 16
+            }
+            ClaimDraw => 6,
         };
         move_type << 16 | (u8::from(m.target) as u64) << 8 | (u8::from(m.source) as u64)
     }

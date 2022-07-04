@@ -32,12 +32,12 @@ impl CheckPossibilities {
         self.file[HB_ROW_COUNT] = FieldLocation::new(
             get_next_hb(field.origin, field.file <= HBRC),
             invert_coord(field.file),
-            1,
+            HBRC,
         );
         for i in 1..HB_ROW_COUNT {
             self.file[i] = FieldLocation::from(u8::from(self.file[i - 1]) + ROW_SIZE as u8);
             self.file[i + HB_ROW_COUNT] =
-                FieldLocation::from(u8::from(self.file[i + HB_ROW_COUNT - 1]) + ROW_SIZE as u8);
+                FieldLocation::from(u8::from(self.file[i + HB_ROW_COUNT - 1]) - ROW_SIZE as u8);
         }
     }
     fn add_diagonal_directions(&mut self, field: AnnotatedFieldLocation) {
@@ -394,30 +394,46 @@ impl ThreePlayerChess {
                 self.board[usize::from(rook_target)] = rook;
                 self.board[tgt] = king;
             }
-            MoveType::Promotion(piece_type) => {
+            MoveType::Promotion(piece_type) | MoveType::CapturePromotion(_, piece_type) => {
                 self.board[tgt] = FieldValue(Some((self.turn, piece_type))).into();
                 self.board[src] = Default::default();
             }
             MoveType::ClaimDraw => return,
         }
     }
+    pub fn apply_king_move_sideeffects(&mut self, m: Move) {
+        self.king_positions[usize::from(self.turn)] = m.target;
+        for r in self.possible_rooks_for_castling[usize::from(self.turn)].iter_mut() {
+            *r = None;
+        }
+        self.check_possibilities[usize::from(usize::from(self.turn))] =
+            CheckPossibilities::from_king_pos(m.target);
+    }
+    pub fn remove_castling_rights_from_rook(&mut self, loc: FieldLocation, color: Color) {
+        for r in self.possible_rooks_for_castling[usize::from(color)].iter_mut() {
+            if *r == Some(loc) {
+                *r = None;
+            }
+        }
+    }
+    pub fn remove_en_passent_target(&mut self, loc: FieldLocation, color: Color) {
+        let ci = usize::from(color);
+        if self.possible_en_passant[ci] == Some(loc) {
+            self.possible_en_passant[ci] = None;
+        }
+    }
     pub fn apply_move_sideeffects(&mut self, m: Move) {
         let player_to_move = self.turn;
         let pid = usize::from(player_to_move);
-        self.turn = get_next_hb(self.turn, true);
         self.move_index += 1;
         self.possible_en_passant[pid] = None;
+        let (_, piece) = FieldValue::from(self.board[usize::from(m.target)]).unwrap();
         match m.move_type {
-            MoveType::Slide => match FieldValue::from(self.board[usize::from(m.target)]).unwrap() {
-                (_, PieceType::King) => {
-                    self.king_positions[usize::from(player_to_move)] = m.target;
-                    for r in self.possible_rooks_for_castling[pid].iter_mut() {
-                        *r = None;
-                    }
-                    self.check_possibilities[usize::from(player_to_move)] =
-                        CheckPossibilities::from_king_pos(m.target);
+            MoveType::Slide => match piece {
+                PieceType::King => {
+                    self.apply_king_move_sideeffects(m);
                 }
-                (_, PieceType::Pawn) => {
+                PieceType::Pawn => {
                     self.last_capture_or_pawn_move_index = self.move_index;
                     let source =
                         AnnotatedFieldLocation::from_field_with_origin(player_to_move, m.source);
@@ -427,17 +443,13 @@ impl ThreePlayerChess {
                         self.possible_en_passant[pid] = Some(move_rank(source, true).unwrap().loc);
                     }
                 }
-                (_, PieceType::Rook) => {
-                    for r in self.possible_rooks_for_castling[pid].iter_mut() {
-                        if *r == Some(m.source) {
-                            *r = None;
-                        }
-                    }
+                PieceType::Rook => {
+                    self.remove_castling_rights_from_rook(m.source, self.turn);
                 }
                 _ => {}
             },
             MoveType::Castle(_, _) => {
-                self.possible_rooks_for_castling[pid] = Default::default();
+                self.apply_king_move_sideeffects(m);
             }
             MoveType::EnPassant(_, _) => {
                 self.last_capture_or_pawn_move_index = self.move_index;
@@ -449,8 +461,22 @@ impl ThreePlayerChess {
                     DrawReason::ThreefoldRepetition
                 });
             }
-            _ => (),
+            MoveType::Capture(field_val) | MoveType::CapturePromotion(field_val, _) => {
+                if piece == PieceType::King {
+                    self.apply_king_move_sideeffects(m);
+                } else if piece == PieceType::Rook {
+                    self.remove_castling_rights_from_rook(m.source, self.turn);
+                }
+                let (color, captured_piece) = FieldValue::from(field_val).unwrap();
+                if captured_piece == PieceType::Rook {
+                    self.remove_castling_rights_from_rook(m.target, color);
+                } else if captured_piece == PieceType::Pawn {
+                    self.remove_en_passent_target(m.target, color);
+                }
+            }
+            MoveType::Promotion(_) => (),
         }
+        self.turn = get_next_hb(self.turn, true);
         //check whether the next player has no move to get out of check
         // which would mean somebody won
         if self.is_king_capturable(None) {
@@ -476,6 +502,10 @@ impl ThreePlayerChess {
             }
             MoveType::Capture(captured_piece) => {
                 self.board[src] = self.board[tgt];
+                self.board[tgt] = captured_piece;
+            }
+            MoveType::CapturePromotion(captured_piece, _) => {
+                self.board[src] = FieldValue(Some((self.turn, PieceType::Pawn))).into();
                 self.board[tgt] = captured_piece;
             }
             MoveType::EnPassant(captured_pawn, captured_pawn_loc) => {
@@ -535,25 +565,35 @@ impl ThreePlayerChess {
             col != tpc.turn && capturing_color.map(|cc| cc == col).unwrap_or(true)
         }
         let kp = AnnotatedFieldLocation::from_field(kp);
-        for fields in [
-            &cp.file[0..kp.rank as usize - 1],
-            &cp.file[kp.rank as usize..ROW_SIZE],
-            &cp.rank[0..kp.file as usize - 1],
-            &cp.rank[kp.file as usize..ROW_SIZE],
+        for (axis, start, end, dir) in [
+            (&cp.file, kp.rank - 1, 0, -1i8),
+            (&cp.file, kp.rank + 1, RS + 1, 1),
+            (&cp.rank, kp.file - 1, 0, -1),
+            (&cp.rank, kp.file + 1, RS + 1, 1),
         ] {
-            for f in fields {
-                let board_val = self.board[usize::from(*f)];
+            let mut i = start;
+            while i != end {
+                let f = axis[i as usize - 1];
+                let board_val = self.board[usize::from(f)];
                 match *FieldValue::from(board_val) {
-                    None => continue,
                     Some((color, piece_type)) => match piece_type {
                         PieceType::Rook | PieceType::Queen
                             if color_may_capture(self, color, capturing_color) =>
                         {
                             return true
                         }
+                        PieceType::King => {
+                            let k = AnnotatedFieldLocation::from_field_with_origin(kp.origin, f);
+                            if k.rank.abs_diff(kp.rank) == 1 || k.file.abs_diff(kp.file) == 1 {
+                                return true;
+                            }
+                            break;
+                        }
                         _ => break,
                     },
+                    None => (),
                 }
+                i += dir;
             }
         }
         let mut line_start = 0;

@@ -123,6 +123,7 @@ pub enum MoveType {
     EnPassant(PackedFieldValue, FieldLocation),
     Castle(FieldLocation, FieldLocation),
     Promotion(PieceType),
+    CapturePromotion(PackedFieldValue, PieceType),
     ClaimDraw,
 }
 
@@ -710,12 +711,13 @@ impl Move {
             MoveType::Slide | MoveType::Capture(_) | MoveType::EnPassant(_, _) => writer.write_fmt(
                 format_args!("({}{}", self.source.to_string(), self.target.to_string()),
             ),
-            MoveType::Promotion(piece_type) => writer.write_fmt(format_args!(
-                "{}{}={}",
-                self.source.to_string(),
-                self.target.to_string(),
-                piece_type.to_ascii() as char,
-            )),
+            MoveType::CapturePromotion(_, piece_type) | MoveType::Promotion(piece_type) => writer
+                .write_fmt(format_args!(
+                    "{}{}={}",
+                    self.source.to_string(),
+                    self.target.to_string(),
+                    piece_type.to_ascii() as char,
+                )),
             MoveType::ClaimDraw => writer.write_str("draw"),
         }
     }
