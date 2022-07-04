@@ -73,6 +73,10 @@ pub fn check_player_to_move(game: &mut ThreePlayerChess, player: player_id) -> R
 }
 
 impl GameMethods for ThreePlayerChess {
+    fn create_with_opts_str(_string: &str) -> Result<(Self, buf_sizer)> {
+        Self::create_default() // don't have options yet
+    }
+
     fn create_default() -> Result<(Self, buf_sizer)> {
         let game = ThreePlayerChess::default();
         let sizer = BUF_SIZER;
@@ -80,7 +84,7 @@ impl GameMethods for ThreePlayerChess {
     }
 
     fn export_options_str(&mut self, _str_buf: &mut StrBuf) -> Result<()> {
-        Ok(())
+        Ok(()) //don't have options yet
     }
 
     fn copy_from(&mut self, other: &mut Self) -> Result<()> {
@@ -138,6 +142,7 @@ impl GameMethods for ThreePlayerChess {
         }
         Ok(())
     }
+
     fn is_legal_move(&mut self, player: player_id, mov: move_code) -> Result<()> {
         let mov = Move::try_from(mov)
             .map_err(|_| Error::new_static(ErrorCode::InvalidInput, b"invalid move code\0"))?;
@@ -152,8 +157,7 @@ impl GameMethods for ThreePlayerChess {
         }
     }
 
-    fn make_move(&mut self, player: player_id, mov: move_code) -> Result<()> {
-        check_player_to_move(self, player)?;
+    fn make_move(&mut self, _player: player_id, mov: move_code) -> Result<()> {
         let mov = Move::try_from(mov)
             .map_err(|_| Error::new_static(ErrorCode::InvalidInput, b"invalid move code\0"))?;
         self.make_move(mov);
@@ -179,6 +183,23 @@ impl GameMethods for ThreePlayerChess {
     fn debug_print(&mut self, str_buf: &mut StrBuf) -> Result<()> {
         write!(str_buf, "{}", self).expect("failed to write print buffer");
         Ok(())
+    }
+    fn get_move_str(
+        &mut self,
+        player: player_id,
+        mov: move_code,
+        str_buf: &mut StrBuf,
+    ) -> Result<()> {
+        check_player_to_move(self, player)?;
+        Move::try_from(mov)
+            .map_err(|_| Error::new_static(ErrorCode::OutOfMemory, b"invalid move code\0"))?
+            .write_as_str(str_buf)
+            .map_err(|_| {
+                Error::new_static(
+                    ErrorCode::OutOfMemory,
+                    b"move string too large for buffer\0",
+                )
+            })
     }
 }
 

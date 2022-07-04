@@ -687,7 +687,7 @@ impl Frontend {
             &PIECE_IMAGES[base_player],
             ORIGINAL_PIECE_COLORS[base_player],
             color,
-            100,
+            20,
         );
         println!("recoloring player {} is done", player + 1);
         self.player_colors[player] = color;
