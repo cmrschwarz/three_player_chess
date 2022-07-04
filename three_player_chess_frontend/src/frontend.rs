@@ -419,8 +419,6 @@ impl Frontend {
                 }
             }
         }
-        self.king_in_check = self.board.is_king_capturable(None);
-
         self.board_origin = Vector2::new(dim.width / 2, dim.height / 2);
         self.board_radius = std::cmp::min(dim.width, dim.height) as f32 * 0.46;
         let translation = self.board_origin.cast::<f32>();
@@ -501,10 +499,10 @@ impl Frontend {
                 canvas.scale((sx, sy));
                 canvas.translate(Point::new(-0.5, -0.5));
             }
-
             if selected {
                 canvas.draw_rect(&*UNIT_RECT, &selection_paint);
-            } else if possible_move || king_check {
+            }
+            if (!selected && possible_move) || king_check {
                 let size = 0.35;
                 let mut path = Path::new();
                 for p in UNIT_SQUARE {
@@ -668,6 +666,7 @@ impl Frontend {
             if self.board.is_valid_move(mov) {
                 self.board.make_move(mov);
                 self.board.apply_move_sideeffects(mov);
+                self.reset_effects();
                 return Some(mov);
             }
         }
@@ -692,11 +691,15 @@ impl Frontend {
         println!("recoloring player {} is done", player + 1);
         self.player_colors[player] = color;
     }
-    pub fn reset(&mut self) {
-        self.board = ThreePlayerChess::default();
+    pub fn reset_effects(&mut self) {
         self.hovered_square = None;
         self.selected_square = None;
         self.dragged_square = None;
         self.possible_moves.fill(false);
+        self.king_in_check = self.board.is_king_capturable(None);
+    }
+    pub fn reset(&mut self) {
+        self.board = ThreePlayerChess::default();
+        self.reset_effects();
     }
 }
