@@ -339,7 +339,7 @@ impl Frontend {
             possible_moves: Default::default(),
             dragged_square: None,
             hovered_square: None,
-            player_colors: [Color::from_rgb(190, 190, 190), Color::from_rgb(41, 41, 41), Color::from_rgb(36, 36, 128)],
+            player_colors: [Color::from_rgb(236, 236, 236), Color::from_rgb(41, 41, 41), Color::from_rgb(36, 36, 128)],
             king_in_check: false,
             pieces: PIECE_IMAGES.clone()
         }
@@ -375,7 +375,7 @@ impl Frontend {
         } else if let GameStatus::Win(winner, _) = self.board.game_status {
             paint.set_color(self.player_colors[usize::from(winner)]);
             canvas.draw_path(&path, &paint);
-            let border_2 = 1. + border_width * 2.;
+            let border_2 = 1. + border_width * 1.5;
             canvas.scale((border_2, border_2));
             paint.set_stroke_width(border_width / border_2);
             canvas.draw_path(&path, &paint);
@@ -467,9 +467,7 @@ impl Frontend {
         }
         let field = AnnotatedFieldLocation::from_file_and_rank(hb, hb, file_rot, rank_rot);
 
-        let field_color = if Some(field) == self.selected_square {
-            self.selection_color
-        } else if ((file % 2) + (rank % 2) + (right as usize)) % 2 == 0 {
+        let field_color = if ((file % 2) + (rank % 2) + (right as usize)) % 2 == 0 {
             self.black
         } else {
             self.white
@@ -481,6 +479,9 @@ impl Frontend {
         canvas.save();
         canvas.concat(&CELL_TRANSFORMS[file][rank]);
         canvas.draw_rect(&*UNIT_RECT, &field_paint);
+        let selected = Some(field) == self.hovered_square
+            || Some(field) == self.selected_square
+            || Some(field) == self.dragged_square;
         if let Some((color, piece_value)) =
             *FieldValue::from(self.board.board[usize::from(field.loc)])
         {
@@ -500,7 +501,8 @@ impl Frontend {
                 canvas.scale((sx, sy));
                 canvas.translate(Point::new(-0.5, -0.5));
             }
-            if self.hovered_square == Some(field) {
+
+            if selected {
                 canvas.draw_rect(&*UNIT_RECT, &selection_paint);
             } else if possible_move || king_check {
                 let size = 0.35;
@@ -549,7 +551,7 @@ impl Frontend {
                 );
             }
         } else {
-            if self.hovered_square == Some(field) {
+            if selected {
                 canvas.draw_rect(&*UNIT_RECT, &selection_paint);
             } else if possible_move {
                 canvas.draw_circle(Point::new(0.5, 0.5), 0.2, &selection_paint);
@@ -613,30 +615,31 @@ impl Frontend {
         let prev = self.selected_square;
         self.selected_square = None;
         if let Some(square) = square {
-            if prev
-                .map(|src| self.make_move(src.loc, square.loc))
-                .is_none()
-            {
-                let field_value = FieldValue::from(self.board.board[usize::from(square.loc)]);
-                if let Some((color, _)) = *field_value {
-                    if color != self.board.turn {
-                        return;
-                    }
-                    self.dragged_square = Some(square);
-                    if Some(square) != prev {
-                        self.selected_square = self.dragged_square;
-                    }
-                    let mut moves = Default::default();
-                    self.board.gen_moves_for_field(square.loc, &mut moves);
+            if let Some(src) = prev {
+                if self.make_move(src.loc, square.loc).is_some() {
                     self.possible_moves.set_all(false);
-                    for m in moves {
-                        self.possible_moves.set(usize::from(m.target), true);
-                    }
                     return;
                 }
             }
+            let field_value = FieldValue::from(self.board.board[usize::from(square.loc)]);
+            if let Some((color, _)) = *field_value {
+                if color != self.board.turn {
+                    return;
+                }
+                self.dragged_square = Some(square);
+                if Some(square) != prev {
+                    self.selected_square = self.dragged_square;
+                }
+                let mut moves = Default::default();
+                self.board.gen_moves_for_field(square.loc, &mut moves);
+                self.possible_moves.set_all(false);
+                for m in moves {
+                    self.possible_moves.set(usize::from(m.target), true);
+                }
+            }
+        } else {
+            self.possible_moves.set_all(false);
         }
-        self.possible_moves.set_all(false);
     }
     pub fn released(&mut self) {
         let square = self.get_board_pos_from_screen_pos(self.cursor_pos);
@@ -688,5 +691,12 @@ impl Frontend {
         );
         println!("recoloring player {} is done", player + 1);
         self.player_colors[player] = color;
+    }
+    pub fn reset(&mut self) {
+        self.board = ThreePlayerChess::default();
+        self.hovered_square = None;
+        self.selected_square = None;
+        self.dragged_square = None;
+        self.possible_moves.set_all(false);
     }
 }

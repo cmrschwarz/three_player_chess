@@ -150,6 +150,10 @@ fn main() {
                         fe.recolor();
                         env.windowed_context.window().request_redraw();
                     }
+                    Some(VirtualKeyCode::R) => {
+                        fe.reset();
+                        env.windowed_context.window().request_redraw();
+                    }
                     _ => (),
                 },
                 _ => (),
