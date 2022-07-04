@@ -1,5 +1,6 @@
 #[macro_use]
 extern crate lazy_static;
+
 use gl::types::*;
 use glutin::{
     event::{ElementState, Event, KeyboardInput, MouseButton, VirtualKeyCode, WindowEvent},

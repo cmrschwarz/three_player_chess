@@ -5,14 +5,13 @@ edition = "2021"
 
 [dependencies]
 glutin = "0.28.0"
-gl = "0.10.0"
-chrono = "0.4"
-rand = "0.4"
+gl = "0.14.0"
+rand = "0.8.4"
 rand_chacha = "0.3.1"
 lazy_static = "1.0"
 vecmath = "1.0.0"
 nalgebra = "0.31.0"
-bitvec = "0.19.4"
+bitvec = "1.0.0"
 arrayvec = "0.7.2"
 three_player_chess = {path = "../three_player_chess"}
 [dependencies.skia-safe]

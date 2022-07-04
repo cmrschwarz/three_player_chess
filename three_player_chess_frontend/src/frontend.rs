@@ -1,7 +1,7 @@
 use nalgebra::{ArrayStorage, Matrix3, OMatrix, OVector, Transform2, Vector2};
 use skia_safe::{
-    radians_to_degrees, Bitmap, Canvas, Color, Color4f, ColorType, Data, Font, IPoint, Image,
-    ImageInfo, Matrix, Paint, PaintStyle, Path, Point, Rect, Typeface,
+    radians_to_degrees, Bitmap, Canvas, Color, ColorType, Data, Font, IPoint, Image, ImageInfo,
+    Matrix, Paint, PaintStyle, Path, Point, Rect, Typeface,
 };
 use std::f32::consts::PI;
 use std::ops::{Add, Sub};
@@ -52,7 +52,7 @@ pub struct Frontend {
     pub selected_square: Option<AnnotatedFieldLocation>,
     pub hovered_square: Option<AnnotatedFieldLocation>,
     pub dragged_square: Option<AnnotatedFieldLocation>,
-    pub possible_moves: bitvec::array::BitArray<bitvec::order::LocalBits, [u32; HB_COUNT]>,
+    pub possible_moves: bitvec::BitArr!(for (32 * HB_COUNT), in u32), //  BitArray<bitvec::order::LocalBits, [u32; HB_COUNT]>,
     pub king_in_check: bool,
     pub cursor_pos: Vector2<i32>,
     pub board_radius: f32,
@@ -617,7 +617,7 @@ impl Frontend {
         if let Some(square) = square {
             if let Some(src) = prev {
                 if self.make_move(src.loc, square.loc).is_some() {
-                    self.possible_moves.set_all(false);
+                    self.possible_moves.fill(false);
                     return;
                 }
             }
@@ -632,13 +632,13 @@ impl Frontend {
                 }
                 let mut moves = Default::default();
                 self.board.gen_moves_for_field(square.loc, &mut moves);
-                self.possible_moves.set_all(false);
+                self.possible_moves.fill(false);
                 for m in moves {
                     self.possible_moves.set(usize::from(m.target), true);
                 }
             }
         } else {
-            self.possible_moves.set_all(false);
+            self.possible_moves.fill(false);
         }
     }
     pub fn released(&mut self) {
@@ -651,7 +651,7 @@ impl Frontend {
         self.dragged_square = None;
         if square != self.selected_square {
             self.selected_square = None;
-            self.possible_moves.set_all(false);
+            self.possible_moves.fill(false);
         }
     }
     pub fn make_move(&mut self, src: FieldLocation, tgt: FieldLocation) -> Option<Move> {
@@ -697,6 +697,6 @@ impl Frontend {
         self.hovered_square = None;
         self.selected_square = None;
         self.dragged_square = None;
-        self.possible_moves.set_all(false);
+        self.possible_moves.fill(false);
     }
 }
