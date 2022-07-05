@@ -3,8 +3,10 @@ use skia_safe::{
     radians_to_degrees, Bitmap, Canvas, Color, ColorType, Data, Font, IPoint, Image, ImageInfo,
     Matrix, Paint, PaintStyle, Path, Point, Rect, Typeface,
 };
+use std::ascii::AsciiExt;
 use std::f32::consts::PI;
 use std::ops::{Add, Sub};
+use std::str::FromStr;
 use three_player_chess::board;
 use three_player_chess::board::*;
 use three_player_chess::movegen::HBRC;
@@ -348,7 +350,7 @@ impl Frontend {
         canvas.clear(self.background);
         //TODO: config option for this
         let mut path = Path::new();
-        for i in 0..6 {
+        for i in 0..HB_COUNT * 2 {
             let point = Point::new(
                 (i as f32 * HEX_CENTER_ANGLE).cos(),
                 (i as f32 * HEX_CENTER_ANGLE).sin(),
@@ -360,24 +362,55 @@ impl Frontend {
             }
         }
         path.close();
+        let notation_offset = 0.15f32;
+        let hh = *HEX_HEIGHT;
+        let hsl = *HEX_SIDE_LEN;
+        let font_size = self.font.size();
+        let font_scale = 0.1 * (self.board_radius / self.font.size());
+        for c in 0..HB_COUNT {
+            let angle = radians_to_degrees(HEX_CENTER_ANGLE * 2. * c as f32);
+            let bot_begin = Vector2::new(-hsl, hh + notation_offset).scale(self.board_radius);
+            let bot_end = Vector2::new(hsl, hh + notation_offset).scale(self.board_radius);
+            let dir = bot_end.sub(bot_begin).scale(1. / (ROW_SIZE) as f32);
+            for f in 1..ROW_SIZE + 1 {
+                let origin = bot_begin.add(dir.scale(f as f32 - 1.));
+                let fc = FieldLocation::new(board::Color::from(c as u8), f as i8, 1).file_char();
+                let s = (fc as char).to_string();
+                let text = skia_safe::TextBlob::new(s, &self.font);
+                canvas.save();
+                canvas.rotate(angle, None);
+                canvas.translate(Point::new(
+                    origin.x + font_size / 2. * font_scale,
+                    origin.y + font_size / 2. * font_scale,
+                ));
+                canvas.scale((font_scale, font_scale));
+                canvas.rotate(-angle, None);
+                canvas.draw_text_blob(
+                    text.unwrap(),
+                    Point::new(-font_size / 2., -font_size / 2.),
+                    &sk_paint(Color::WHITE, PaintStyle::Fill),
+                );
+                canvas.restore();
+            }
+        }
+        canvas.scale((self.board_radius, self.board_radius));
+        let border_width = 0.02;
+        let border_scale = 1. + border_width / 2.;
         let mut paint = sk_paint(
             self.player_colors[usize::from(self.board.turn)],
             PaintStyle::Stroke,
         );
-        let border_width = 0.02;
         paint.set_stroke_width(border_width);
-        canvas.scale((
-            self.board_radius * (1. + border_width / 2.),
-            self.board_radius * (1. + border_width / 2.),
-        ));
+        canvas.scale((border_scale, border_scale));
+
         if self.board.game_status == GameStatus::Ongoing {
             canvas.draw_path(&path, &paint);
         } else if let GameStatus::Win(winner, _) = self.board.game_status {
             paint.set_color(self.player_colors[usize::from(winner)]);
             canvas.draw_path(&path, &paint);
-            let border_2 = 1. + border_width * 1.5;
-            canvas.scale((border_2, border_2));
-            paint.set_stroke_width(border_width / border_2);
+            let border_2_scale = border_scale + border_width;
+            canvas.scale((border_2_scale, border_2_scale));
+            paint.set_stroke_width(border_width / border_2_scale);
             canvas.draw_path(&path, &paint);
         }
     }
