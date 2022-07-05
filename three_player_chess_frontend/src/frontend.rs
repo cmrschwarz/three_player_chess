@@ -387,6 +387,14 @@ impl Frontend {
         canvas.scale((self.board_radius, self.board_radius));
         let hex_height = *HEX_HEIGHT;
         let hex_side_len = *HEX_SIDE_LEN;
+        let notation_paint = {
+            let color = if let GameStatus::Win(winner, _) = self.board.game_status {
+                self.player_colors[usize::from(winner)]
+            } else {
+                self.player_colors[usize::from(self.board.turn)]
+            };
+            &sk_paint(color, PaintStyle::Fill)
+        };
         let tgt_font_size = 0.075;
         let mut notation_offset = 0.025;
         if self.board.game_status != GameStatus::Ongoing {
@@ -432,7 +440,7 @@ impl Frontend {
                     canvas.draw_text_blob(
                         &text,
                         Point::new(-text.bounds().center_x(), -text.bounds().center_y()),
-                        &sk_paint(Color::WHITE, PaintStyle::Fill),
+                        notation_paint,
                     );
                     canvas.restore();
                     x += xshift;
