@@ -3,14 +3,13 @@ use skia_safe::{
     radians_to_degrees, Bitmap, Canvas, Color, ColorType, Data, Font, IPoint, Image, ImageInfo,
     Matrix, Paint, PaintStyle, Path, Point, Rect, Typeface,
 };
-use std::ascii::AsciiExt;
 use std::f32::consts::PI;
 use std::ops::{Add, Sub};
-use std::str::FromStr;
 use three_player_chess::board;
 use three_player_chess::board::*;
-use three_player_chess::movegen::HBRC;
+use three_player_chess::movegen::{HBRC, RS};
 pub const FONT: &'static [u8] = include_bytes!("../res/Roboto-Regular.ttf");
+const BORDER_WIDTH: f32 = 0.02;
 
 pub const PIECES: [[&'static [u8]; PIECE_COUNT]; HB_COUNT] = [
     [
@@ -362,43 +361,15 @@ impl Frontend {
             }
         }
         path.close();
-        let hex_height = *HEX_HEIGHT;
-        let hex_side_len = *HEX_SIDE_LEN;
-        let tgt_font_size = 0.07;
-        let font_offset = 0.03;
-        canvas.scale((self.board_radius, self.board_radius));
-        for c in 0..HB_COUNT {
-            let angle = radians_to_degrees(HEX_CENTER_ANGLE * 2. * c as f32);
-            let xshift = hex_side_len / 4.;
-            let y = hex_height + font_offset;
-            let mut x = -hex_side_len + hex_side_len / (HBRC as f32 * 2.);
-            for f in 1..ROW_SIZE + 1 {
-                let fc = FieldLocation::new(board::Color::from(c as u8), f as i8, 1).file_char();
-                let s = (fc as char).to_string();
-                let text = skia_safe::TextBlob::new(s, &self.font).unwrap();
 
-                let font_scale = tgt_font_size / text.bounds().width().max(text.bounds().height());
-                canvas.save();
-                canvas.rotate(angle, None);
-                canvas.translate(Point::new(x, y + text.bounds().height() * font_scale / 2.));
-                canvas.rotate(-angle, None);
-                canvas.scale((font_scale, font_scale));
-                canvas.draw_text_blob(
-                    &text,
-                    Point::new(-text.bounds().center_x(), -text.bounds().center_y()),
-                    &sk_paint(Color::WHITE, PaintStyle::Fill),
-                );
-                canvas.restore();
-                x += xshift;
-            }
-        }
-        let border_width = 0.02;
-        let border_scale = 1. + border_width / 2.;
+        canvas.scale((self.board_radius, self.board_radius));
+
+        let border_scale = 1. + BORDER_WIDTH / 2.;
         let mut paint = sk_paint(
             self.player_colors[usize::from(self.board.turn)],
             PaintStyle::Stroke,
         );
-        paint.set_stroke_width(border_width);
+        paint.set_stroke_width(BORDER_WIDTH);
         canvas.scale((border_scale, border_scale));
 
         if self.board.game_status == GameStatus::Ongoing {
@@ -406,10 +377,67 @@ impl Frontend {
         } else if let GameStatus::Win(winner, _) = self.board.game_status {
             paint.set_color(self.player_colors[usize::from(winner)]);
             canvas.draw_path(&path, &paint);
-            let border_2_scale = border_scale + border_width;
+            let border_2_scale = border_scale + BORDER_WIDTH;
             canvas.scale((border_2_scale, border_2_scale));
-            paint.set_stroke_width(border_width / border_2_scale);
+            paint.set_stroke_width(BORDER_WIDTH / border_2_scale);
             canvas.draw_path(&path, &paint);
+        }
+    }
+    pub fn render_notation(&mut self, canvas: &mut Canvas) {
+        canvas.scale((self.board_radius, self.board_radius));
+        let hex_height = *HEX_HEIGHT;
+        let hex_side_len = *HEX_SIDE_LEN;
+        let tgt_font_size = 0.075;
+        let mut notation_offset = 0.025;
+        if self.board.game_status != GameStatus::Ongoing {
+            notation_offset += BORDER_WIDTH;
+        }
+        for rank in [false, true] {
+            for c in 0..HB_COUNT {
+                let angle = radians_to_degrees(
+                    HEX_CENTER_ANGLE * 2. * c as f32 + usize::from(rank) as f32 * -HEX_CENTER_ANGLE,
+                );
+                let xshift = hex_side_len / 4.;
+                let y = hex_height + notation_offset;
+                let mut x = -hex_side_len + hex_side_len / (HBRC as f32 * 2.);
+                for i in 1..ROW_SIZE + 1 {
+                    let field_loc = if rank {
+                        if i <= HB_ROW_COUNT {
+                            FieldLocation::new(board::Color::from(c as u8), RS, i as i8)
+                        } else {
+                            FieldLocation::new(
+                                board::Color::from(((c + 2) % HB_COUNT) as u8),
+                                1,
+                                (ROW_SIZE - i + 1) as i8,
+                            )
+                        }
+                    } else {
+                        FieldLocation::new(board::Color::from(c as u8), i as i8, 1)
+                    };
+                    let notation = if rank {
+                        field_loc.rank_char()
+                    } else {
+                        field_loc.file_char()
+                    };
+                    let notation_str = (notation as char).to_string();
+                    let text = skia_safe::TextBlob::new(notation_str, &self.font).unwrap();
+
+                    let font_scale =
+                        tgt_font_size / text.bounds().width().max(text.bounds().height());
+                    canvas.save();
+                    canvas.rotate(angle, None);
+                    canvas.translate(Point::new(x, y + text.bounds().height() * font_scale / 2.));
+                    canvas.rotate(-angle, None);
+                    canvas.scale((font_scale, font_scale));
+                    canvas.draw_text_blob(
+                        &text,
+                        Point::new(-text.bounds().center_x(), -text.bounds().center_y()),
+                        &sk_paint(Color::WHITE, PaintStyle::Fill),
+                    );
+                    canvas.restore();
+                    x += xshift;
+                }
+            }
         }
     }
     pub fn render_dragged_piece(&mut self, canvas: &mut Canvas) {
@@ -462,6 +490,9 @@ impl Frontend {
 
         canvas.save();
         self.render_background(canvas);
+        canvas.restore();
+        canvas.save();
+        self.render_notation(canvas);
         canvas.restore();
 
         for c in board::Color::iter() {
@@ -567,7 +598,10 @@ impl Frontend {
                 let size_h = size / 2.;
                 let t = img_origin.add(Vector2::new(size_h, size_h));
                 canvas.translate(Point::new(t.x, t.y));
-                canvas.scale((sx, 1.));
+                // use a little less space than estimated by our function
+                // to avoid ugly corners
+                let fill_fraction = 0.98;
+                canvas.scale((sx * fill_fraction, fill_fraction));
                 canvas.rotate(-rotation, None);
                 canvas.draw_image_rect(
                     img,
