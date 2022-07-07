@@ -197,7 +197,7 @@ impl GameMethods for ThreePlayerChess {
         check_player_to_move(self, player)?;
         Move::try_from(mov)
             .map_err(|_| Error::new_static(ErrorCode::OutOfMemory, b"invalid move code\0"))?
-            .write_as_str(str_buf)
+            .write_as_str(self, str_buf)
             .map_err(|_| {
                 Error::new_static(
                     ErrorCode::OutOfMemory,

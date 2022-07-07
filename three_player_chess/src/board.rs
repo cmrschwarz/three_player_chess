@@ -2,6 +2,7 @@ use num_derive::{FromPrimitive, ToPrimitive};
 use num_traits::{FromPrimitive, ToPrimitive};
 
 use crate::movegen::*;
+use arrayvec::ArrayString;
 use std::char;
 use std::collections::HashMap;
 use std::io::Write;
@@ -346,7 +347,7 @@ impl ThreePlayerChess {
             }
             writer.write_char('/')?;
             if let Some(loc) = self.possible_en_passant[usize::from(*c)] {
-                writer.write_fmt(format_args!("{}", loc))?;
+                writer.write_fmt(format_args!("{}", loc.to_str()))?;
             }
             writer.write_char(':')?;
         }
@@ -468,11 +469,6 @@ impl std::fmt::Display for ThreePlayerChess {
         write!(f, "{}", std::str::from_utf8(&board_str).unwrap())
     }
 }
-impl std::fmt::Display for FieldLocation {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}", <&str>::from(*self))
-    }
-}
 impl std::default::Default for FieldLocation {
     fn default() -> FieldLocation {
         FieldLocation::from(0 as u8)
@@ -548,13 +544,6 @@ impl std::fmt::Display for PieceType {
     }
 }
 
-impl std::convert::From<FieldLocation> for &str {
-    fn from(v: FieldLocation) -> &'static str {
-        unsafe {
-            return std::str::from_utf8_unchecked(&BOARD_NOTATION[usize::from(v)]);
-        }
-    }
-}
 impl FieldLocation {
     pub fn from_utf8(board_str: [u8; 2]) -> Option<Self> {
         BOARD_NOTATION_MAP
@@ -577,8 +566,33 @@ impl FieldLocation {
     pub fn file_char(&self) -> u8 {
         <[u8; 2]>::from(*self)[0]
     }
+    pub fn file_char_fancy(&self) -> u8 {
+        self.file_char().to_ascii_lowercase()
+    }
     pub fn rank_char(&self) -> u8 {
         <[u8; 2]>::from(*self)[1]
+    }
+    pub fn rank_char_fancy(&self) -> ArrayString<2> {
+        let rc = self.rank_char();
+        let mut res = ArrayString::new();
+        match rc as char {
+            'a' => res.push_str("10"),
+            'b' => res.push_str("11"),
+            'c' => res.push_str("12"),
+            _ => res.push(rc as char),
+        }
+        res
+    }
+    pub fn to_str(&self) -> &'static str {
+        unsafe {
+            return std::str::from_utf8_unchecked(&BOARD_NOTATION[usize::from(*self)]);
+        }
+    }
+    pub fn to_str_fancy(&self) -> ArrayString<3> {
+        let mut res = ArrayString::new();
+        res.push(self.file_char_fancy() as char);
+        res.push_str(&self.rank_char_fancy().as_str());
+        res
     }
 }
 impl std::convert::From<FieldValue> for PackedFieldValue {
@@ -643,22 +657,22 @@ impl Move {
             });
         }
 
-        let src = AnnotatedFieldLocation::from_field_with_origin(
+        let src = AnnotatedFieldLocation::from_with_origin(
             game.turn,
             FieldLocation::from_str(&string[0..2])?,
         );
-        let tgt = AnnotatedFieldLocation::from_field_with_origin(
+        let tgt = AnnotatedFieldLocation::from_with_origin(
             game.turn,
             FieldLocation::from_str(&string[2..4])?,
         );
 
-        let src_val = FieldValue::from(game.board[usize::from(src.loc)]);
+        let src_val = game.get_field_value(src.loc);
 
         if src_val.is_none() {
             return None;
         }
 
-        let tgt_val = FieldValue::from(game.board[usize::from(tgt.loc)]);
+        let tgt_val = game.get_field_value(tgt.loc);
 
         if string.len() > 4 {
             let promotion: [u8; 2] = string[4..].as_bytes().try_into().ok()?;
@@ -697,28 +711,128 @@ impl Move {
             })
         }
     }
-    pub fn write_as_str<W: std::fmt::Write>(&self, writer: &mut W) -> Result<(), std::fmt::Error> {
-        match self.move_type {
-            MoveType::Castle(_, _) => {
-                if AnnotatedFieldLocation::from_field(self.source).file
-                    < AnnotatedFieldLocation::from_field(self.target).file
-                {
-                    writer.write_str("O-O")
+    pub fn get_source_string(&self, game: &mut ThreePlayerChess) -> ArrayString<4> {
+        let field_val = game.get_field_value(self.source);
+        let (_, piece) = field_val.unwrap();
+        let mut mov = *self;
+        let mut cp = CheckPossibilities::new();
+        let mut disambiguate_file = false;
+        let mut disambiguate_rank = false;
+        let fc = self.source.file_char();
+        let mut check_move_ambiguities = |src: FieldLocation| {
+            if src == self.source {
+                return;
+            }
+            if game.get_field_value(src) != field_val {
+                return;
+            }
+            mov.source = src;
+            if !game.is_valid_move(mov) {
+                return;
+            }
+            if src.file_char() != fc {
+                disambiguate_file = true;
+            } else {
+                disambiguate_rank = true;
+            }
+        };
+        if piece == Knight {
+            cp.add_knight_moves(self.target.into());
+            for nm in &cp.knight_moves {
+                check_move_ambiguities(*nm);
+            }
+        }
+        if piece == Bishop || piece == Queen {
+            cp.add_diagonal_directions(self.target.into());
+            for i in 0..5 {
+                let begin = if i > 0 {
+                    cp.diagonal_line_ends[i - 1]
                 } else {
-                    writer.write_str("O-O")
+                    0
+                };
+                for j in begin..cp.diagonal_line_ends[i] {
+                    check_move_ambiguities(cp.diagonal_lines[j]);
                 }
             }
-            MoveType::Slide | MoveType::Capture(_) | MoveType::EnPassant(_, _) => writer.write_fmt(
-                format_args!("({}{}", self.source.to_string(), self.target.to_string()),
-            ),
-            MoveType::CapturePromotion(_, piece_type) | MoveType::Promotion(piece_type) => writer
-                .write_fmt(format_args!(
-                    "{}{}={}",
-                    self.source.to_string(),
-                    self.target.to_string(),
-                    piece_type.to_ascii() as char,
-                )),
-            MoveType::ClaimDraw => writer.write_str("draw"),
         }
+        if piece == Rook || piece == Queen {
+            cp.add_cardinal_directions(self.target.into());
+            for i in 0..ROW_SIZE {
+                check_move_ambiguities(cp.file[i]);
+                check_move_ambiguities(cp.rank[i]);
+            }
+        }
+        let mut res = ArrayString::new();
+        if piece == Pawn {
+            if let MoveType::Capture(_) = self.move_type {
+                disambiguate_file = true;
+            }
+        } else {
+            res.push(piece.to_ascii() as char);
+        }
+        if disambiguate_file {
+            res.push(self.source.file_char_fancy() as char);
+        }
+        if disambiguate_rank {
+            res.push_str(self.source.rank_char_fancy().as_str());
+        }
+        res
+    }
+
+    pub fn write_as_str<W: std::fmt::Write>(
+        &self,
+        game: &mut ThreePlayerChess,
+        writer: &mut W,
+    ) -> Result<(), std::fmt::Error> {
+        match self.move_type {
+            MoveType::Castle(_, _) => {
+                if AnnotatedFieldLocation::from(self.source).file
+                    < AnnotatedFieldLocation::from(self.target).file
+                {
+                    writer.write_str("O-O")?
+                } else {
+                    writer.write_str("O-O-O")?
+                }
+            }
+            MoveType::Slide => writer.write_fmt(format_args!(
+                "{}{}",
+                self.get_source_string(game),
+                self.target.to_str_fancy().as_str()
+            ))?,
+            MoveType::Capture(_) => writer.write_fmt(format_args!(
+                "{}x{}",
+                self.get_source_string(game),
+                self.target.to_str_fancy().as_str()
+            ))?,
+            MoveType::EnPassant(_, _) => writer.write_fmt(format_args!(
+                "{}x{} e.p.",
+                self.get_source_string(game),
+                self.target.to_str_fancy().as_str()
+            ))?,
+            MoveType::Promotion(piece_type) => writer.write_fmt(format_args!(
+                "{}={}",
+                self.get_source_string(game),
+                piece_type.to_ascii() as char,
+            ))?,
+            MoveType::CapturePromotion(_, piece_type) => writer.write_fmt(format_args!(
+                "{}x{}={}",
+                self.get_source_string(game),
+                self.target.to_str_fancy().as_str(),
+                piece_type.to_ascii() as char,
+            ))?,
+            MoveType::ClaimDraw => writer.write_str("draw")?,
+        }
+        let turn = game.turn;
+        game.make_move(*self);
+        if game.is_king_capturable(Some(turn)) {
+            writer.write_char('+')?;
+        }
+        game.undo_move(*self);
+        Ok(())
+    }
+    pub fn to_string(&self, game: &mut ThreePlayerChess) -> ArrayString<10> {
+        let mut res = ArrayString::new();
+        self.write_as_str(game, &mut res).unwrap();
+        res
     }
 }

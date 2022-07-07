@@ -12,17 +12,17 @@ const MAX_KNIGHT_MOVES_PER_SQUARE: usize = 10;
 
 #[derive(Clone, PartialEq, Eq, Default)]
 pub struct CheckPossibilities {
-    knight_moves: ArrayVec<FieldLocation, MAX_KNIGHT_MOVES_PER_SQUARE>,
+    pub knight_moves: ArrayVec<FieldLocation, MAX_KNIGHT_MOVES_PER_SQUARE>,
 
-    diagonal_lines: [FieldLocation; CHECK_LINES_DIAGONALS_MAX_SQUARES],
-    diagonal_line_ends: [usize; CHECK_LINES_DIAGONALS_COUNT],
+    pub diagonal_lines: [FieldLocation; CHECK_LINES_DIAGONALS_MAX_SQUARES],
+    pub diagonal_line_ends: [usize; CHECK_LINES_DIAGONALS_COUNT],
 
-    file: [FieldLocation; ROW_SIZE],
-    rank: [FieldLocation; ROW_SIZE],
+    pub file: [FieldLocation; ROW_SIZE],
+    pub rank: [FieldLocation; ROW_SIZE],
 }
 
 impl CheckPossibilities {
-    fn add_cardinal_directions(&mut self, field: AnnotatedFieldLocation) {
+    pub fn add_cardinal_directions(&mut self, field: AnnotatedFieldLocation) {
         let mut rank_it = FieldLocation::new(field.hb, 1, field.rank);
         for i in 0..ROW_SIZE {
             self.rank[i] = rank_it;
@@ -40,7 +40,7 @@ impl CheckPossibilities {
                 FieldLocation::from(u8::from(self.file[i + HB_ROW_COUNT - 1]) - ROW_SIZE as u8);
         }
     }
-    fn add_diagonal_directions(&mut self, field: AnnotatedFieldLocation) {
+    pub fn add_diagonal_directions(&mut self, field: AnnotatedFieldLocation) {
         let mut lines_idx = 0;
         let mut lines_count = 0;
         let mut line_begin = 0;
@@ -98,6 +98,9 @@ impl CheckPossibilities {
             self.diagonal_line_ends[lines_count] = self.diagonal_line_ends[lines_count - 1];
         }
     }
+    pub fn add_knight_moves(&mut self, field: AnnotatedFieldLocation) {
+        get_knight_moves_for_field(field, &mut self.knight_moves);
+    }
     pub fn new() -> Self {
         Self {
             knight_moves: Default::default(),
@@ -109,8 +112,8 @@ impl CheckPossibilities {
     }
     pub fn from_king_pos(king_pos: FieldLocation) -> CheckPossibilities {
         let mut cp = CheckPossibilities::default();
-        let afl = AnnotatedFieldLocation::from_field(king_pos);
-        get_knight_moves_for_field(afl, &mut cp.knight_moves);
+        let afl = AnnotatedFieldLocation::from(king_pos);
+        cp.add_knight_moves(afl);
         cp.add_cardinal_directions(afl);
         cp.add_diagonal_directions(afl);
         cp
@@ -127,7 +130,7 @@ impl AnnotatedFieldLocation {
             rank,
         }
     }
-    pub fn from_field_with_origin_and_hb(origin: Color, hb: Color, field: FieldLocation) -> Self {
+    pub fn from_with_origin_and_hb(origin: Color, hb: Color, field: FieldLocation) -> Self {
         AnnotatedFieldLocation {
             origin,
             loc: field,
@@ -149,12 +152,8 @@ impl AnnotatedFieldLocation {
             rank,
         }
     }
-    pub fn from_field_with_origin(origin: Color, field: FieldLocation) -> Self {
-        Self::from_field_with_origin_and_hb(origin, get_hb(field), field)
-    }
-    pub fn from_field(field: FieldLocation) -> Self {
-        let hb = get_hb(field);
-        Self::from_field_with_origin_and_hb(hb, hb, field)
+    pub fn from_with_origin(origin: Color, field: FieldLocation) -> Self {
+        Self::from_with_origin_and_hb(origin, get_hb(field), field)
     }
     pub fn reorient(&self, origin: Color) -> Self {
         let mut res = self.clone();
@@ -164,6 +163,13 @@ impl AnnotatedFieldLocation {
             res.rank = invert_coord(self.rank);
         }
         res
+    }
+}
+
+impl From<FieldLocation> for AnnotatedFieldLocation {
+    fn from(field: FieldLocation) -> Self {
+        let hb = get_hb(field);
+        Self::from_with_origin_and_hb(hb, hb, field)
     }
 }
 
@@ -427,7 +433,7 @@ impl ThreePlayerChess {
         let pid = usize::from(player_to_move);
         self.move_index += 1;
         self.possible_en_passant[pid] = None;
-        let (_, piece) = FieldValue::from(self.board[usize::from(m.target)]).unwrap();
+        let (_, piece) = self.get_field_value(m.target).unwrap();
         match m.move_type {
             MoveType::Slide => match piece {
                 PieceType::King => {
@@ -435,10 +441,8 @@ impl ThreePlayerChess {
                 }
                 PieceType::Pawn => {
                     self.last_capture_or_pawn_move_index = self.move_index;
-                    let source =
-                        AnnotatedFieldLocation::from_field_with_origin(player_to_move, m.source);
-                    let target =
-                        AnnotatedFieldLocation::from_field_with_origin(player_to_move, m.target);
+                    let source = AnnotatedFieldLocation::from_with_origin(player_to_move, m.source);
+                    let target = AnnotatedFieldLocation::from_with_origin(player_to_move, m.target);
                     if source.rank == 2 && target.rank == 4 {
                         self.possible_en_passant[pid] = Some(move_rank(source, true).unwrap().loc);
                     }
@@ -564,7 +568,7 @@ impl ThreePlayerChess {
         ) -> bool {
             col != tpc.turn && capturing_color.map(|cc| cc == col).unwrap_or(true)
         }
-        let kp = AnnotatedFieldLocation::from_field(kp);
+        let kp = AnnotatedFieldLocation::from(kp);
         for (axis, start, end, dir) in [
             (&cp.file, kp.rank - 1, 0, -1i8),
             (&cp.file, kp.rank + 1, RS + 1, 1),
@@ -574,8 +578,7 @@ impl ThreePlayerChess {
             let mut i = start;
             while i != end {
                 let f = axis[i as usize - 1];
-                let board_val = self.board[usize::from(f)];
-                match *FieldValue::from(board_val) {
+                match *self.get_field_value(f) {
                     Some((color, piece_type)) => match piece_type {
                         PieceType::Rook | PieceType::Queen
                             if color_may_capture(self, color, capturing_color) =>
@@ -583,7 +586,7 @@ impl ThreePlayerChess {
                             return true
                         }
                         PieceType::King => {
-                            let k = AnnotatedFieldLocation::from_field_with_origin(kp.origin, f);
+                            let k = AnnotatedFieldLocation::from_with_origin(kp.origin, f);
                             if k.rank.abs_diff(kp.rank) == 1 || k.file.abs_diff(kp.file) == 1 {
                                 return true;
                             }
@@ -609,7 +612,7 @@ impl ThreePlayerChess {
                             return true
                         }
                         PieceType::Pawn if color_may_capture(self, color, capturing_color) => {
-                            let pos = AnnotatedFieldLocation::from_field_with_origin(color, *f);
+                            let pos = AnnotatedFieldLocation::from_with_origin(color, *f);
                             if pos.rank + 1 == kp.reorient(color).rank {
                                 return true;
                             }
@@ -745,7 +748,7 @@ impl ThreePlayerChess {
         let mut knight_moves = arrayvec::ArrayVec::new();
         get_knight_moves_for_field(field, &mut knight_moves);
         for m in knight_moves {
-            self.gen_move(field, AnnotatedFieldLocation::from_field(m), moves);
+            self.gen_move(field, AnnotatedFieldLocation::from(m), moves);
         }
     }
     pub fn gen_move_castling(&mut self, short: bool) -> Option<Move> {
@@ -756,11 +759,11 @@ impl ThreePlayerChess {
         let king_tgt =
             AnnotatedFieldLocation::from_file_and_rank(hb, hb, [3, 7][short as usize], 1);
         for tgt in [king_tgt, rook_tgt] {
-            if FieldValue::from(self.board[usize::from(tgt.loc)]).is_some() {
+            if self.get_field_value(tgt.loc).is_some() {
                 return None;
             }
         }
-        let king_src = AnnotatedFieldLocation::from_field(self.king_positions[usize::from(hb)]);
+        let king_src = AnnotatedFieldLocation::from(self.king_positions[usize::from(hb)]);
         let (fbegin, fend) = [
             (king_tgt.file, king_src.file - 1),
             (king_src.file + 1, king_tgt.file),
@@ -882,7 +885,7 @@ impl ThreePlayerChess {
         }
     }
     fn gen_moves_pawn(&mut self, field: FieldLocation, moves: &mut Vec<Move>) {
-        let src = AnnotatedFieldLocation::from_field_with_origin(self.turn, field);
+        let src = AnnotatedFieldLocation::from_with_origin(self.turn, field);
         if let Some(up) = move_rank(src, true) {
             if let FieldValue(None) = self.get_field_value(up.loc) {
                 self.gen_move_unless_check(src, up, MoveType::Slide, moves);
@@ -917,10 +920,10 @@ impl ThreePlayerChess {
         false //TODO: implement this
     }
     pub fn gen_moves_for_field(&mut self, field: FieldLocation, moves: &mut Vec<Move>) {
-        match FieldValue::from(self.board[usize::from(field)]) {
+        match self.get_field_value(field) {
             FieldValue(Some((color, piece_type))) if color == self.turn => {
                 let field = field;
-                let field_a = AnnotatedFieldLocation::from_field(field);
+                let field_a = AnnotatedFieldLocation::from(field);
                 match piece_type {
                     PieceType::Pawn => self.gen_moves_pawn(field, moves),
                     PieceType::Knight => self.gen_moves_knight(field_a, moves),

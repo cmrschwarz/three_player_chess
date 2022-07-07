@@ -1,9 +1,11 @@
+use arrayvec::ArrayString;
 use nalgebra::{ArrayStorage, Matrix3, OMatrix, OVector, Transform2, Vector2};
 use skia_safe::{
     radians_to_degrees, Bitmap, Canvas, Color, ColorType, Data, Font, IPoint, Image, ImageInfo,
     Matrix, Paint, PaintStyle, Path, Point, Rect, Typeface,
 };
 use std::f32::consts::PI;
+use std::fmt::Debug;
 use std::ops::{Add, Sub};
 use three_player_chess::board;
 use three_player_chess::board::*;
@@ -422,13 +424,14 @@ impl Frontend {
                     } else {
                         FieldLocation::new(board::Color::from(c as u8), i as i8, 1)
                     };
-                    let notation = if rank {
-                        field_loc.rank_char()
+                    let notation = if !rank {
+                        let mut res = ArrayString::new();
+                        res.push(field_loc.file_char_fancy() as char);
+                        res
                     } else {
-                        field_loc.file_char()
+                        field_loc.rank_char_fancy()
                     };
-                    let notation_str = (notation as char).to_string();
-                    let text = skia_safe::TextBlob::new(notation_str, &self.font).unwrap();
+                    let text = skia_safe::TextBlob::new(notation.as_str(), &self.font).unwrap();
 
                     let font_scale =
                         tgt_font_size / text.bounds().width().max(text.bounds().height());
@@ -450,9 +453,7 @@ impl Frontend {
     }
     pub fn render_dragged_piece(&mut self, canvas: &mut Canvas) {
         if let Some(field) = self.dragged_square {
-            if let Some((color, piece_type)) =
-                *FieldValue::from(self.board.board[usize::from(field.loc)])
-            {
+            if let Some((color, piece_type)) = *self.board.get_field_value(field.loc) {
                 let size = self.board_radius * 0.1;
                 let img = &self.pieces[usize::from(color)][usize::from(piece_type)];
                 canvas.draw_image_rect(
@@ -550,9 +551,7 @@ impl Frontend {
         let selected = Some(field) == self.hovered_square
             || Some(field) == self.selected_square
             || Some(field) == self.dragged_square;
-        if let Some((color, piece_value)) =
-            *FieldValue::from(self.board.board[usize::from(field.loc)])
-        {
+        if let Some((color, piece_value)) = *self.board.get_field_value(field.loc) {
             let king_check =
                 self.king_in_check && piece_value == PieceType::King && color == self.board.turn;
             let img = &self.pieces[usize::from(color)][usize::from(piece_value)];
@@ -692,7 +691,7 @@ impl Frontend {
                     return;
                 }
             }
-            let field_value = FieldValue::from(self.board.board[usize::from(square.loc)]);
+            let field_value = self.board.get_field_value(square.loc);
             if let Some((color, _)) = *field_value {
                 if color != self.board.turn {
                     return;
@@ -737,6 +736,7 @@ impl Frontend {
                 mov.move_type = MoveType::Capture(field_val);
             }
             if self.board.is_valid_move(mov) {
+                println!("making move: {}", mov.to_string(&mut self.board));
                 self.board.make_move(mov);
                 self.board.apply_move_sideeffects(mov);
                 self.reset_effects();
