@@ -173,11 +173,11 @@ impl From<FieldLocation> for AnnotatedFieldLocation {
     }
 }
 
-fn get_hb(field: FieldLocation) -> Color {
+pub fn get_hb(field: FieldLocation) -> Color {
     Color::from_usize(usize::from(field) / HB_SIZE).unwrap()
 }
 
-fn get_next_hb(color: Color, clockwise: bool) -> Color {
+pub fn get_next_hb(color: Color, clockwise: bool) -> Color {
     let dir: i8 = if clockwise { 1 } else { -1 };
     const CC: i8 = COLOR_COUNT as i8;
     Color::from(((u8::from(color) as i8 + CC + dir) % CC) as u8)
@@ -484,8 +484,7 @@ impl ThreePlayerChess {
         //check whether the next player has no move to get out of check
         // which would mean somebody won
         if self.is_king_capturable(None) {
-            // PERF: don't do full movegen here, one legal move suffices
-            if self.gen_moves().is_empty() {
+            if self.is_king_in_checkmate() {
                 let next_player = get_next_hb(self.turn, true);
                 let winner = if self.is_king_capturable(Some(next_player)) {
                     next_player
@@ -642,6 +641,10 @@ impl ThreePlayerChess {
         let cp = &self.check_possibilities[usize::from(self.turn)];
         let kp = self.king_positions[usize::from(self.turn)];
         self.is_king_capturable_at(kp, cp, capturing_color)
+    }
+    pub fn is_king_in_checkmate(&mut self) -> bool {
+        // PERF: don't do full movegen here, one legal move suffices
+        self.gen_moves().is_empty()
     }
     fn gen_move(
         &mut self,

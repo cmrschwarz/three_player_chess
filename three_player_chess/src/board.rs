@@ -824,13 +824,31 @@ impl Move {
         }
         let turn = game.turn;
         game.make_move(*self);
-        if game.is_king_capturable(Some(turn)) {
-            writer.write_char('+')?;
+        game.turn = get_next_hb(game.turn, true);
+        if game.is_king_in_checkmate() {
+            if game.is_king_capturable(Some(turn)) {
+                writer.write_char('#')?;
+            } else {
+                writer.write_str("(#)")?;
+            }
+        } else if game.is_king_capturable(None) {
+            if game.is_king_capturable(Some(turn)) {
+                writer.write_char('+')?;
+            } else {
+                writer.write_str("(+)")?;
+            }
+        } else {
+            game.turn = get_next_hb(game.turn, true);
+            if game.is_king_capturable(Some(turn)) {
+                writer.write_char('+')?;
+            }
         }
+        game.turn = turn;
         game.undo_move(*self);
         Ok(())
     }
-    pub fn to_string(&self, game: &mut ThreePlayerChess) -> ArrayString<10> {
+    // 11 charactesr, for moves like 'exf10 e.p.(#)'
+    pub fn to_string(&self, game: &mut ThreePlayerChess) -> ArrayString<11> {
         let mut res = ArrayString::new();
         self.write_as_str(game, &mut res).unwrap();
         res
