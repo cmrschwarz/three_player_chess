@@ -122,7 +122,7 @@ pub enum MoveType {
     Slide,
     Capture(PackedFieldValue),
     EnPassant(PackedFieldValue, FieldLocation),
-    Castle(FieldLocation, FieldLocation),
+    Castle(bool),
     Promotion(PieceType),
     CapturePromotion(PackedFieldValue, PieceType),
     ClaimDraw,
@@ -479,14 +479,6 @@ impl std::convert::From<u8> for FieldLocation {
         FieldLocation(std::num::NonZeroU8::new(v + 1).unwrap())
     }
 }
-impl FieldLocation {
-    pub fn from_checked(v: u8) -> Result<FieldLocation, ()> {
-        if v >= BOARD_SIZE as u8 {
-            return Err(());
-        }
-        Ok(FieldLocation(std::num::NonZeroU8::new(v + 1).unwrap()))
-    }
-}
 impl std::convert::From<FieldLocation> for u8 {
     fn from(v: FieldLocation) -> u8 {
         v.0.get() - 1
@@ -545,6 +537,12 @@ impl std::fmt::Display for PieceType {
 }
 
 impl FieldLocation {
+    pub fn from_checked(v: u8) -> Result<FieldLocation, ()> {
+        if v >= BOARD_SIZE as u8 {
+            return Err(());
+        }
+        Ok(FieldLocation(std::num::NonZeroU8::new(v + 1).unwrap()))
+    }
     pub fn from_utf8(board_str: [u8; 2]) -> Option<Self> {
         BOARD_NOTATION_MAP
             .get(&board_str)
@@ -595,6 +593,23 @@ impl FieldLocation {
         res
     }
 }
+impl FieldValue {
+    pub fn piece_type(&self) -> Option<PieceType> {
+        if let Some((_, piece_type)) = **self {
+            Some(piece_type)
+        } else {
+            None
+        }
+    }
+    pub fn color(&self) -> Option<Color> {
+        if let Some((color, _)) = **self {
+            Some(color)
+        } else {
+            None
+        }
+    }
+}
+
 impl std::convert::From<FieldValue> for PackedFieldValue {
     fn from(v: FieldValue) -> PackedFieldValue {
         let val_raw = match v {
@@ -785,7 +800,7 @@ impl Move {
         writer: &mut W,
     ) -> Result<(), std::fmt::Error> {
         match self.move_type {
-            MoveType::Castle(_, _) => {
+            MoveType::Castle(_) => {
                 if AnnotatedFieldLocation::from(self.source).file
                     < AnnotatedFieldLocation::from(self.target).file
                 {

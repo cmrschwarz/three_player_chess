@@ -29,10 +29,7 @@ impl std::convert::TryFrom<u64> for Move {
             0 => Slide,
             1 => Capture(b1.try_into()?),
             2 => EnPassant(b1.try_into()?, FieldLocation::from_checked(b2)?),
-            3 => Castle(
-                FieldLocation::from_checked(b1)?,
-                FieldLocation::from_checked(b2)?,
-            ),
+            3 => Castle(b1 > 0),
             4 => Promotion(PieceType::from_u8(b1).ok_or(())?),
             5 => CapturePromotion(b1.try_into()?, PieceType::from_u8(b2).ok_or(())?),
             6 => ClaimDraw,
@@ -54,7 +51,7 @@ impl std::convert::From<Move> for u64 {
             EnPassant(piece, loc) => {
                 2 | (u8::from(piece) as u64) << 8 | (u8::from(loc) as u64) << 16
             }
-            Castle(src, tgt) => 3 | (u8::from(src) as u64) << 8 | (u8::from(tgt) as u64) << 16,
+            Castle(rook_src) => 3 | (u8::from(rook_src) as u64) << 8,
             Promotion(piece) => 4 | (u8::from(piece) as u64) << 8,
             CapturePromotion(cap, piece) => {
                 5 | (u8::from(piece) as u64) << 8 | (u8::from(cap) as u64) << 16

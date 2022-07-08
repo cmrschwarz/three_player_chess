@@ -119,6 +119,14 @@ impl CheckPossibilities {
         cp
     }
 }
+pub fn get_castling_target(color: Color, king: bool, short: bool) -> FieldLocation {
+    let file = if king {
+        [3, 7][short as usize]
+    } else {
+        [4, 6][short as usize]
+    };
+    FieldLocation::new(color, file, 1)
+}
 
 impl AnnotatedFieldLocation {
     pub fn new(origin: Color, loc: FieldLocation, hb: Color, file: i8, rank: i8) -> Self {
@@ -392,9 +400,13 @@ impl ThreePlayerChess {
                 self.board[usize::from(captured_pawn_loc)] = Default::default();
                 self.board[src] = Default::default();
             }
-            MoveType::Castle(rook_source, rook_target) => {
+            MoveType::Castle(short) => {
+                let rook_source = self.possible_rooks_for_castling[usize::from(self.turn)]
+                    [usize::from(short)]
+                .unwrap();
+                let rook_target = get_castling_target(self.turn, false, short);
+                let rook = self.get_packed_field_value(rook_source);
                 let king = self.board[src];
-                let rook = self.board[usize::from(rook_source)];
                 self.board[src] = Default::default();
                 self.board[usize::from(rook_source)] = Default::default();
                 self.board[usize::from(rook_target)] = rook;
@@ -452,7 +464,7 @@ impl ThreePlayerChess {
                 }
                 _ => {}
             },
-            MoveType::Castle(_, _) => {
+            MoveType::Castle(_) => {
                 self.apply_king_move_sideeffects(m);
             }
             MoveType::EnPassant(_, _) => {
@@ -516,9 +528,13 @@ impl ThreePlayerChess {
                 self.board[src] = self.board[tgt];
                 self.board[tgt] = Default::default();
             }
-            MoveType::Castle(rook_source, rook_target) => {
+            MoveType::Castle(short) => {
+                let rook_source = self.possible_rooks_for_castling[usize::from(self.turn)]
+                    [usize::from(short)]
+                .unwrap();
+                let rook_target = get_castling_target(self.turn, false, short);
+                let rook = self.get_packed_field_value(rook_target);
                 let king = self.board[tgt];
-                let rook = self.board[usize::from(rook_target)];
                 self.board[tgt] = Default::default();
                 self.board[usize::from(rook_target)] = Default::default();
                 self.board[src] = king;
@@ -757,10 +773,8 @@ impl ThreePlayerChess {
     pub fn gen_move_castling(&mut self, short: bool) -> Option<Move> {
         let hb = self.turn;
         let rook_src = self.possible_rooks_for_castling[usize::from(hb)][short as usize]?;
-        let rook_tgt =
-            AnnotatedFieldLocation::from_file_and_rank(hb, hb, [4, 6][short as usize], 1);
-        let king_tgt =
-            AnnotatedFieldLocation::from_file_and_rank(hb, hb, [3, 7][short as usize], 1);
+        let rook_tgt = AnnotatedFieldLocation::from(get_castling_target(hb, false, short));
+        let king_tgt = AnnotatedFieldLocation::from(get_castling_target(hb, true, short));
         for tgt in [king_tgt, rook_tgt] {
             if self.get_field_value(tgt.loc).is_some() {
                 return None;
@@ -769,15 +783,17 @@ impl ThreePlayerChess {
         let king_src = AnnotatedFieldLocation::from(self.king_positions[usize::from(hb)]);
         let (fbegin, fend) = [
             (king_tgt.file, king_src.file - 1),
-            (king_src.file + 1, king_tgt.file),
+            (king_src.file + 1, king_tgt.file + 1),
         ][short as usize];
+        let king_val = self.get_packed_field_value(king_src.loc);
+        let rook_val = self.get_packed_field_value(rook_src);
         let mut conflict = false;
-        self.board[usize::from(rook_tgt.loc)] = self.board[usize::from(rook_src)];
+        self.board[usize::from(rook_tgt.loc)] = rook_val;
         self.board[usize::from(rook_src)] = FieldValue(None).into();
-        let king_val = self.board[usize::from(king_src.loc)];
+
         self.board[usize::from(king_src.loc)] = FieldValue(None).into();
+
         for f in fbegin..fend {
-            self.board[usize::from(rook_src)] = FieldValue(None).into();
             let kp = AnnotatedFieldLocation::from_file_and_rank(hb, hb, f, 1);
             let cp = CheckPossibilities::from_king_pos(kp.loc);
             self.board[usize::from(kp.loc)] = king_val;
@@ -791,10 +807,10 @@ impl ThreePlayerChess {
             return None;
         }
         self.board[usize::from(king_src.loc)] = king_val;
-        self.board[usize::from(rook_src)] = self.board[usize::from(rook_tgt.loc)];
+        self.board[usize::from(rook_src)] = rook_val;
         self.board[usize::from(rook_tgt.loc)] = FieldValue(None).into();
         Some(Move {
-            move_type: MoveType::Castle(rook_src, rook_tgt.loc),
+            move_type: MoveType::Castle(short),
             source: king_src.loc,
             target: king_tgt.loc,
         })

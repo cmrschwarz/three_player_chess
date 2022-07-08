@@ -5,11 +5,10 @@ use skia_safe::{
     Matrix, Paint, PaintStyle, Path, Point, Rect, Typeface,
 };
 use std::f32::consts::PI;
-use std::fmt::Debug;
 use std::ops::{Add, Sub};
 use three_player_chess::board;
 use three_player_chess::board::*;
-use three_player_chess::movegen::{HBRC, RS};
+use three_player_chess::movegen::*;
 pub const FONT: &'static [u8] = include_bytes!("../res/Roboto-Regular.ttf");
 const BORDER_WIDTH: f32 = 0.02;
 
@@ -397,7 +396,7 @@ impl Frontend {
             };
             &sk_paint(color, PaintStyle::Fill)
         };
-        let tgt_font_size = 0.075;
+        let tgt_font_size = 0.050;
         let mut notation_offset = 0.025;
         if self.board.game_status != GameStatus::Ongoing {
             notation_offset += BORDER_WIDTH;
@@ -433,8 +432,7 @@ impl Frontend {
                     };
                     let text = skia_safe::TextBlob::new(notation.as_str(), &self.font).unwrap();
 
-                    let font_scale =
-                        tgt_font_size / text.bounds().width().max(text.bounds().height());
+                    let font_scale = tgt_font_size / self.font.size();
                     canvas.save();
                     canvas.rotate(angle, None);
                     canvas.translate(Point::new(x, y + text.bounds().height() * font_scale / 2.));
@@ -687,7 +685,6 @@ impl Frontend {
         if let Some(square) = square {
             if let Some(src) = prev {
                 if self.make_move(src.loc, square.loc).is_some() {
-                    self.possible_moves.fill(false);
                     return;
                 }
             }
@@ -715,7 +712,9 @@ impl Frontend {
         let square = self.get_board_pos_from_screen_pos(self.cursor_pos);
         if let Some(src) = self.dragged_square {
             if let Some(tgt) = square {
-                self.make_move(src.loc, tgt.loc);
+                if self.make_move(src.loc, tgt.loc).is_some() {
+                    return;
+                }
             }
         }
         self.dragged_square = None;
@@ -731,9 +730,27 @@ impl Frontend {
                 target: tgt,
                 move_type: MoveType::Slide,
             };
-            let field_val = self.board.board[usize::from(tgt)];
-            if FieldValue::from(field_val).is_some() {
-                mov.move_type = MoveType::Capture(field_val);
+            let src_val = self.board.get_field_value(src);
+            let tgt_val = self.board.get_field_value(tgt);
+            if tgt_val.is_some() {
+                mov.move_type = MoveType::Capture(tgt_val.into());
+            }
+            if let Some((color, PieceType::King)) = *src_val {
+                let src_afl = AnnotatedFieldLocation::from(src);
+                let tgt_afl = AnnotatedFieldLocation::from(tgt);
+                let mut castle = false;
+                if src_afl.file.abs_diff(tgt_afl.file) != 1 && src_afl.rank == tgt_afl.rank {
+                    castle = true;
+                } else if src_val.piece_type() == Some(PieceType::Rook)
+                    && Some(color) == tgt_val.color()
+                {
+                    castle = true;
+                }
+                if castle {
+                    let short = tgt_afl.file > src_afl.file;
+                    mov.move_type = MoveType::Castle(short);
+                    mov.target = get_castling_target(src_afl.hb, true, short);
+                }
             }
             if self.board.is_valid_move(mov) {
                 println!("making move: {}", mov.to_string(&mut self.board));
