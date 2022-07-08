@@ -779,7 +779,9 @@ impl Move {
         }
         let mut res = ArrayString::new();
         if piece == Pawn {
-            if let MoveType::Capture(_) = self.move_type {
+            let src_afl = AnnotatedFieldLocation::from(self.source);
+            let tgt_afl = AnnotatedFieldLocation::from(self.target);
+            if src_afl.file != tgt_afl.file {
                 disambiguate_file = true;
             }
         } else {

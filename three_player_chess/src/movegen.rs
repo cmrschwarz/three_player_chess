@@ -914,7 +914,7 @@ impl ThreePlayerChess {
                 if tgt.rank == ROW_SIZE as i8 - 2
                     && self.possible_en_passant[usize::from(tgt.hb)] == Some(tgt.loc)
                 {
-                    let ep_pawn_pos = move_rank(tgt, true).unwrap().loc;
+                    let ep_pawn_pos = move_rank(tgt, false).unwrap().loc;
                     self.gen_move_unless_check(
                         src,
                         tgt,
