@@ -702,6 +702,16 @@ impl Frontend {
                 self.possible_moves.fill(false);
                 for m in moves {
                     self.possible_moves.set(usize::from(m.target), true);
+                    if let MoveType::Castle(short) = m.move_type {
+                        self.possible_moves.set(
+                            usize::from(
+                                self.board.possible_rooks_for_castling[usize::from(color)]
+                                    [usize::from(short)]
+                                .unwrap(),
+                            ),
+                            true,
+                        );
+                    }
                 }
             }
         } else {
