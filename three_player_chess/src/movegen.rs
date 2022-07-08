@@ -809,12 +809,12 @@ impl ThreePlayerChess {
                 break;
             }
         }
-        if conflict {
-            return None;
-        }
         self.board[usize::from(king_src.loc)] = king_val;
         self.board[usize::from(rook_src)] = rook_val;
         self.board[usize::from(rook_tgt.loc)] = FieldValue(None).into();
+        if conflict {
+            return None;
+        }
         Some(Move {
             move_type: MoveType::Castle(short),
             source: king_src.loc,
