@@ -5,8 +5,9 @@ use skia_safe::{
     Matrix, Paint, PaintStyle, Path, Point, Rect, Typeface,
 };
 use std::f32::consts::PI;
-use std::ops::{Add, Sub};
+use std::ops::{Add, Mul, Sub};
 use three_player_chess::board;
+use three_player_chess::board::PieceType::*;
 use three_player_chess::board::*;
 use three_player_chess::movegen::*;
 pub const FONT: &'static [u8] = include_bytes!("../res/Roboto-Regular.ttf");
@@ -54,6 +55,7 @@ pub struct Frontend {
     pub selected_square: Option<AnnotatedFieldLocation>,
     pub hovered_square: Option<AnnotatedFieldLocation>,
     pub dragged_square: Option<AnnotatedFieldLocation>,
+    pub promotion_preview: Option<AnnotatedFieldLocation>,
     pub possible_moves: bitvec::BitArr!(for (32 * HB_COUNT), in u32), //  BitArray<bitvec::order::LocalBits, [u32; HB_COUNT]>,
     pub king_in_check: bool,
     pub cursor_pos: Vector2<i32>,
@@ -62,7 +64,12 @@ pub struct Frontend {
     pub origin: board::Color,
     pub pieces: [[Image; PIECE_COUNT]; HB_COUNT],
 }
-
+const PROMOTION_QUADRANTS: [(PieceType, f32, f32); 4] = [
+    (Queen, 0., 0.),
+    (Bishop, 0., 0.5),
+    (Knight, 0.5, 0.),
+    (Rook, 0.5, 0.5),
+];
 const HEX_CENTER_ANGLE: f32 = 2. * PI / 6.;
 // assumes origin being top left, forms a U
 const UNIT_SQUARE: [Vector2<f32>; 4] = [
@@ -325,7 +332,7 @@ impl Frontend {
     pub fn new() -> Frontend {
         Frontend {
             prev_second: -1.0,
-            board: ThreePlayerChess::from_str("BCEFGH2A5E4D5H4C5/BG1/CF1/AH1/D4/E1/AH/:LKIDCBA7J6/KB8/JC8/LA8/L5/D8/LA/:HGFEILbJaK9/GKc/FJc/HLc/Ec/Ic/HL/Ka:0:0").unwrap(),//Default::default(),
+            board: ThreePlayerChess::from_str("CEFGH2A5E4D5H4C5Ib/BG1/CF1/AH1/D4/E1/AH/:LKIDCBA7J6/KB8/JC8/LA8/L5/D8/LA/:HGFELbJaK9B2/GKc/FJc/HLc/Ec/Ic/HL/Ka:0:0").unwrap(),//Default::default(),
             font:  Font::from_typeface(Typeface::from_data(Data::new_copy(&FONT), None).expect("Failed to load font 'Roboto-Regular.ttf'"), None),
             black: Color::from_rgb(161, 119, 67),
             white: Color::from_rgb(240, 217, 181) ,
@@ -340,6 +347,7 @@ impl Frontend {
             origin: board::Color::C0,
             possible_moves: Default::default(),
             dragged_square: None,
+            promotion_preview: None,
             hovered_square: None,
             player_colors: [Color::from_rgb(236, 236, 236), Color::from_rgb(41, 41, 41), Color::from_rgb(36, 36, 128)],
             king_in_check: false,
@@ -515,6 +523,51 @@ impl Frontend {
         self.render_dragged_piece(canvas);
         canvas.restore();
     }
+    pub fn transform_to_cell(
+        &self,
+        canvas: &mut Canvas,
+        _hb: board::Color,
+        right: bool,
+        file: usize,
+        rank: usize,
+        rotation: f32,
+    ) {
+        let (img_origin, size) = square_in_quad(&get_cell_quad(file, rank));
+        let size_h = size / 2.;
+        let t = img_origin.add(Vector2::new(size_h, size_h));
+        canvas.translate(Point::new(t.x, t.y));
+        // use a little less space than estimated by our function
+        // to avoid ugly corners
+        let fill_fraction = 0.98;
+        let flip_x = if right { 1. } else { -1. };
+        canvas.scale((flip_x * fill_fraction * size, fill_fraction * size));
+        canvas.rotate(-rotation, None);
+        canvas.translate((-0.5, -0.5));
+    }
+    pub fn transform_to_cell_nonaffine(
+        &self,
+        canvas: &mut Canvas,
+        _hb: board::Color,
+        right: bool,
+        file: usize,
+        rank: usize,
+        _rotation: f32,
+        flip_pieces: bool,
+    ) {
+        canvas.concat(&CELL_TRANSFORMS[file][rank]);
+        let (mut sx, mut sy) = (1., 1.);
+        if !right {
+            sx = -1.;
+        }
+        if flip_pieces {
+            sy = -1.;
+        }
+        if sx < 0. || sy < 0. {
+            canvas.translate(Point::new(0.5, 0.5));
+            canvas.scale((sx, sy));
+            canvas.translate(Point::new(-0.5, -0.5));
+        }
+    }
     pub fn draw_cell(
         &mut self,
         canvas: &mut Canvas,
@@ -543,29 +596,57 @@ impl Frontend {
         let possible_move = self.possible_moves[usize::from(field.loc)];
         let selection_paint = sk_paint(self.selection_color, PaintStyle::Fill);
         let field_paint = sk_paint(field_color, PaintStyle::Fill);
-        canvas.save();
-        canvas.concat(&CELL_TRANSFORMS[file][rank]);
-        canvas.draw_rect(&*UNIT_RECT, &field_paint);
+        let field_val = self.board.get_field_value(field.loc);
         let selected = Some(field) == self.hovered_square
             || Some(field) == self.selected_square
             || Some(field) == self.dragged_square;
-        if let Some((color, piece_value)) = *self.board.get_field_value(field.loc) {
-            let king_check =
-                self.king_in_check && piece_value == PieceType::King && color == self.board.turn;
+        let promotion = Some(field.loc) == self.promotion_preview.map(|f| f.loc);
+        let flip_pieces = field_val.color() != Some(hb) || promotion;
+
+        canvas.save();
+        self.transform_to_cell_nonaffine(
+            canvas,
+            hb,
+            right != promotion,
+            file,
+            rank,
+            rotation,
+            flip_pieces,
+        );
+        canvas.draw_rect(&*UNIT_RECT, &field_paint);
+        if promotion {
+            let cursor = canvas
+                .local_to_device_as_3x3()
+                .invert()
+                .unwrap()
+                .map_point(Point::new(
+                    self.cursor_pos.x as f32,
+                    self.cursor_pos.y as f32,
+                ));
+            let cursor_quadrant = self.get_square_quadrant_from_screen_pos(self.cursor_pos, field);
+            for (quadrant, &(piece, x, y)) in PROMOTION_QUADRANTS.iter().enumerate() {
+                let img = &self.pieces[usize::from(self.promotion_preview.unwrap().origin)]
+                    [usize::from(piece)];
+
+                let rect = Rect::from_xywh(x, y, 0.5, 0.5);
+                if Some(quadrant as u8) == cursor_quadrant {
+                    canvas.draw_rect(rect, &selection_paint);
+                }
+                canvas.draw_image_rect(
+                    img,
+                    Some((
+                        &Rect::from_xywh(0., 0., img.width() as f32, img.height() as f32),
+                        skia_safe::canvas::SrcRectConstraint::Fast,
+                    )),
+                    rect,
+                    &sk_paint_img(),
+                );
+            }
+            canvas.restore();
+        } else if let Some((color, piece_value)) = *self.board.get_field_value(field.loc) {
+            let king_check = self.king_in_check && piece_value == King && color == self.board.turn;
             let img = &self.pieces[usize::from(color)][usize::from(piece_value)];
 
-            let (mut sx, mut sy) = (1., 1.);
-            if !right {
-                sx = -1.;
-            }
-            if hb != color {
-                sy = -1.;
-            }
-            if sx < 0. || sy < 0. {
-                canvas.translate(Point::new(0.5, 0.5));
-                canvas.scale((sx, sy));
-                canvas.translate(Point::new(-0.5, -0.5));
-            }
             if selected {
                 canvas.draw_rect(&*UNIT_RECT, &selection_paint);
             }
@@ -586,45 +667,39 @@ impl Frontend {
                 }
             }
 
+            if !self.transformed_pieces {
+                canvas.restore();
+                self.transform_to_cell(canvas, hb, right, file, rank, rotation);
+            }
+            canvas.draw_image_rect(
+                img,
+                Some((
+                    &Rect::from_xywh(0., 0., img.width() as f32, img.height() as f32),
+                    skia_safe::canvas::SrcRectConstraint::Fast,
+                )),
+                &*UNIT_RECT,
+                &sk_paint_img(),
+            );
             if self.transformed_pieces {
-                canvas.draw_image_rect(
-                    img,
-                    Some((
-                        &Rect::from_xywh(0., 0., img.width() as f32, img.height() as f32),
-                        skia_safe::canvas::SrcRectConstraint::Fast,
-                    )),
-                    &*UNIT_RECT,
-                    &sk_paint_img(),
-                );
                 canvas.restore();
-            } else {
-                canvas.restore();
-                let (img_origin, size) = square_in_quad(&get_cell_quad(file, rank));
-                let size_h = size / 2.;
-                let t = img_origin.add(Vector2::new(size_h, size_h));
-                canvas.translate(Point::new(t.x, t.y));
-                // use a little less space than estimated by our function
-                // to avoid ugly corners
-                let fill_fraction = 0.98;
-                canvas.scale((sx * fill_fraction, fill_fraction));
-                canvas.rotate(-rotation, None);
-                canvas.draw_image_rect(
-                    img,
-                    Some((
-                        &Rect::from_xywh(0., 0., img.width() as f32, img.height() as f32),
-                        skia_safe::canvas::SrcRectConstraint::Fast,
-                    )),
-                    &Rect::from_xywh(-size_h, -size_h, size, size),
-                    &sk_paint_img(),
-                );
             }
         } else {
             if selected {
                 canvas.draw_rect(&*UNIT_RECT, &selection_paint);
+                canvas.restore();
             } else if possible_move {
-                canvas.draw_circle(Point::new(0.5, 0.5), 0.2, &selection_paint);
+                let point_radius = 0.2;
+                if self.transformed_pieces {
+                    canvas.draw_circle(Point::new(0.5, 0.5), point_radius, &selection_paint);
+                    canvas.restore();
+                } else {
+                    canvas.restore();
+                    self.transform_to_cell(canvas, hb, right, file, rank, rotation);
+                    canvas.draw_circle(Point::new(0.5, 0.5), point_radius, &selection_paint);
+                }
+            } else {
+                canvas.restore();
             }
-            canvas.restore();
         }
     }
     pub fn render_hex_board(&mut self, canvas: &mut Canvas, hb: board::Color, right: bool) {
@@ -643,10 +718,11 @@ impl Frontend {
             }
         }
     }
-    pub fn get_board_pos_from_screen_pos(
-        &mut self,
+    // returns (halfboard, right, position transformed and scaled to the lower right halfboard)
+    pub fn transform_screen_point_to_hb0(
+        &self,
         screen_pos: Vector2<i32>,
-    ) -> Option<AnnotatedFieldLocation> {
+    ) -> Option<(board::Color, bool, Vector2<f32>)> {
         let pos_rel: Vector2<f32> = screen_pos.sub(self.board_origin).cast::<f32>();
         if pos_rel.norm_squared() > self.board_radius * self.board_radius {
             return None;
@@ -658,7 +734,13 @@ impl Frontend {
         let pos_rot = nalgebra::geometry::Rotation2::new(hex_board as f32 * -HEX_CENTER_ANGLE)
             .transform_vector(&pos_rel);
         let pos_scaled = pos_rot.scale(1. / self.board_radius);
-
+        Some((hb, right, pos_scaled))
+    }
+    pub fn get_board_pos_from_screen_pos(
+        &self,
+        screen_pos: Vector2<i32>,
+    ) -> Option<AnnotatedFieldLocation> {
+        let (hb, right, pos_scaled) = self.transform_screen_point_to_hb0(screen_pos)?;
         for f in 0..HB_ROW_COUNT {
             for r in 0..HB_ROW_COUNT {
                 if point_in_quad(pos_scaled.into(), &get_cell_quad(f, r)) {
@@ -677,6 +759,52 @@ impl Frontend {
         }
         None
     }
+    pub fn get_square_quadrant_from_screen_pos(
+        &self,
+        screen_pos: Vector2<i32>,
+        field: AnnotatedFieldLocation,
+    ) -> Option<u8> {
+        let (hb, right, pos_scaled) = self.transform_screen_point_to_hb0(screen_pos)?;
+        if hb != field.hb {
+            return None;
+        }
+        let (mut f, mut r) = (field.file as usize - 1, field.rank as usize - 1);
+        if right && field.file > HBRC {
+            f -= HB_ROW_COUNT;
+        } else if field.file <= HBRC {
+            (f, r) = (HB_ROW_COUNT - 1 - r, f)
+        }
+        if f >= HB_ROW_COUNT || r >= HB_ROW_COUNT {
+            return None;
+        }
+        let mut point = CELL_TRANSFORMS[f][r]
+            .invert()
+            .unwrap()
+            .map_point(Point::new(pos_scaled.x, pos_scaled.y));
+        if point.x < 0. || point.x > 1. || point.y < 0. || point.y > 1. {
+            return None;
+        }
+        if right {
+            point = Point::new(1. - point.x, 1.0 - point.y);
+        } else {
+            point = Point::new(point.y, 1.0 - point.x);
+        }
+
+        let quadrant = if point.x < 0.5 {
+            if point.y < 0.5 {
+                0
+            } else {
+                1
+            }
+        } else {
+            if point.y < 0.5 {
+                2
+            } else {
+                3
+            }
+        };
+        Some(quadrant)
+    }
 
     pub fn clicked(&mut self) {
         let square = self.get_board_pos_from_screen_pos(self.cursor_pos);
@@ -684,11 +812,22 @@ impl Frontend {
         self.selected_square = None;
         if let Some(square) = square {
             if let Some(src) = prev {
-                if self.make_move(src.loc, square.loc).is_some() {
+                if self.promotion_preview.map(|pp| pp.loc) == Some(square.loc) {
+                    if let Some(quadrant) =
+                        self.get_square_quadrant_from_screen_pos(self.cursor_pos, square)
+                    {
+                        let (piece_type, _, _) = PROMOTION_QUADRANTS[quadrant as usize];
+                        if self.make_move(src.loc, square.loc, Some(piece_type)) {
+                            return;
+                        }
+                    }
+                }
+                if self.make_move(src.loc, square.loc, None) {
                     return;
                 }
             }
             let field_value = self.board.get_field_value(square.loc);
+            self.reset_effects();
             if let Some((color, _)) = *field_value {
                 if color != self.board.turn {
                     return;
@@ -699,7 +838,6 @@ impl Frontend {
                 }
                 let mut moves = Default::default();
                 self.board.gen_moves_for_field(square.loc, &mut moves);
-                self.possible_moves.fill(false);
                 for m in moves {
                     self.possible_moves.set(usize::from(m.target), true);
                     if let MoveType::Castle(short) = m.move_type {
@@ -715,14 +853,14 @@ impl Frontend {
                 }
             }
         } else {
-            self.possible_moves.fill(false);
+            self.reset_effects();
         }
     }
     pub fn released(&mut self) {
         let square = self.get_board_pos_from_screen_pos(self.cursor_pos);
         if let Some(src) = self.dragged_square {
             if let Some(tgt) = square {
-                if self.make_move(src.loc, tgt.loc).is_some() {
+                if self.make_move(src.loc, tgt.loc, None) {
                     return;
                 }
             }
@@ -733,44 +871,79 @@ impl Frontend {
             self.possible_moves.fill(false);
         }
     }
-    pub fn make_move(&mut self, src: FieldLocation, tgt: FieldLocation) -> Option<Move> {
-        if src != tgt && self.possible_moves[usize::from(tgt)] {
-            let mut mov = Move {
-                source: src,
-                target: tgt,
-                move_type: MoveType::Slide,
-            };
-            let src_val = self.board.get_field_value(src);
-            let tgt_val = self.board.get_field_value(tgt);
-            if tgt_val.is_some() {
-                mov.move_type = MoveType::Capture(tgt_val.into());
+    pub fn make_move(
+        &mut self,
+        src: FieldLocation,
+        tgt: FieldLocation,
+        promotion: Option<PieceType>,
+    ) -> bool {
+        if src == tgt || !self.possible_moves[usize::from(tgt)] {
+            return false;
+        }
+        let mut mov = Move {
+            source: src,
+            target: tgt,
+            move_type: MoveType::Slide,
+        };
+        let src_val = self.board.get_field_value(src);
+        let tgt_val = self.board.get_field_value(tgt);
+        let src_afl = AnnotatedFieldLocation::from(src);
+        let tgt_afl = AnnotatedFieldLocation::from(tgt);
+        if tgt_val.is_some() {
+            mov.move_type = MoveType::Capture(tgt_val.into());
+        }
+        if let Some((color, King)) = *src_val {
+            let mut castle = false;
+            if src_afl.file.abs_diff(tgt_afl.file) != 1 && src_afl.rank == tgt_afl.rank {
+                castle = true;
+            } else if src_val.piece_type() == Some(Rook) && Some(color) == tgt_val.color() {
+                castle = true;
             }
-            if let Some((color, PieceType::King)) = *src_val {
-                let src_afl = AnnotatedFieldLocation::from(src);
-                let tgt_afl = AnnotatedFieldLocation::from(tgt);
-                let mut castle = false;
-                if src_afl.file.abs_diff(tgt_afl.file) != 1 && src_afl.rank == tgt_afl.rank {
-                    castle = true;
-                } else if src_val.piece_type() == Some(PieceType::Rook)
-                    && Some(color) == tgt_val.color()
-                {
-                    castle = true;
-                }
-                if castle {
-                    let short = tgt_afl.file > src_afl.file;
-                    mov.move_type = MoveType::Castle(short);
-                    mov.target = get_castling_target(src_afl.hb, true, short);
-                }
-            }
-            if self.board.is_valid_move(mov) {
-                println!("making move: {}", mov.to_string(&mut self.board));
-                self.board.make_move(mov);
-                self.board.apply_move_sideeffects(mov);
-                self.reset_effects();
-                return Some(mov);
+            if castle {
+                let short = tgt_afl.file > src_afl.file;
+                mov.move_type = MoveType::Castle(short);
+                mov.target = get_castling_target(src_afl.hb, true, short);
             }
         }
-        None
+        if let Some((color, Pawn)) = *src_val {
+            if let Some(promotion) = promotion {
+                if tgt_val.is_some() {
+                    mov.move_type = MoveType::CapturePromotion(tgt_val.into(), promotion);
+                } else {
+                    mov.move_type = MoveType::Promotion(promotion);
+                }
+            } else {
+                let tgt_rot = AnnotatedFieldLocation::from_with_origin(color, tgt);
+                if tgt_rot.rank == RS {
+                    self.reset_effects();
+                    self.selected_square = Some(src_afl);
+                    self.promotion_preview = Some(tgt_rot);
+                    self.possible_moves.set(usize::from(tgt), true);
+                    return true;
+                } else if tgt_rot.rank == 6 && tgt_afl.file != src_afl.file && tgt_val.is_none() {
+                    let ep_square = AnnotatedFieldLocation::from_file_and_rank(
+                        tgt_rot.origin,
+                        tgt_rot.hb,
+                        tgt_rot.file,
+                        tgt_rot.rank - 1,
+                    )
+                    .loc;
+                    mov.move_type = MoveType::EnPassant(
+                        self.board.get_packed_field_value(ep_square),
+                        ep_square,
+                    );
+                }
+            }
+        }
+
+        if self.board.is_valid_move(mov) {
+            println!("making move: {}", mov.to_string(&mut self.board));
+            self.board.make_move(mov);
+            self.board.apply_move_sideeffects(mov);
+            self.reset_effects();
+            return true;
+        }
+        false
     }
     pub fn recolor(&mut self) {
         let player = 2; //rand::random::<usize>() % 3;
@@ -794,6 +967,7 @@ impl Frontend {
     pub fn reset_effects(&mut self) {
         self.hovered_square = None;
         self.selected_square = None;
+        self.promotion_preview = None;
         self.dragged_square = None;
         self.possible_moves.fill(false);
         self.king_in_check = self.board.is_king_capturable(None);

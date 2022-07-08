@@ -1,3 +1,4 @@
+use crate::board::PieceType::*;
 use crate::board::*;
 use arrayvec::ArrayVec;
 use num_traits::FromPrimitive;
@@ -207,7 +208,7 @@ fn coord_in_bounds(coord: i8) -> bool {
 }
 
 // convenience wrapper for ternary usecases
-fn adjust_coord(coord: i8, invert: bool) -> i8 {
+pub fn adjust_coord(coord: i8, invert: bool) -> i8 {
     if invert {
         invert_coord(coord)
     } else {
@@ -321,7 +322,7 @@ fn get_knight_moves_for_field(
     }
 }
 
-fn get_field_on_next_hb(loc: FieldLocation) -> FieldLocation {
+pub fn get_field_on_next_hb(loc: FieldLocation) -> FieldLocation {
     FieldLocation::from((u8::from(loc) + HB_SIZE as u8) % (HB_COUNT * HB_SIZE) as u8)
 }
 
@@ -547,14 +548,19 @@ impl ThreePlayerChess {
             MoveType::ClaimDraw => return,
         }
     }
-    fn append_move_unless_check(&mut self, mv: Move, moves: &mut Vec<Move>) -> bool {
+    fn would_move_be_check(&mut self, mv: Move) -> bool {
         self.make_move(mv);
         let would_be_check = self.is_king_capturable(None);
         self.undo_move(mv);
-        if !would_be_check {
+        would_be_check
+    }
+    fn append_move_unless_check(&mut self, mv: Move, moves: &mut Vec<Move>) -> bool {
+        if !self.would_move_be_check(mv) {
             moves.push(mv);
+            true
+        } else {
+            false
         }
-        !would_be_check
     }
     fn gen_move_unless_check(
         &mut self,
@@ -834,6 +840,7 @@ impl ThreePlayerChess {
             source: src,
             target: tgt,
         };
+        //cant use would_move_be_check because of the different king pos
         self.make_move(mov);
         let would_be_check = self.is_king_capturable_at(tgt, &cp, None);
         self.undo_move(mov);
@@ -883,7 +890,25 @@ impl ThreePlayerChess {
         let piece_value = self.get_packed_field_value(tgt.loc);
         match FieldValue::from(piece_value) {
             FieldValue(Some((color, _))) if color != self.turn => {
-                self.gen_move_unless_check(src, tgt, MoveType::Capture(piece_value), moves)
+                if tgt.rank == RS {
+                    let mut mov = Move {
+                        source: src.loc,
+                        target: tgt.loc,
+                        move_type: MoveType::CapturePromotion(piece_value, Queen),
+                    };
+                    if !self.would_move_be_check(mov) {
+                        for promotion_piece in [Queen, Bishop, Knight, Rook] {
+                            mov.move_type =
+                                MoveType::CapturePromotion(piece_value, promotion_piece);
+                            moves.push(mov);
+                        }
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    self.gen_move_unless_check(src, tgt, MoveType::Capture(piece_value), moves)
+                }
             }
             FieldValue(None) => {
                 if tgt.rank == ROW_SIZE as i8 - 2
@@ -907,12 +932,26 @@ impl ThreePlayerChess {
         let src = AnnotatedFieldLocation::from_with_origin(self.turn, field);
         if let Some(up) = move_rank(src, true) {
             if let FieldValue(None) = self.get_field_value(up.loc) {
-                self.gen_move_unless_check(src, up, MoveType::Slide, moves);
                 if src.rank == 2 {
                     let up2 = move_rank(up, true).unwrap();
                     if let FieldValue(None) = self.get_field_value(up2.loc) {
                         self.gen_move_unless_check(src, up2, MoveType::Slide, moves);
                     }
+                }
+                if src.rank == 7 {
+                    let mut mov = Move {
+                        source: src.loc,
+                        target: up.loc,
+                        move_type: MoveType::Promotion(Queen),
+                    };
+                    if !self.would_move_be_check(mov) {
+                        for promotion_piece in [Queen, Bishop, Knight, Rook] {
+                            mov.move_type = MoveType::Promotion(promotion_piece);
+                            moves.push(mov);
+                        }
+                    }
+                } else {
+                    self.gen_move_unless_check(src, up, MoveType::Slide, moves);
                 }
             }
         }
