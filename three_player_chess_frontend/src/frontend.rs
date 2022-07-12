@@ -369,9 +369,6 @@ impl Frontend {
             pieces: PIECE_IMAGES.clone()
         }
     }
-    fn get_hexboard(&self, color: board::Color, file: usize) -> usize {
-        ((usize::from(color) + usize::from(self.origin)) % 3) * 2 + usize::from(file > HB_ROW_COUNT)
-    }
     fn get_hb_id(&self, color: board::Color) -> usize {
         (3 + usize::from(color) - usize::from(self.origin)) % 3
     }
@@ -454,6 +451,7 @@ impl Frontend {
         }
         for rank in [false, true] {
             for c in 0..HB_COUNT {
+                let c_logical = (c + usize::from(self.origin)) % HB_COUNT;
                 let angle = radians_to_degrees(
                     HEX_CENTER_ANGLE * 2. * c as f32 + usize::from(rank) as f32 * -HEX_CENTER_ANGLE,
                 );
@@ -463,16 +461,16 @@ impl Frontend {
                 for i in 1..ROW_SIZE + 1 {
                     let field_loc = if rank {
                         if i <= HB_ROW_COUNT {
-                            FieldLocation::new(board::Color::from(c as u8), RS, i as i8)
+                            FieldLocation::new(board::Color::from(c_logical as u8), RS, i as i8)
                         } else {
                             FieldLocation::new(
-                                board::Color::from(((c + 2) % HB_COUNT) as u8),
+                                board::Color::from(((c_logical + 2) % HB_COUNT) as u8),
                                 1,
                                 (ROW_SIZE - i + 1) as i8,
                             )
                         }
                     } else {
-                        FieldLocation::new(board::Color::from(c as u8), i as i8, 1)
+                        FieldLocation::new(board::Color::from(c_logical as u8), i as i8, 1)
                     };
                     let notation = if !rank {
                         let mut res = ArrayString::new();
@@ -752,13 +750,16 @@ impl Frontend {
         let rot = ((-pos_rel.y).atan2(pos_rel.x) + 2.5 * PI) % (2. * PI);
         Some(((HB_COUNT * 2 - (rot / HEX_CENTER_ANGLE) as usize) % 6) as u8)
     }
+    pub fn get_hexboard_logical(&self, phys_hexboard: u8) -> u8 {
+        (phys_hexboard + u8::from(self.origin) * 2) % 6
+    }
     // returns (halfboard, right, position transformed and scaled to the lower right halfboard)
     pub fn transform_screen_point_to_hb0(
         &self,
         screen_pos: Vector2<i32>,
     ) -> Option<(board::Color, bool, Vector2<f32>)> {
         let hexboard = self.get_hexboard_from_screen_point(screen_pos)?;
-        let hb = board::Color::from(hexboard / 2);
+        let hb = board::Color::from(self.get_hexboard_logical(hexboard) / 2);
         let right = hexboard % 2 == 0;
         let pos_rot = nalgebra::geometry::Rotation2::new(hexboard as f32 * -HEX_CENTER_ANGLE)
             .transform_vector(&screen_pos.sub(self.board_origin).cast());
@@ -1009,5 +1010,8 @@ impl Frontend {
     pub fn reset(&mut self) {
         self.board = ThreePlayerChess::default();
         self.reset_effects();
+    }
+    pub fn rotate(&mut self) {
+        self.origin = board::Color::from((1 + usize::from(self.origin)) as u8 % 3);
     }
 }

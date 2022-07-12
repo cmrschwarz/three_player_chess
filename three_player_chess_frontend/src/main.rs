@@ -151,8 +151,12 @@ fn main() {
                         fe.recolor();
                         env.windowed_context.window().request_redraw();
                     }
-                    Some(VirtualKeyCode::R) => {
+                    Some(VirtualKeyCode::S) => {
                         fe.reset();
+                        env.windowed_context.window().request_redraw();
+                    }
+                    Some(VirtualKeyCode::R) => {
+                        fe.rotate();
                         env.windowed_context.window().request_redraw();
                     }
                     _ => (),
