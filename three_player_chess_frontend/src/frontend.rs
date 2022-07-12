@@ -1,11 +1,13 @@
-use arrayvec::ArrayString;
-use nalgebra::{ArrayStorage, Matrix3, OMatrix, OVector, Transform2, Vector2};
+use arrayvec::{ArrayString, ArrayVec};
+use bitvec::ptr::swap;
+use nalgebra::{geometry::*, ComplexField};
+use nalgebra::{ArrayStorage, Matrix3, OMatrix, OVector, Transform2, Vector2, Vector3};
 use skia_safe::{
     radians_to_degrees, Bitmap, Canvas, Color, ColorType, Data, Font, IPoint, Image, ImageInfo,
     Matrix, Paint, PaintStyle, Path, Point, Rect, Typeface,
 };
 use std::f32::consts::PI;
-use std::ops::{Add, Mul, Sub};
+use std::ops::{Add, Sub, SubAssign};
 use three_player_chess::board;
 use three_player_chess::board::PieceType::*;
 use three_player_chess::board::*;
@@ -297,35 +299,48 @@ fn center_of_quad(quad: &[Vector2<f32>; 4]) -> Vector2<f32> {
     diag_half_1.add(diag_half_2.sub(diag_half_1).scale(0.5))
 }
 
-fn drop_perpendicular(
-    point: Vector2<f32>,
-    line_p1: Vector2<f32>,
-    line_p2: Vector2<f32>,
-) -> Vector2<f32> {
-    let line_direction = line_p2.sub(line_p1).normalize();
-    line_p1.add(line_direction.scale(point.sub(line_p1).dot(&line_direction)))
-}
-
+// returns the center and half the width
 fn square_in_quad(quad: &[Vector2<f32>; 4]) -> (Vector2<f32>, f32) {
     let center = center_of_quad(quad);
-    let mut flank_centers: [Vector2<f32>; 4] = Default::default();
-    for i in 0..4 {
-        flank_centers[i] = drop_perpendicular(center, quad[i], quad[(i + 1) % 4]);
+    let diags = [Vector2::new(1 as f32, 1.), Vector2::new(1 as f32, -1.)];
+    let mut t_min = f32::MAX;
+    for d in 0..diags.len() {
+        let diag = diags[d];
+        let m_diag = diag.y / diag.x;
+        for i in 0..quad.len() {
+            let p1 = quad[i];
+            let p2 = quad[(i + 1) % 4];
+            let flank = p2.sub(p1);
+            let t = if flank.x.abs() < f32::EPSILON {
+                p1.x - center.x // flank is parallel to y axis
+            } else {
+                let m_flank = flank.y / flank.x;
+
+                if (m_diag - m_flank).abs() < f32::EPSILON {
+                    continue; // flank and are parallel
+                }
+                ((p1.y + ((center.x - p1.x) * m_flank)) - center.y) / (m_diag - m_flank)
+            };
+            t_min = t_min.min(t.abs());
+        }
     }
-    let mut bot = flank_centers[0].y;
-    let mut top = flank_centers[0].y;
-    let mut left = flank_centers[0].x;
-    let mut right = flank_centers[0].x;
-    for i in 1..4 {
-        bot = bot.min(flank_centers[i].y);
-        top = top.max(flank_centers[i].y);
-        left = left.max(flank_centers[i].x);
-        right = right.min(flank_centers[i].x);
+    (center, t_min)
+}
+
+pub fn get_quadrant_from_unit_box_pos(pos: Vector2<f32>, flipped: bool) -> usize {
+    if (pos.x < 0.5) != flipped {
+        if (pos.y < 0.5) != flipped {
+            0
+        } else {
+            1
+        }
+    } else {
+        if (pos.y < 0.5) != flipped {
+            2
+        } else {
+            3
+        }
     }
-    let height = (center.y - bot).abs().min(top - center.y).abs() * 2.;
-    let width = (center.x - left).abs().min(right - center.x).abs() * 2.;
-    let size = height.min(width);
-    (center.sub(Vector2::new(size / 2., size / 2.)), size)
 }
 
 impl Frontend {
@@ -354,6 +369,37 @@ impl Frontend {
             pieces: PIECE_IMAGES.clone()
         }
     }
+    fn get_hexboard(&self, color: board::Color, file: usize) -> usize {
+        ((usize::from(color) + usize::from(self.origin)) % 3) * 2 + usize::from(file > HB_ROW_COUNT)
+    }
+    fn get_hb_id(&self, color: board::Color) -> usize {
+        (3 + usize::from(color) - usize::from(self.origin)) % 3
+    }
+    fn get_cell_quad_rotated(
+        &self,
+        color: board::Color,
+        right: bool,
+        file: usize,
+        rank: usize,
+    ) -> [Vector2<f32>; 4] {
+        let hb_id = self.get_hb_id(color);
+        let mut quad = get_cell_quad(file, rank);
+        let rot = Rotation2::new(hb_id as f32 * 2. * HEX_CENTER_ANGLE);
+        for p in quad.iter_mut() {
+            if !right {
+                p.x = -p.x;
+            }
+            *p = rot.transform_vector(p);
+        }
+        // make sure that the points are still in a U shape with
+        // top left coming first
+        quad.rotate_left(hb_id);
+        if !right {
+            quad.swap(0, 3);
+            quad.swap(1, 2);
+        }
+        quad
+    }
     pub fn render_background(&mut self, canvas: &mut Canvas) {
         canvas.clear(self.background);
         //TODO: config option for this
@@ -370,8 +416,6 @@ impl Frontend {
             }
         }
         path.close();
-
-        canvas.scale((self.board_radius, self.board_radius));
 
         let border_scale = 1. + BORDER_WIDTH / 2.;
         let mut paint = sk_paint(
@@ -393,7 +437,6 @@ impl Frontend {
         }
     }
     pub fn render_notation(&mut self, canvas: &mut Canvas) {
-        canvas.scale((self.board_radius, self.board_radius));
         let hex_height = *HEX_HEIGHT;
         let hex_side_len = *HEX_SIDE_LEN;
         let notation_paint = {
@@ -502,8 +545,9 @@ impl Frontend {
             x: translation.x,
             y: translation.y,
         });
-
+        canvas.scale((self.board_radius, self.board_radius));
         canvas.save();
+
         self.render_background(canvas);
         canvas.restore();
         canvas.save();
@@ -513,11 +557,11 @@ impl Frontend {
         for c in board::Color::iter() {
             for right in [true, false] {
                 canvas.save();
-                self.render_hex_board(canvas, *c, right);
+                self.render_hexboard(canvas, *c, right);
                 canvas.restore();
             }
         }
-        canvas.restore();
+        canvas.restore(); // drop board center translation
 
         canvas.save();
         self.render_dragged_piece(canvas);
@@ -526,40 +570,39 @@ impl Frontend {
     pub fn transform_to_cell(
         &self,
         canvas: &mut Canvas,
-        _hb: board::Color,
+        hb: board::Color,
         right: bool,
         file: usize,
         rank: usize,
-        rotation: f32,
     ) {
-        let (img_origin, size) = square_in_quad(&get_cell_quad(file, rank));
-        let size_h = size / 2.;
-        let t = img_origin.add(Vector2::new(size_h, size_h));
-        canvas.translate(Point::new(t.x, t.y));
-        // use a little less space than estimated by our function
-        // to avoid ugly corners
-        let fill_fraction = 0.98;
-        let flip_x = if right { 1. } else { -1. };
-        canvas.scale((flip_x * fill_fraction * size, fill_fraction * size));
-        canvas.rotate(-rotation, None);
+        let (center, size_h) = square_in_quad(&self.get_cell_quad_rotated(hb, right, file, rank));
+        canvas.translate(Point::new(center.x, center.y));
+        canvas.scale((2. * size_h, 2. * size_h));
         canvas.translate((-0.5, -0.5));
     }
     pub fn transform_to_cell_nonaffine(
         &self,
         canvas: &mut Canvas,
-        _hb: board::Color,
+        hb: board::Color,
         right: bool,
         file: usize,
         rank: usize,
-        _rotation: f32,
-        flip_pieces: bool,
+        flip_x: bool,
+        flip_y: bool,
     ) {
+        canvas.rotate(
+            radians_to_degrees(self.get_hb_id(hb) as f32 * 2. * HEX_CENTER_ANGLE),
+            None,
+        );
+        if !right {
+            canvas.scale((-1., 1.));
+        }
         canvas.concat(&CELL_TRANSFORMS[file][rank]);
         let (mut sx, mut sy) = (1., 1.);
-        if !right {
+        if !right != flip_x {
             sx = -1.;
         }
-        if flip_pieces {
+        if flip_y {
             sy = -1.;
         }
         if sx < 0. || sy < 0. {
@@ -575,7 +618,6 @@ impl Frontend {
         right: bool,
         file: usize,
         rank: usize,
-        rotation: f32,
     ) {
         let mut file_rot = file as i8;
         let mut rank_rot = rank as i8;
@@ -601,37 +643,30 @@ impl Frontend {
             || Some(field) == self.selected_square
             || Some(field) == self.dragged_square;
         let promotion = Some(field.loc) == self.promotion_preview.map(|f| f.loc);
-        let flip_pieces = field_val.color() != Some(hb) || promotion;
+        let flip_pieces = (field_val.is_some() && field_val.color() != Some(hb)) || promotion;
 
         canvas.save();
-        self.transform_to_cell_nonaffine(
-            canvas,
-            hb,
-            right != promotion,
-            file,
-            rank,
-            rotation,
-            flip_pieces,
-        );
+        self.transform_to_cell_nonaffine(canvas, hb, right, file, rank, promotion, flip_pieces);
         canvas.draw_rect(&*UNIT_RECT, &field_paint);
+
         if promotion {
-            let cursor = canvas
-                .local_to_device_as_3x3()
-                .invert()
-                .unwrap()
-                .map_point(Point::new(
-                    self.cursor_pos.x as f32,
-                    self.cursor_pos.y as f32,
-                ));
-            let cursor_quadrant = self.get_square_quadrant_from_screen_pos(self.cursor_pos, field);
+            let cursor_quadrant = self
+                .get_screen_pos_in_field(self.cursor_pos, field.loc)
+                .map(|pos| get_quadrant_from_unit_box_pos(pos, self.transformed_pieces));
+            if !self.transformed_pieces {
+                canvas.restore();
+                canvas.save();
+                self.transform_to_cell(canvas, hb, right, file, rank);
+            }
             for (quadrant, &(piece, x, y)) in PROMOTION_QUADRANTS.iter().enumerate() {
                 let img = &self.pieces[usize::from(self.promotion_preview.unwrap().origin)]
                     [usize::from(piece)];
 
                 let rect = Rect::from_xywh(x, y, 0.5, 0.5);
-                if Some(quadrant as u8) == cursor_quadrant {
+                if Some(quadrant) == cursor_quadrant {
                     canvas.draw_rect(rect, &selection_paint);
                 }
+
                 canvas.draw_image_rect(
                     img,
                     Some((
@@ -642,7 +677,6 @@ impl Frontend {
                     &sk_paint_img(),
                 );
             }
-            canvas.restore();
         } else if let Some((color, piece_value)) = *self.board.get_field_value(field.loc) {
             let king_check = self.king_in_check && piece_value == King && color == self.board.turn;
             let img = &self.pieces[usize::from(color)][usize::from(piece_value)];
@@ -669,8 +703,10 @@ impl Frontend {
 
             if !self.transformed_pieces {
                 canvas.restore();
-                self.transform_to_cell(canvas, hb, right, file, rank, rotation);
+                canvas.save();
+                self.transform_to_cell(canvas, hb, right, file, rank);
             }
+
             canvas.draw_image_rect(
                 img,
                 Some((
@@ -680,59 +716,52 @@ impl Frontend {
                 &*UNIT_RECT,
                 &sk_paint_img(),
             );
-            if self.transformed_pieces {
-                canvas.restore();
-            }
+
+            if self.transformed_pieces {}
         } else {
             if selected {
                 canvas.draw_rect(&*UNIT_RECT, &selection_paint);
-                canvas.restore();
             } else if possible_move {
                 let point_radius = 0.2;
                 if self.transformed_pieces {
                     canvas.draw_circle(Point::new(0.5, 0.5), point_radius, &selection_paint);
-                    canvas.restore();
                 } else {
                     canvas.restore();
-                    self.transform_to_cell(canvas, hb, right, file, rank, rotation);
+                    canvas.save();
+                    self.transform_to_cell(canvas, hb, right, file, rank);
                     canvas.draw_circle(Point::new(0.5, 0.5), point_radius, &selection_paint);
                 }
-            } else {
+            }
+        }
+        canvas.restore();
+    }
+    pub fn render_hexboard(&mut self, canvas: &mut Canvas, hb: board::Color, right: bool) {
+        for file in 0..HB_ROW_COUNT {
+            for rank in 0..HB_ROW_COUNT {
+                canvas.save();
+                self.draw_cell(canvas, hb, right, file, rank);
                 canvas.restore();
             }
         }
     }
-    pub fn render_hex_board(&mut self, canvas: &mut Canvas, hb: board::Color, right: bool) {
-        let rotation = radians_to_degrees(HEX_CENTER_ANGLE * 2. * usize::from(hb) as f32);
-        canvas.rotate(rotation, None);
-        if !right {
-            canvas.scale((-self.board_radius, self.board_radius));
-        } else {
-            canvas.scale((self.board_radius, self.board_radius));
+    pub fn get_hexboard_from_screen_point(&self, screen_pos: Vector2<i32>) -> Option<u8> {
+        let pos_rel = screen_pos.sub(self.board_origin).cast::<f32>();
+        if pos_rel.norm_squared() > self.board_radius * self.board_radius {
+            return None;
         }
-        for file in 0..HB_ROW_COUNT {
-            for rank in 0..HB_ROW_COUNT {
-                canvas.save();
-                self.draw_cell(canvas, hb, right, file, rank, rotation);
-                canvas.restore();
-            }
-        }
+        let rot = ((-pos_rel.y).atan2(pos_rel.x) + 2.5 * PI) % (2. * PI);
+        Some(((HB_COUNT * 2 - (rot / HEX_CENTER_ANGLE) as usize) % 6) as u8)
     }
     // returns (halfboard, right, position transformed and scaled to the lower right halfboard)
     pub fn transform_screen_point_to_hb0(
         &self,
         screen_pos: Vector2<i32>,
     ) -> Option<(board::Color, bool, Vector2<f32>)> {
-        let pos_rel: Vector2<f32> = screen_pos.sub(self.board_origin).cast::<f32>();
-        if pos_rel.norm_squared() > self.board_radius * self.board_radius {
-            return None;
-        }
-        let rot = ((-pos_rel.y).atan2(pos_rel.x) + 2.5 * PI) % (2. * PI);
-        let hex_board = (HB_COUNT * 2 - (rot / HEX_CENTER_ANGLE) as usize) % 6;
-        let hb = board::Color::from(((hex_board / 2) % 3) as u8);
-        let right = hex_board % 2 == 0;
-        let pos_rot = nalgebra::geometry::Rotation2::new(hex_board as f32 * -HEX_CENTER_ANGLE)
-            .transform_vector(&pos_rel);
+        let hexboard = self.get_hexboard_from_screen_point(screen_pos)?;
+        let hb = board::Color::from(hexboard / 2);
+        let right = hexboard % 2 == 0;
+        let pos_rot = nalgebra::geometry::Rotation2::new(hexboard as f32 * -HEX_CENTER_ANGLE)
+            .transform_vector(&screen_pos.sub(self.board_origin).cast());
         let pos_scaled = pos_rot.scale(1. / self.board_radius);
         Some((hb, right, pos_scaled))
     }
@@ -759,51 +788,55 @@ impl Frontend {
         }
         None
     }
-    pub fn get_square_quadrant_from_screen_pos(
+    pub fn get_screen_pos_in_field(
         &self,
         screen_pos: Vector2<i32>,
-        field: AnnotatedFieldLocation,
-    ) -> Option<u8> {
-        let (hb, right, pos_scaled) = self.transform_screen_point_to_hb0(screen_pos)?;
-        if hb != field.hb {
-            return None;
-        }
-        let (mut f, mut r) = (field.file as usize - 1, field.rank as usize - 1);
-        if right && field.file > HBRC {
+        field: FieldLocation,
+    ) -> Option<Vector2<f32>> {
+        let afl = AnnotatedFieldLocation::from(field);
+
+        let (mut f, mut r) = (afl.file as usize - 1, afl.rank as usize - 1);
+        let right = afl.file > HBRC;
+        if right {
             f -= HB_ROW_COUNT;
-        } else if field.file <= HBRC {
+        } else {
             (f, r) = (HB_ROW_COUNT - 1 - r, f)
         }
-        if f >= HB_ROW_COUNT || r >= HB_ROW_COUNT {
-            return None;
-        }
-        let mut point = CELL_TRANSFORMS[f][r]
-            .invert()
-            .unwrap()
-            .map_point(Point::new(pos_scaled.x, pos_scaled.y));
+        let point = if !self.transformed_pieces {
+            let pos_rel = screen_pos
+                .sub(self.board_origin)
+                .cast::<f32>()
+                .scale(1. / self.board_radius);
+            let hexboard = self.get_hexboard_from_screen_point(screen_pos)?;
+            if board::Color::from(hexboard / 2) != field.hb()
+                || (hexboard % 2 == 0) != field.is_right_side()
+            {
+                return None;
+            }
+            let (center, scale_h) = square_in_quad(&get_cell_quad(f, r));
+            let center_trans =
+                Rotation2::new(hexboard as f32 * HEX_CENTER_ANGLE).transform_vector(&center);
+            let origin_trans = center_trans.sub(Vector2::new(scale_h, scale_h));
+            pos_rel.sub(&origin_trans).scale(1. / (2. * scale_h))
+        } else {
+            let (hb, point_right, pos_scaled) = self.transform_screen_point_to_hb0(screen_pos)?;
+            if hb != afl.hb || right != point_right {
+                return None;
+            }
+            let pt = CELL_TRANSFORMS[f][r]
+                .invert()
+                .unwrap()
+                .map_point(Point::new(pos_scaled.x, pos_scaled.y));
+            if right {
+                Vector2::new(pt.x, pt.y)
+            } else {
+                Vector2::new(1. - pt.y, pt.x)
+            }
+        };
         if point.x < 0. || point.x > 1. || point.y < 0. || point.y > 1. {
             return None;
         }
-        if right {
-            point = Point::new(1. - point.x, 1.0 - point.y);
-        } else {
-            point = Point::new(point.y, 1.0 - point.x);
-        }
-
-        let quadrant = if point.x < 0.5 {
-            if point.y < 0.5 {
-                0
-            } else {
-                1
-            }
-        } else {
-            if point.y < 0.5 {
-                2
-            } else {
-                3
-            }
-        };
-        Some(quadrant)
+        Some(point)
     }
 
     pub fn clicked(&mut self) {
@@ -813,9 +846,10 @@ impl Frontend {
         if let Some(square) = square {
             if let Some(src) = prev {
                 if self.promotion_preview.map(|pp| pp.loc) == Some(square.loc) {
-                    if let Some(quadrant) =
-                        self.get_square_quadrant_from_screen_pos(self.cursor_pos, square)
-                    {
+                    let cursor_quadrant = self
+                        .get_screen_pos_in_field(self.cursor_pos, square.loc)
+                        .map(|pos| get_quadrant_from_unit_box_pos(pos, self.transformed_pieces));
+                    if let Some(quadrant) = cursor_quadrant {
                         let (piece_type, _, _) = PROMOTION_QUADRANTS[quadrant as usize];
                         if self.make_move(src.loc, square.loc, Some(piece_type)) {
                             return;

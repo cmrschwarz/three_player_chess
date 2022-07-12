@@ -561,16 +561,16 @@ impl FieldLocation {
             (usize::from(hb)) * HB_SIZE + (rank - 1) as usize * ROW_SIZE + (file - 1) as usize,
         )
     }
-    pub fn file_char(&self) -> u8 {
-        <[u8; 2]>::from(*self)[0]
+    pub fn file_char(self) -> u8 {
+        <[u8; 2]>::from(self)[0]
     }
-    pub fn file_char_fancy(&self) -> u8 {
+    pub fn file_char_fancy(self) -> u8 {
         self.file_char().to_ascii_lowercase()
     }
-    pub fn rank_char(&self) -> u8 {
-        <[u8; 2]>::from(*self)[1]
+    pub fn rank_char(self) -> u8 {
+        <[u8; 2]>::from(self)[1]
     }
-    pub fn rank_char_fancy(&self) -> ArrayString<2> {
+    pub fn rank_char_fancy(self) -> ArrayString<2> {
         let rc = self.rank_char();
         let mut res = ArrayString::new();
         match rc as char {
@@ -581,16 +581,23 @@ impl FieldLocation {
         }
         res
     }
-    pub fn to_str(&self) -> &'static str {
+    pub fn to_str(self) -> &'static str {
         unsafe {
-            return std::str::from_utf8_unchecked(&BOARD_NOTATION[usize::from(*self)]);
+            return std::str::from_utf8_unchecked(&BOARD_NOTATION[usize::from(self)]);
         }
     }
-    pub fn to_str_fancy(&self) -> ArrayString<3> {
+    pub fn to_str_fancy(self) -> ArrayString<3> {
         let mut res = ArrayString::new();
         res.push(self.file_char_fancy() as char);
         res.push_str(&self.rank_char_fancy().as_str());
         res
+    }
+
+    pub fn hb(self) -> Color {
+        Color::from_usize(usize::from(self) / HB_SIZE).unwrap()
+    }
+    pub fn is_right_side(self) -> bool {
+        usize::from(self) % ROW_SIZE >= ROW_SIZE / 2
     }
 }
 impl FieldValue {

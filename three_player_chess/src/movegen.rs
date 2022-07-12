@@ -1,7 +1,6 @@
 use crate::board::PieceType::*;
 use crate::board::*;
 use arrayvec::ArrayVec;
-use num_traits::FromPrimitive;
 use std::cmp::min;
 use std::option::Option::*;
 pub const HBRC: i8 = HB_ROW_COUNT as i8;
@@ -139,7 +138,8 @@ impl AnnotatedFieldLocation {
             rank,
         }
     }
-    pub fn from_with_origin_and_hb(origin: Color, hb: Color, field: FieldLocation) -> Self {
+    pub fn from_field_with_origin_and_hb(origin: Color, hb: Color, field: FieldLocation) -> Self {
+        assert!(hb == field.hb());
         AnnotatedFieldLocation {
             origin,
             loc: field,
@@ -162,7 +162,7 @@ impl AnnotatedFieldLocation {
         }
     }
     pub fn from_with_origin(origin: Color, field: FieldLocation) -> Self {
-        Self::from_with_origin_and_hb(origin, get_hb(field), field)
+        Self::from_field_with_origin_and_hb(origin, field.hb(), field)
     }
     pub fn reorient(&self, origin: Color) -> Self {
         let mut res = self.clone();
@@ -177,13 +177,9 @@ impl AnnotatedFieldLocation {
 
 impl From<FieldLocation> for AnnotatedFieldLocation {
     fn from(field: FieldLocation) -> Self {
-        let hb = get_hb(field);
-        Self::from_with_origin_and_hb(hb, hb, field)
+        let hb = field.hb();
+        Self::from_field_with_origin_and_hb(hb, hb, field)
     }
-}
-
-pub fn get_hb(field: FieldLocation) -> Color {
-    Color::from_usize(usize::from(field) / HB_SIZE).unwrap()
 }
 
 pub fn get_next_hb(color: Color, clockwise: bool) -> Color {
@@ -219,14 +215,14 @@ pub fn get_raw_rank(field: FieldLocation) -> i8 {
     ((u8::from(field) % HB_SIZE as u8) / RS as u8 + 1) as i8
 }
 pub fn get_rank(field: FieldLocation, color: Color) -> i8 {
-    adjust_coord(get_raw_rank(field), get_hb(field) != color)
+    adjust_coord(get_raw_rank(field), field.hb() != color)
 }
 
 pub fn get_raw_file(field: FieldLocation) -> i8 {
     (u8::from(field) % RS as u8 + 1) as i8
 }
 pub fn get_file(field: FieldLocation, color: Color) -> i8 {
-    adjust_coord(get_raw_file(field), get_hb(field) != color)
+    adjust_coord(get_raw_file(field), field.hb() != color)
 }
 
 pub fn move_rank(field: AnnotatedFieldLocation, up: bool) -> Option<AnnotatedFieldLocation> {
@@ -358,7 +354,7 @@ fn move_diagonal(
                 )),
             ));
         }
-        let tgt_hb = get_next_hb(get_hb(field.loc), (field.file <= HBRC) == up);
+        let tgt_hb = get_next_hb(field.hb, (field.file <= HBRC) == up);
         return Some((
             AnnotatedFieldLocation::new(
                 field.origin,
