@@ -66,6 +66,7 @@ pub struct Frontend {
     pub origin: board::Color,
     pub transform_dragged_pieces: bool,
     pub pieces: [[Image; PIECE_COUNT]; HB_COUNT],
+    pub piece_scale_non_transformed: f32,
 }
 const PROMOTION_QUADRANTS: [(PieceType, f32, f32); 4] = [
     (Queen, 0., 0.),
@@ -369,6 +370,7 @@ impl Frontend {
             king_in_check: false,
             pieces: PIECE_IMAGES.clone(),
             transform_dragged_pieces: true,
+            piece_scale_non_transformed: 1.2,
         }
     }
     fn get_hb_id(&self, color: board::Color) -> usize {
@@ -543,9 +545,10 @@ impl Frontend {
                     canvas.concat(&mat);
                 } else {
                     canvas.translate(Point::new(pos.x, pos.y));
-                    let (_, size_h) = square_in_quad(
+                    let (_, mut size_h) = square_in_quad(
                         &self.get_cell_quad_rotated(afl.hb, right, file_phys, rank_phys),
                     );
+                    size_h *= self.piece_scale_non_transformed;
                     canvas.scale((size_h * 2., size_h * 2.));
                     canvas.translate(Point::new(-0.5, -0.5));
                 };
@@ -619,7 +622,10 @@ impl Frontend {
     ) {
         let (center, size_h) = square_in_quad(&self.get_cell_quad_rotated(hb, right, file, rank));
         canvas.translate(Point::new(center.x, center.y));
-        canvas.scale((2. * size_h, 2. * size_h));
+        canvas.scale((
+            2. * size_h * self.piece_scale_non_transformed,
+            2. * size_h * self.piece_scale_non_transformed,
+        ));
         canvas.translate((-0.5, -0.5));
     }
     pub fn transform_to_cell_nonaffine(
@@ -748,7 +754,6 @@ impl Frontend {
                 canvas.save();
                 self.transform_to_cell(canvas, hb, right, file, rank);
             }
-
             canvas.draw_image_rect(
                 img,
                 Some((
@@ -865,7 +870,8 @@ impl Frontend {
             {
                 return None;
             }
-            let (center, scale_h) = square_in_quad(&get_cell_quad(f, r));
+            let (center, mut scale_h) = square_in_quad(&get_cell_quad(f, r));
+            scale_h *= self.piece_scale_non_transformed;
             let center_trans =
                 Rotation2::new(hexboard as f32 * HEX_CENTER_ANGLE).transform_vector(&center);
             let origin_trans = center_trans.sub(Vector2::new(scale_h, scale_h));
