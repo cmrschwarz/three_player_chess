@@ -1013,6 +1013,6 @@ impl Frontend {
         self.reset_effects();
     }
     pub fn rotate(&mut self) {
-        self.origin = board::Color::from((1 + usize::from(self.origin)) as u8 % 3);
+        self.origin = board::Color::from((HB_COUNT + usize::from(self.origin) - 1) as u8 % 3);
     }
 }
