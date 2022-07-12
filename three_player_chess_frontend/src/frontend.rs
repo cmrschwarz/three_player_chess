@@ -501,7 +501,46 @@ impl Frontend {
     pub fn render_dragged_piece(&mut self, canvas: &mut Canvas) {
         if let Some(field) = self.dragged_square {
             if let Some((color, piece_type)) = *self.board.get_field_value(field.loc) {
-                let size = self.board_radius * 0.1;
+                let afl = AnnotatedFieldLocation::from(field);
+                let right = afl.file > 4;
+                let file_phys = if !right {
+                    HB_ROW_COUNT - afl.file as usize
+                } else {
+                    afl.file as usize - HB_ROW_COUNT - 1
+                };
+                let rank_phys = afl.rank as usize - 1;
+                let pos = self
+                    .cursor_pos
+                    .sub(self.board_origin)
+                    .cast::<f32>()
+                    .scale(1. / self.board_radius);
+                if self.transformed_pieces {
+                    let rotation = self.get_hb_id(afl.hb) as f32 * HEX_CENTER_ANGLE * 2.;
+                    let mut mat = Matrix::new_identity();
+                    mat.post_rotate(radians_to_degrees(rotation), None);
+                    if !right {
+                        mat.post_scale((-1., 1.), None);
+                    }
+                    mat.post_concat(&CELL_TRANSFORMS[file_phys][rank_phys]);
+                    mat.post_translate(Point::new(0.5, 0.5));
+                    if !right {
+                        mat.post_scale((-1., 1.), None);
+                    }
+                    if color != afl.hb {
+                        mat.post_scale((1., -1.), None);
+                    }
+                    mat.post_translate(Point::new(-0.5, -0.5));
+
+                    let center_trans = mat.map_point(Point::new(0.5, 0.5));
+                    canvas.translate(Point::new(pos.x - center_trans.x, pos.y - center_trans.y));
+                    canvas.concat(&mat);
+                } else {
+                    let (_, size_h) = square_in_quad(
+                        &self.get_cell_quad_rotated(afl.hb, right, file_phys, rank_phys),
+                    );
+                    canvas.scale((size_h * 2., size_h * 2.));
+                    canvas.translate(Point::new(-0.5, -0.5));
+                };
                 let img = &self.pieces[usize::from(color)][usize::from(piece_type)];
                 canvas.draw_image_rect(
                     img,
@@ -509,12 +548,7 @@ impl Frontend {
                         &Rect::from_xywh(0., 0., img.width() as f32, img.height() as f32),
                         skia_safe::canvas::SrcRectConstraint::Fast,
                     )),
-                    Rect::from_xywh(
-                        self.cursor_pos.x as f32 - size,
-                        self.cursor_pos.y as f32 - size,
-                        2. * size,
-                        2. * size,
-                    ),
+                    &*UNIT_RECT,
                     &sk_paint_img(),
                 );
             } else {
@@ -548,6 +582,7 @@ impl Frontend {
 
         self.render_background(canvas);
         canvas.restore();
+
         canvas.save();
         self.render_notation(canvas);
         canvas.restore();
@@ -559,10 +594,11 @@ impl Frontend {
                 canvas.restore();
             }
         }
-        canvas.restore(); // drop board center translation
 
         canvas.save();
         self.render_dragged_piece(canvas);
+        canvas.restore();
+
         canvas.restore();
     }
     pub fn transform_to_cell(
@@ -742,13 +778,14 @@ impl Frontend {
             }
         }
     }
-    pub fn get_hexboard_from_screen_point(&self, screen_pos: Vector2<i32>) -> Option<u8> {
+    pub fn get_hexboard_from_screen_point(&self, screen_pos: Vector2<i32>) -> u8 {
         let pos_rel = screen_pos.sub(self.board_origin).cast::<f32>();
-        if pos_rel.norm_squared() > self.board_radius * self.board_radius {
-            return None;
-        }
         let rot = ((-pos_rel.y).atan2(pos_rel.x) + 2.5 * PI) % (2. * PI);
-        Some(((HB_COUNT * 2 - (rot / HEX_CENTER_ANGLE) as usize) % 6) as u8)
+        ((HB_COUNT * 2 - (rot / HEX_CENTER_ANGLE) as usize) % 6) as u8
+    }
+    pub fn is_screen_pos_in_bounds(&self, screen_pos: Vector2<i32>) -> bool {
+        let pos_rel = screen_pos.sub(self.board_origin).cast::<f32>();
+        pos_rel.norm_squared() < self.board_radius * self.board_radius
     }
     pub fn get_hexboard_logical(&self, phys_hexboard: u8) -> u8 {
         (phys_hexboard + u8::from(self.origin) * 2) % 6
@@ -758,7 +795,10 @@ impl Frontend {
         &self,
         screen_pos: Vector2<i32>,
     ) -> Option<(board::Color, bool, Vector2<f32>)> {
-        let hexboard = self.get_hexboard_from_screen_point(screen_pos)?;
+        if !self.is_screen_pos_in_bounds(screen_pos) {
+            return None;
+        }
+        let hexboard = self.get_hexboard_from_screen_point(screen_pos);
         let hb = board::Color::from(self.get_hexboard_logical(hexboard) / 2);
         let right = hexboard % 2 == 0;
         let pos_rot = nalgebra::geometry::Rotation2::new(hexboard as f32 * -HEX_CENTER_ANGLE)
@@ -795,7 +835,9 @@ impl Frontend {
         field: FieldLocation,
     ) -> Option<Vector2<f32>> {
         let afl = AnnotatedFieldLocation::from(field);
-
+        if !self.is_screen_pos_in_bounds(screen_pos) {
+            return None;
+        }
         let (mut f, mut r) = (afl.file as usize - 1, afl.rank as usize - 1);
         let right = afl.file > HBRC;
         if right {
@@ -808,7 +850,7 @@ impl Frontend {
                 .sub(self.board_origin)
                 .cast::<f32>()
                 .scale(1. / self.board_radius);
-            let hexboard = self.get_hexboard_from_screen_point(screen_pos)?;
+            let hexboard = self.get_hexboard_from_screen_point(screen_pos);
             let hexboard_logical = self.get_hexboard_logical(hexboard);
             if board::Color::from(hexboard_logical / 2) != field.hb()
                 || (hexboard % 2 == 0) != field.is_right_side()
@@ -835,9 +877,6 @@ impl Frontend {
                 Vector2::new(1. - pt.y, pt.x)
             }
         };
-        if point.x < 0. || point.x > 1. || point.y < 0. || point.y > 1. {
-            return None;
-        }
         Some(point)
     }
 
