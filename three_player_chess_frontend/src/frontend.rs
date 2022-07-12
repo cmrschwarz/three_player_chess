@@ -65,7 +65,6 @@ pub struct Frontend {
     pub board_origin: Vector2<i32>,
     pub origin: board::Color,
     pub pieces: [[Image; PIECE_COUNT]; HB_COUNT],
-    pub piece_scale_non_transformed: f32,
 }
 const PROMOTION_QUADRANTS: [(PieceType, f32, f32); 4] = [
     (Queen, 0., 0.),
@@ -367,8 +366,7 @@ impl Frontend {
             hovered_square: None,
             player_colors: [Color::from_rgb(236, 236, 236), Color::from_rgb(41, 41, 41), Color::from_rgb(36, 36, 128)],
             king_in_check: false,
-            pieces: PIECE_IMAGES.clone(),
-            piece_scale_non_transformed: 1.2,
+            pieces: PIECE_IMAGES.clone()
         }
     }
     fn get_hb_id(&self, color: board::Color) -> usize {
@@ -577,10 +575,7 @@ impl Frontend {
     ) {
         let (center, size_h) = square_in_quad(&self.get_cell_quad_rotated(hb, right, file, rank));
         canvas.translate(Point::new(center.x, center.y));
-        canvas.scale((
-            2. * size_h * self.piece_scale_non_transformed,
-            2. * size_h * self.piece_scale_non_transformed,
-        ));
+        canvas.scale((2. * size_h, 2. * size_h));
         canvas.translate((-0.5, -0.5));
     }
     pub fn transform_to_cell_nonaffine(
@@ -814,14 +809,12 @@ impl Frontend {
                 .cast::<f32>()
                 .scale(1. / self.board_radius);
             let hexboard = self.get_hexboard_from_screen_point(screen_pos)?;
-            let hexboard_logical = self.get_hexboard_logical(hexboard);
-            if board::Color::from(hexboard_logical / 2) != field.hb()
+            if board::Color::from(hexboard / 2) != field.hb()
                 || (hexboard % 2 == 0) != field.is_right_side()
             {
                 return None;
             }
-            let (center, mut scale_h) = square_in_quad(&get_cell_quad(f, r));
-            scale_h *= self.piece_scale_non_transformed;
+            let (center, scale_h) = square_in_quad(&get_cell_quad(f, r));
             let center_trans =
                 Rotation2::new(hexboard as f32 * HEX_CENTER_ANGLE).transform_vector(&center);
             let origin_trans = center_trans.sub(Vector2::new(scale_h, scale_h));
