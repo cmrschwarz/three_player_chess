@@ -809,7 +809,8 @@ impl Frontend {
                 .cast::<f32>()
                 .scale(1. / self.board_radius);
             let hexboard = self.get_hexboard_from_screen_point(screen_pos)?;
-            if board::Color::from(hexboard / 2) != field.hb()
+            let hexboard_logical = self.get_hexboard_logical(hexboard);
+            if board::Color::from(hexboard_logical / 2) != field.hb()
                 || (hexboard % 2 == 0) != field.is_right_side()
             {
                 return None;
