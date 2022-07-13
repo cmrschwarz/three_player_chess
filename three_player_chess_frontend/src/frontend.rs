@@ -64,6 +64,7 @@ pub struct Frontend {
     pub board_radius: f32,
     pub board_origin: Vector2<i32>,
     pub origin: board::Color,
+    pub transform_dragged_pieces: bool,
     pub pieces: [[Image; PIECE_COUNT]; HB_COUNT],
 }
 const PROMOTION_QUADRANTS: [(PieceType, f32, f32); 4] = [
@@ -366,7 +367,8 @@ impl Frontend {
             hovered_square: None,
             player_colors: [Color::from_rgb(236, 236, 236), Color::from_rgb(41, 41, 41), Color::from_rgb(36, 36, 128)],
             king_in_check: false,
-            pieces: PIECE_IMAGES.clone()
+            pieces: PIECE_IMAGES.clone(),
+            transform_dragged_pieces: true,
         }
     }
     fn get_hb_id(&self, color: board::Color) -> usize {
@@ -501,27 +503,6 @@ impl Frontend {
     pub fn render_dragged_piece(&mut self, canvas: &mut Canvas) {
         if let Some(field) = self.dragged_square {
             if let Some((color, piece_type)) = *self.board.get_field_value(field.loc) {
-                /* canvas.rotate(
-                    radians_to_degrees(self.get_hb_id(hb) as f32 * 2. * HEX_CENTER_ANGLE),
-                    None,
-                );
-                if !right {
-                    canvas.scale((-1., 1.));
-                }
-                canvas.concat(&CELL_TRANSFORMS[file][rank]);
-                let (mut sx, mut sy) = (1., 1.);
-                if !right != flip_x {
-                    sx = -1.;
-                }
-                if flip_y {
-                    sy = -1.;
-                }
-                if sx < 0. || sy < 0. {
-                    canvas.translate(Point::new(0.5, 0.5));
-                    canvas.scale((sx, sy));
-                    canvas.translate(Point::new(-0.5, -0.5));
-                }*/
-
                 let afl = AnnotatedFieldLocation::from(field);
                 let right = afl.file > 4;
                 let file_phys = if !right {
@@ -535,7 +516,12 @@ impl Frontend {
                     .sub(self.board_origin)
                     .cast::<f32>()
                     .scale(1. / self.board_radius);
-                if self.transformed_pieces {
+                if self.transform_dragged_pieces {
+                    canvas.translate(Point::new(pos.x, pos.y));
+                    let scale = (*HEX_SIDE_LEN + *HEX_HEIGHT) / 2. / HB_ROW_COUNT as f32;
+                    canvas.scale((scale, scale));
+                    canvas.translate(Point::new(-0.5, -0.5));
+                } else if self.transformed_pieces {
                     let rotation = self.get_hb_id(afl.hb) as f32 * HEX_CENTER_ANGLE * 2.;
                     let mut mat = Matrix::new_identity();
                     mat.pre_rotate(radians_to_degrees(rotation), None);
