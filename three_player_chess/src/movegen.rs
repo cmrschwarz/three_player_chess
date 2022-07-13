@@ -782,6 +782,9 @@ impl ThreePlayerChess {
                 return None;
             }
         }
+        if self.is_king_capturable(None) {
+            return None; // PERF: this seems a little redundant
+        }
         let king_src = AnnotatedFieldLocation::from(self.king_positions[usize::from(hb)]);
         let (fbegin, fend) = [
             (king_tgt.file, king_src.file - 1),
