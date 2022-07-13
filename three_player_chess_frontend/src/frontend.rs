@@ -501,6 +501,27 @@ impl Frontend {
     pub fn render_dragged_piece(&mut self, canvas: &mut Canvas) {
         if let Some(field) = self.dragged_square {
             if let Some((color, piece_type)) = *self.board.get_field_value(field.loc) {
+                /* canvas.rotate(
+                    radians_to_degrees(self.get_hb_id(hb) as f32 * 2. * HEX_CENTER_ANGLE),
+                    None,
+                );
+                if !right {
+                    canvas.scale((-1., 1.));
+                }
+                canvas.concat(&CELL_TRANSFORMS[file][rank]);
+                let (mut sx, mut sy) = (1., 1.);
+                if !right != flip_x {
+                    sx = -1.;
+                }
+                if flip_y {
+                    sy = -1.;
+                }
+                if sx < 0. || sy < 0. {
+                    canvas.translate(Point::new(0.5, 0.5));
+                    canvas.scale((sx, sy));
+                    canvas.translate(Point::new(-0.5, -0.5));
+                }*/
+
                 let afl = AnnotatedFieldLocation::from(field);
                 let right = afl.file > 4;
                 let file_phys = if !right {
@@ -517,24 +538,25 @@ impl Frontend {
                 if self.transformed_pieces {
                     let rotation = self.get_hb_id(afl.hb) as f32 * HEX_CENTER_ANGLE * 2.;
                     let mut mat = Matrix::new_identity();
-                    mat.post_rotate(radians_to_degrees(rotation), None);
+                    mat.pre_rotate(radians_to_degrees(rotation), None);
                     if !right {
-                        mat.post_scale((-1., 1.), None);
+                        mat.pre_scale((-1., 1.), None);
                     }
-                    mat.post_concat(&CELL_TRANSFORMS[file_phys][rank_phys]);
-                    mat.post_translate(Point::new(0.5, 0.5));
+                    mat.pre_concat(&CELL_TRANSFORMS[file_phys][rank_phys]);
+                    mat.pre_translate(Point::new(0.5, 0.5));
                     if !right {
-                        mat.post_scale((-1., 1.), None);
+                        mat.pre_scale((-1., 1.), None);
                     }
                     if color != afl.hb {
-                        mat.post_scale((1., -1.), None);
+                        mat.pre_scale((1., -1.), None);
                     }
-                    mat.post_translate(Point::new(-0.5, -0.5));
+                    mat.pre_translate(Point::new(-0.5, -0.5));
 
                     let center_trans = mat.map_point(Point::new(0.5, 0.5));
                     canvas.translate(Point::new(pos.x - center_trans.x, pos.y - center_trans.y));
                     canvas.concat(&mat);
                 } else {
+                    canvas.translate(Point::new(pos.x, pos.y));
                     let (_, size_h) = square_in_quad(
                         &self.get_cell_quad_rotated(afl.hb, right, file_phys, rank_phys),
                     );
