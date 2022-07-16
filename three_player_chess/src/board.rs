@@ -664,7 +664,7 @@ impl std::convert::TryFrom<u8> for PackedFieldValue {
 }
 
 impl Move {
-    pub fn from_str(game: &mut ThreePlayerChess, string: &str) -> Option<Move> {
+    fn parse_special_move(game: &mut ThreePlayerChess, string: &str) -> Option<Move> {
         if string == "O-O" {
             return game.gen_move_castling(true);
         }
@@ -678,7 +678,10 @@ impl Move {
                 move_type: MoveType::ClaimDraw,
             });
         }
+        None
+    }
 
+    fn parse_regular_move_algebraic(game: &mut ThreePlayerChess, string: &str) -> Option<Move> {
         let src = AnnotatedFieldLocation::from_with_origin(
             game.turn,
             FieldLocation::from_str(&string[0..2])?,
@@ -732,6 +735,28 @@ impl Move {
                 target: tgt.loc,
             })
         }
+    }
+
+    fn parse_move_short(game: &mut ThreePlayerChess, string: &str) -> Option<Move> {
+        // PERF: maybe implement this properly?
+        for m in game.gen_moves() {
+            if m.to_string(game).as_str() == string {
+                return Some(m);
+            }
+        }
+        None
+    }
+
+    pub fn from_str(game: &mut ThreePlayerChess, string: &str) -> Option<Move> {
+        let mut mov = Self::parse_special_move(game, string);
+        if mov.is_some() {
+            return mov;
+        }
+        mov = Self::parse_regular_move_algebraic(game, string);
+        if mov.is_some() {
+            return mov;
+        }
+        Self::parse_move_short(game, string)
     }
     pub fn get_source_string(&self, game: &mut ThreePlayerChess) -> ArrayString<4> {
         let field_val = game.get_field_value(self.source);

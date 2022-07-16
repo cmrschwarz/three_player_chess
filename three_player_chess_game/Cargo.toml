@@ -4,8 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+num-traits = "0.2"
 three_player_chess = {path = "../three_player_chess"}
-surena_game = { git = "https://github.com/vilaureu/surena_game_rs.git", branch = "main"}
+surena_game = { git = "https://github.com/vilaureu/surena_game_rs.git", branch="main"}
 
 [lib]
 crate-type = ["cdylib"]

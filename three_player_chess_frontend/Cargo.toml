@@ -14,6 +14,7 @@ nalgebra = "0.31.0"
 bitvec = "1.0.0"
 arrayvec = "0.7.2"
 three_player_chess = {path = "../three_player_chess"}
+
 [dependencies.skia-safe]
-version = "0.50"
+version = "0.50.0"
 features = ["gl", "x11"]
