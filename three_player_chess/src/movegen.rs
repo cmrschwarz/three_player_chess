@@ -787,7 +787,7 @@ impl ThreePlayerChess {
         }
         let king_src = AnnotatedFieldLocation::from(self.king_positions[usize::from(hb)]);
         let (fbegin, fend) = [
-            (king_tgt.file, king_src.file - 1),
+            (king_tgt.file, king_src.file),
             (king_src.file + 1, king_tgt.file + 1),
         ][short as usize];
         let king_val = self.get_packed_field_value(king_src.loc);

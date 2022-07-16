@@ -1,13 +1,12 @@
-use arrayvec::{ArrayString, ArrayVec};
-use bitvec::ptr::swap;
-use nalgebra::{geometry::*, ComplexField};
-use nalgebra::{ArrayStorage, Matrix3, OMatrix, OVector, Transform2, Vector2, Vector3};
+use arrayvec::ArrayString;
+use nalgebra::geometry::*;
+use nalgebra::{ArrayStorage, Matrix3, OMatrix, OVector, Transform2, Vector2};
 use skia_safe::{
     radians_to_degrees, Bitmap, Canvas, Color, ColorType, Data, Font, IPoint, Image, ImageInfo,
     Matrix, Paint, PaintStyle, Path, Point, Rect, Typeface,
 };
 use std::f32::consts::PI;
-use std::ops::{Add, Sub, SubAssign};
+use std::ops::{Add, Sub};
 use three_player_chess::board;
 use three_player_chess::board::PieceType::*;
 use three_player_chess::board::*;
