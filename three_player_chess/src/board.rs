@@ -120,6 +120,7 @@ pub enum GameStatus {
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum MoveType {
     Slide,
+    SlideClaimDraw,
     Capture(PackedFieldValue),
     EnPassant(PackedFieldValue, FieldLocation),
     Castle(bool),
@@ -698,9 +699,14 @@ impl Move {
         }
 
         let tgt_val = game.get_field_value(tgt.loc);
-
-        if string.len() > 4 {
-            let promotion: [u8; 2] = string[4..].as_bytes().try_into().ok()?;
+        let mut str_rem = &string[0..];
+        let mut claim_draw = false;
+        if string.ends_with(" draw") {
+            claim_draw = true;
+            str_rem = &string[0..string.len() - 5];
+        }
+        if str_rem.len() > 4 {
+            let promotion: [u8; 2] = str_rem[4..].as_bytes().try_into().ok()?;
             if promotion[0] != '='.try_into().unwrap() {
                 return None;
             }
@@ -712,29 +718,37 @@ impl Move {
             });
         }
         let (_, src_piece_type) = src_val.unwrap();
-        if tgt_val.is_some() {
-            Some(Move {
+        let mov = if tgt_val.is_some() {
+            Move {
                 move_type: MoveType::Capture(tgt_val.into()),
                 source: src.loc,
                 target: tgt.loc,
-            })
+            }
         } else if src_piece_type == PieceType::Pawn && tgt.file != src.file {
             let ep_square = move_rank(tgt, false)?;
-            Some(Move {
+            Move {
                 move_type: MoveType::EnPassant(
                     game.board[usize::from(ep_square.loc)],
                     ep_square.loc,
                 ),
                 source: src.loc,
                 target: tgt.loc,
-            })
+            }
         } else {
-            Some(Move {
-                move_type: MoveType::Slide,
+            Move {
+                move_type: if claim_draw {
+                    MoveType::SlideClaimDraw
+                } else {
+                    MoveType::Slide
+                },
                 source: src.loc,
                 target: tgt.loc,
-            })
+            }
+        };
+        if claim_draw && mov.move_type != MoveType::SlideClaimDraw {
+            return None;
         }
+        Some(mov)
     }
 
     fn parse_move_short(game: &mut ThreePlayerChess, string: &str) -> Option<Move> {
@@ -848,6 +862,11 @@ impl Move {
                 self.get_source_string(game),
                 self.target.to_str_fancy().as_str()
             ))?,
+            MoveType::SlideClaimDraw => writer.write_fmt(format_args!(
+                "{}{} draw",
+                self.get_source_string(game),
+                self.target.to_str_fancy().as_str()
+            ))?,
             MoveType::Capture(_) => writer.write_fmt(format_args!(
                 "{}x{}",
                 self.get_source_string(game),
@@ -896,8 +915,9 @@ impl Move {
         game.undo_move(*self);
         Ok(())
     }
-    // 11 charactesr, for moves like 'exf10 e.p.(#)'
-    pub fn to_string(&self, game: &mut ThreePlayerChess) -> ArrayString<11> {
+    // regular move has max 11 characters, e.g.: 'exf10 e.p.(#)'
+    // because of draw claims we have 14 (draw move can't be capture): "Ra3c3 (#) draw"
+    pub fn to_string(&self, game: &mut ThreePlayerChess) -> ArrayString<14> {
         let mut res = ArrayString::new();
         self.write_as_str(game, &mut res).unwrap();
         res

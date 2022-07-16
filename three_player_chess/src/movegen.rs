@@ -388,7 +388,7 @@ impl ThreePlayerChess {
         let src = usize::from(m.source);
         let tgt = usize::from(m.target);
         match m.move_type {
-            MoveType::Slide | MoveType::Capture(_) => {
+            MoveType::Slide | MoveType::SlideClaimDraw | MoveType::Capture(_) => {
                 self.board[tgt] = self.board[src];
                 self.board[src] = Default::default();
             }
@@ -437,30 +437,44 @@ impl ThreePlayerChess {
             self.possible_en_passant[ci] = None;
         }
     }
+    fn apply_slide_sideeffects(&mut self, m: Move) {
+        let (_, piece) = self.get_field_value(m.target).unwrap();
+        match piece {
+            PieceType::King => {
+                self.apply_king_move_sideeffects(m);
+            }
+            PieceType::Pawn => {
+                self.last_capture_or_pawn_move_index = self.move_index;
+                let source = AnnotatedFieldLocation::from_with_origin(self.turn, m.source);
+                let target = AnnotatedFieldLocation::from_with_origin(self.turn, m.target);
+                if source.rank == 2 && target.rank == 4 {
+                    self.possible_en_passant[usize::from(self.turn)] =
+                        Some(move_rank(source, true).unwrap().loc);
+                }
+            }
+            PieceType::Rook => {
+                self.remove_castling_rights_from_rook(m.source, self.turn);
+            }
+            _ => {}
+        }
+    }
+    fn apply_draw_claiming_sideeffects(&mut self, m: Move) {
+        self.game_status = GameStatus::Draw(if self.fifty_move_rule_applies() {
+            DrawReason::FiftyMoveRule
+        } else {
+            DrawReason::ThreefoldRepetition
+        });
+    }
     pub fn apply_move_sideeffects(&mut self, m: Move) {
-        let player_to_move = self.turn;
-        let pid = usize::from(player_to_move);
         self.move_index += 1;
-        self.possible_en_passant[pid] = None;
+        self.possible_en_passant[usize::from(self.turn)] = None;
         let (_, piece) = self.get_field_value(m.target).unwrap();
         match m.move_type {
-            MoveType::Slide => match piece {
-                PieceType::King => {
-                    self.apply_king_move_sideeffects(m);
-                }
-                PieceType::Pawn => {
-                    self.last_capture_or_pawn_move_index = self.move_index;
-                    let source = AnnotatedFieldLocation::from_with_origin(player_to_move, m.source);
-                    let target = AnnotatedFieldLocation::from_with_origin(player_to_move, m.target);
-                    if source.rank == 2 && target.rank == 4 {
-                        self.possible_en_passant[pid] = Some(move_rank(source, true).unwrap().loc);
-                    }
-                }
-                PieceType::Rook => {
-                    self.remove_castling_rights_from_rook(m.source, self.turn);
-                }
-                _ => {}
-            },
+            MoveType::Slide => self.apply_slide_sideeffects(m),
+            MoveType::SlideClaimDraw => {
+                self.apply_slide_sideeffects(m);
+                self.apply_draw_claiming_sideeffects(m);
+            }
             MoveType::Castle(_) => {
                 self.apply_king_move_sideeffects(m);
             }
@@ -468,13 +482,10 @@ impl ThreePlayerChess {
                 self.last_capture_or_pawn_move_index = self.move_index;
             }
             MoveType::ClaimDraw => {
-                self.game_status = GameStatus::Draw(if self.fifty_move_rule_applies() {
-                    DrawReason::FiftyMoveRule
-                } else {
-                    DrawReason::ThreefoldRepetition
-                });
+                self.apply_draw_claiming_sideeffects(m);
             }
             MoveType::Capture(field_val) | MoveType::CapturePromotion(field_val, _) => {
+                self.last_capture_or_pawn_move_index = self.move_index;
                 if piece == PieceType::King {
                     self.apply_king_move_sideeffects(m);
                 } else if piece == PieceType::Rook {
@@ -489,6 +500,7 @@ impl ThreePlayerChess {
             }
             MoveType::Promotion(_) => (),
         }
+        let player_to_move = self.turn;
         self.turn = get_next_hb(self.turn, true);
         //check whether the next player has no move to get out of check
         // which would mean somebody won
@@ -508,7 +520,7 @@ impl ThreePlayerChess {
         let src = usize::from(m.source);
         let tgt = usize::from(m.target);
         match m.move_type {
-            MoveType::Slide => {
+            MoveType::Slide | MoveType::SlideClaimDraw => {
                 self.board[src] = self.board[tgt];
                 self.board[tgt] = Default::default();
             }
