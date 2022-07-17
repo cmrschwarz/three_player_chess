@@ -579,9 +579,7 @@ impl ThreePlayerChess {
         self.last_capture_or_pawn_move_index = rm.last_capture_or_pawn_move_index;
         self.possible_rooks_for_castling = rm.possible_rooks_for_castling;
         self.possible_en_passant = rm.possible_en_passant;
-        if (self.move_index < rm.last_capture_or_pawn_move_index) {
-            println!("wtf");
-        }
+        assert!(self.move_index >= rm.last_capture_or_pawn_move_index);
         if FieldValue::from(self.board[usize::from(rm.mov.target)])
             .piece_type()
             .unwrap()

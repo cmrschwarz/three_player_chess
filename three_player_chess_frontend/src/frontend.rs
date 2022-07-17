@@ -1092,7 +1092,7 @@ impl Frontend {
     }
     pub fn do_engine_move(&mut self) {
         let mut e = three_player_chess_engine::Engine::new();
-        let mov = e.search_position(&self.board, 3);
+        let mov = e.search_position(&self.board, 4);
         if let Some(mov) = mov {
             self.perform_move(mov);
         }
