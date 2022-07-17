@@ -781,7 +781,7 @@ impl Move {
     }
     pub fn get_source_string(&self, game: &mut ThreePlayerChess) -> ArrayString<4> {
         let field_val = game.get_field_value(self.source);
-        let (_, piece) = field_val.unwrap();
+        let (color, piece) = field_val.unwrap();
         let mut mov = *self;
         let mut cp = CheckPossibilities::new();
         let mut disambiguate_file = false;
@@ -832,8 +832,8 @@ impl Move {
         }
         let mut res = ArrayString::new();
         if piece == Pawn {
-            let src_afl = AnnotatedFieldLocation::from(self.source);
-            let tgt_afl = AnnotatedFieldLocation::from(self.target);
+            let src_afl = AnnotatedFieldLocation::from_with_origin(color, self.source);
+            let tgt_afl = AnnotatedFieldLocation::from_with_origin(color, self.target);
             if src_afl.file != tgt_afl.file {
                 disambiguate_file = true;
             }
