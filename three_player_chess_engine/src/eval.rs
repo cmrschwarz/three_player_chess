@@ -130,8 +130,8 @@ fn add_castling_scores(score: &mut Score, tpc: &mut ThreePlayerChess) {
     }
 }
 
-pub fn evaluate_position(e: &mut Engine, force_eval: bool, mov: ReversableMove) -> Option<Score> {
-    let tpc = &mut e.board;
+pub fn evaluate_position(tpc: &mut ThreePlayerChess, force_eval: bool) -> Option<Score> {
+    let mut force_eval_cost: i16 = 0;
     match tpc.game_status {
         GameStatus::Draw(_) => Some([EVAL_DRAW; HB_COUNT]),
         GameStatus::Win(winner, win_reason) => {
@@ -162,9 +162,15 @@ pub fn evaluate_position(e: &mut Engine, force_eval: bool, mov: ReversableMove) 
                     let loc = FieldLocation::from(i);
                     add_location_score(&mut board_score, tpc, loc, piece_type, color);
                     if color == tpc.turn {
-                        if !force_eval && tpc.is_piece_capturable_at(loc, None) {
-                            //println!("wtf: {}", e.engine_line_str(e.depth_max, Some(&mov)));
-                            return None;
+                        if tpc.is_piece_capturable_at(loc, None) {
+                            if force_eval {
+                                if force_eval_cost == 0 {
+                                    force_eval_cost += FORCE_EVAL_COST;
+                                }
+                                force_eval_cost += piece_score(piece_type);
+                            } else {
+                                return None;
+                            }
                         }
                     }
                 }
@@ -172,7 +178,10 @@ pub fn evaluate_position(e: &mut Engine, force_eval: bool, mov: ReversableMove) 
             add_castling_scores(&mut board_score, tpc);
             let mut score = [0; HB_COUNT];
             for i in 0..HB_COUNT {
-                score[i] = 2 * board_score[i] - board_score[(i + 1) % 3] - board_score[(i + 2) % 3];
+                score[i] = 2 * board_score[i]
+                    - board_score[(i + 1) % 3]
+                    - board_score[(i + 2) % 3]
+                    - force_eval_cost;
             }
             Some(score)
         }

@@ -4,7 +4,7 @@ extern crate lazy_static;
 mod eval;
 
 use eval::evaluate_position;
-
+use std::time::{Duration, Instant};
 use three_player_chess::board::MoveType::*;
 use three_player_chess::board::PieceType::*;
 use three_player_chess::board::*;
@@ -17,12 +17,13 @@ const EVAL_WIN: Eval = 15000;
 const EVAL_DRAW: Eval = 0;
 const EVAL_NEUTRAL: Eval = -5000;
 const EVAL_LOSS: Eval = -10000;
+const FORCE_EVAL_COST: Eval = 1000;
 
 const SCORE_ALL_LOSE: Score = [EVAL_LOSS; HB_COUNT];
 
 const PIECE_TYPE_CASTLABLE_ROOK: usize = PIECE_COUNT;
 const PIECE_TYPE_EN_PASSENT_SQUARE: usize = PIECE_COUNT + 1;
-const MAX_UNSTABLE_LINE_DEPTH: u16 = 2;
+const MAX_UNSTABLE_LINE_DEPTH: u16 = 3;
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 struct Transposition {
@@ -177,7 +178,12 @@ impl Engine {
             deciding_player: 0,
         }
     }
-    pub fn search_position(&mut self, tpc: &ThreePlayerChess, depth: u16) -> Option<Move> {
+    pub fn search_position(
+        &mut self,
+        tpc: &ThreePlayerChess,
+        depth: u16,
+        max_time_seconds: f32,
+    ) -> Option<Move> {
         self.board = tpc.clone();
         if depth == 0 {
             return self.board.gen_moves().get(0).map(|m| *m);
@@ -190,17 +196,27 @@ impl Engine {
         self.prune_count = 0;
         self.pos_count = 0;
         self.deciding_player = usize::from(self.board.turn);
-        for _ in 1..depth + 1 {
+        let end = Instant::now()
+            .checked_add(Duration::from_secs_f32(max_time_seconds))
+            .unwrap();
+        let mut bm = None;
+        let mut bm_str = "".to_owned();
+        for _ in 0..depth {
             self.depth_max += 1;
             self.eval_depth_max += 1;
-            self.search_iterate()
+            if self.search_iterate(end).is_ok() {
+                bm = self.engine_stack[0].best_move;
+                bm_str = self.transposition_line_str(bm);
+            } else {
+                self.depth_max -= 1;
+                break;
+            }
         }
-        let bm = self.engine_stack[0].best_move;
-        let bm_str = self.transposition_line_str(bm);
         println!(
-            "evaluated {} positions, pruned {} branches, skipped {} transpositions, result: {}",
-            self.pos_count, self.prune_count, self.transposition_count, bm_str
+            "evaluated {} positions (depth {}), pruned {} branches, skipped {} transpositions, result: {}",
+            self.pos_count, self.depth_max , self.prune_count, self.transposition_count, bm_str
         );
+
         return bm;
     }
     fn gen_engine_depth(&mut self, depth: u16, rm: Option<ReversableMove>) -> &EngineDepth {
@@ -217,6 +233,7 @@ impl Engine {
             let ed = &mut self.engine_stack[depth as usize];
             ed.index = 0;
             ed.best_move = None;
+            ed.moves.clear();
             ed
         };
         ed.hash = parent_hash;
@@ -255,6 +272,7 @@ impl Engine {
         }
         let mut score_modified = false;
         let mut ed_score = ed.score;
+        let mut worse_for_all = 0;
         for i in 0..2 {
             let pp = (player_to_move + 2 - i) % 3;
             if score[pp] < ed_score[pp] {
@@ -336,7 +354,7 @@ impl Engine {
         }
         res
     }
-    fn search_iterate(&mut self) {
+    fn search_iterate(&mut self, end: Instant) -> Result<(), ()> {
         self.gen_engine_depth(0, None);
         let mut depth = 0;
         let mut propagation_result = PropagationResult::Ok;
@@ -345,10 +363,10 @@ impl Engine {
             while ed.index == ed.moves.len() || propagation_result != PropagationResult::Ok {
                 self.transposition_table.insert(
                     ed.hash,
-                    Transposition::new(ed.best_move, ed.score, self.depth_max),
+                    Transposition::new(ed.best_move, ed.score, self.eval_depth_max),
                 );
                 if depth == 0 {
-                    return;
+                    return Ok(());
                 }
                 let rm = ed.move_rev.take().unwrap();
                 self.board.revert_move(&rm);
@@ -378,9 +396,8 @@ impl Engine {
             depth += 1;
             if depth >= self.depth_max || self.board.game_status != GameStatus::Ongoing {
                 let score = evaluate_position(
-                    self,
+                    &mut self.board,
                     depth > self.depth_max + MAX_UNSTABLE_LINE_DEPTH,
-                    rm.clone(),
                 );
                 if let Some(score) = score {
                     self.pos_count += 1;
@@ -395,6 +412,9 @@ impl Engine {
                     }
                     continue;
                 }
+            }
+            if Instant::now().gt(&end) {
+                return Err(());
             }
             self.gen_engine_depth(depth, Some(rm));
         }

@@ -139,36 +139,36 @@ fn main() {
                             ..
                         },
                     ..
-                } => match virtual_keycode {
-                    Some(VirtualKeyCode::Q) => {
-                        *control_flow = ControlFlow::Exit;
+                } => {
+                    match virtual_keycode {
+                        Some(VirtualKeyCode::Q) => {
+                            *control_flow = ControlFlow::Exit;
+                        }
+                        Some(VirtualKeyCode::F) => {
+                            fe.transformed_pieces = !fe.transformed_pieces;
+                        }
+                        Some(VirtualKeyCode::C) => {
+                            fe.recolor();
+                        }
+                        Some(VirtualKeyCode::S) => {
+                            fe.reset();
+                        }
+                        Some(VirtualKeyCode::R) => {
+                            fe.rotate();
+                        }
+                        Some(VirtualKeyCode::E) => {
+                            fe.do_engine_move();
+                        }
+                        Some(VirtualKeyCode::T) => {
+                            fe.transform_dragged_pieces ^= true;
+                        }
+                        Some(VirtualKeyCode::U) => {
+                            fe.undo_move();
+                        }
+                        _ => (),
                     }
-                    Some(VirtualKeyCode::F) => {
-                        fe.transformed_pieces = !fe.transformed_pieces;
-                        env.windowed_context.window().request_redraw();
-                    }
-                    Some(VirtualKeyCode::C) => {
-                        fe.recolor();
-                        env.windowed_context.window().request_redraw();
-                    }
-                    Some(VirtualKeyCode::S) => {
-                        fe.reset();
-                        env.windowed_context.window().request_redraw();
-                    }
-                    Some(VirtualKeyCode::R) => {
-                        fe.rotate();
-                        env.windowed_context.window().request_redraw();
-                    }
-                    Some(VirtualKeyCode::E) => {
-                        fe.do_engine_move();
-                        env.windowed_context.window().request_redraw();
-                    }
-                    Some(VirtualKeyCode::T) => {
-                        fe.transform_dragged_pieces ^= true;
-                        env.windowed_context.window().request_redraw();
-                    }
-                    _ => (),
-                },
+                    env.windowed_context.window().request_redraw();
+                }
                 _ => (),
             },
             Event::RedrawRequested(_) => {

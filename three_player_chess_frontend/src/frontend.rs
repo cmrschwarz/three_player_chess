@@ -11,6 +11,7 @@ use three_player_chess::board;
 use three_player_chess::board::PieceType::*;
 use three_player_chess::board::*;
 use three_player_chess::movegen::*;
+use three_player_chess_engine::Engine;
 pub const FONT: &'static [u8] = include_bytes!("../res/Roboto-Regular.ttf");
 const BORDER_WIDTH: f32 = 0.02;
 
@@ -68,6 +69,7 @@ pub struct Frontend {
     pub transform_dragged_pieces: bool,
     pub pieces: [[Image; PIECE_COUNT]; HB_COUNT],
     pub piece_scale_non_transformed: f32,
+    pub engine: Engine,
 }
 const PROMOTION_QUADRANTS: [(PieceType, f32, f32); 4] = [
     (Queen, 0., 0.),
@@ -374,6 +376,7 @@ impl Frontend {
             pieces: PIECE_IMAGES.clone(),
             transform_dragged_pieces: true,
             piece_scale_non_transformed: 1.2,
+            engine: Engine::new()
         }
     }
     fn get_hb_id(&self, color: board::Color) -> usize {
@@ -1092,10 +1095,16 @@ impl Frontend {
         self.origin = board::Color::from((HB_COUNT + usize::from(self.origin) - 1) as u8 % 3);
     }
     pub fn do_engine_move(&mut self) {
-        let mut e = three_player_chess_engine::Engine::new();
-        let mov = e.search_position(&self.board, 4);
+        let mov = self.engine.search_position(&self.board, 3, 3.);
         if let Some(mov) = mov {
             self.perform_move(mov);
+        }
+    }
+    pub fn undo_move(&mut self) {
+        if let Some(rm) = self.last_move.take() {
+            self.board.revert_move(&rm);
+            self.reset_effects();
+            println!("undid move: {}", rm.mov.to_string(&mut self.board));
         }
     }
 }
