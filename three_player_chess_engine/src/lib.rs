@@ -37,6 +37,7 @@ pub struct Engine {
     transposition_count: usize,
     prune_count: usize,
     pos_count: usize,
+    deciding_player: usize,
 }
 
 #[derive(Default)]
@@ -54,7 +55,7 @@ struct EngineMove {
     mov: Move,
 }
 
-#[derive(PartialEq, Eq, PartialOrd)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd)]
 enum PropagationResult {
     Pruned(u8),
     Ok,
@@ -85,6 +86,15 @@ impl Transposition {
             eval_depth,
             score: score,
             best_move_code: mov.map_or(0, &u64::from),
+        }
+    }
+}
+
+impl PropagationResult {
+    fn prune_depth(self) -> u8 {
+        match self {
+            PropagationResult::Ok => 0,
+            PropagationResult::Pruned(pr) => pr,
         }
     }
 }
@@ -143,6 +153,7 @@ impl Engine {
             prune_count: 0,
             transposition_count: 0,
             pos_count: 0,
+            deciding_player: 0,
         }
     }
     pub fn search_position(&mut self, tpc: &ThreePlayerChess, depth: u16) -> Option<Move> {
@@ -150,10 +161,11 @@ impl Engine {
         if depth == 0 {
             return self.board.gen_moves().get(0).map(|m| *m);
         }
-        self.transposition_table.clear();
+        // self.transposition_table.clear();
         self.transposition_count = 0;
         self.prune_count = 0;
         self.pos_count = 0;
+        self.deciding_player = usize::from(self.board.turn);
         for i in 1..depth + 1 {
             self.depth_max = i;
             self.search_iterate()
@@ -236,10 +248,11 @@ impl Engine {
             if score[pp] < ed_score[pp] {
                 ed_score[pp] = score[pp];
                 score_modified = true;
-                if depth as usize > i {
-                    if score[pp] < self.engine_stack[depth as usize - i - 1].score[pp] {
-                        result = PropagationResult::Pruned(i as u8 + 1);
-                    }
+                if pp == self.deciding_player // only prune based on decisions we can actually make
+                    && depth as usize > i
+                    && score[pp] < self.engine_stack[depth as usize - i - 1].score[pp]
+                {
+                    result = PropagationResult::Pruned(i as u8 + 1);
                 }
             }
         }
@@ -319,7 +332,11 @@ impl Engine {
                 depth -= 1;
                 ed.moves.clear();
                 let score = ed.score;
+                let prev_prune_depth = propagation_result.prune_depth();
                 propagation_result = self.propagate_move_score(depth, Some(rm.mov), score);
+                if prev_prune_depth > 1 && propagation_result.prune_depth() < prev_prune_depth - 1 {
+                    propagation_result = PropagationResult::Pruned(prev_prune_depth - 1);
+                }
                 ed = &mut self.engine_stack[depth as usize];
             }
             let em = &mut ed.moves[ed.index];
