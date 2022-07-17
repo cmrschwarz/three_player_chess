@@ -49,9 +49,11 @@ pub struct Frontend {
     pub selection_color: Color,
     pub danger: Color,
     pub background: Color,
+    pub last_move_color: Color,
     pub player_colors: [Color; HB_COUNT],
     pub prev_second: f32,
     pub transformed_pieces: bool,
+    pub last_move: Option<ReversableMove>,
     pub board: ThreePlayerChess,
     pub selected_square: Option<AnnotatedFieldLocation>,
     pub hovered_square: Option<AnnotatedFieldLocation>,
@@ -353,10 +355,12 @@ impl Frontend {
             black: Color::from_rgb(161, 119, 67),
             white: Color::from_rgb(240, 217, 181) ,
             selection_color: Color::from_argb(128, 56, 173, 105),
+            last_move_color:  Color::from_argb(190, 160, 200, 255),
             background: Color::from_rgb(201, 144, 73),
             danger: Color::from_rgb(232, 15, 13),
             transformed_pieces: true,
             selected_square: None,
+            last_move: None,
             cursor_pos: Vector2::new(-1, -1),
             board_radius: 1.,
             board_origin: Vector2::new(1, 1),
@@ -689,6 +693,9 @@ impl Frontend {
         let selected = Some(field) == self.hovered_square
             || Some(field) == self.selected_square
             || Some(field) == self.dragged_square;
+        let prev_action = self.last_move.clone().map_or(false, |lm| {
+            field.loc == lm.mov.source || field.loc == lm.mov.target
+        });
         let promotion = Some(field.loc) == self.promotion_preview.map(|f| f.loc);
         let flip_pieces = (field_val.is_some() && field_val.color() != Some(hb)) || promotion;
 
@@ -731,6 +738,12 @@ impl Frontend {
             if selected {
                 canvas.draw_rect(&*UNIT_RECT, &selection_paint);
             }
+            if prev_action {
+                canvas.draw_rect(
+                    &*UNIT_RECT,
+                    &sk_paint(self.last_move_color, PaintStyle::Fill),
+                );
+            }
             if (!selected && possible_move) || king_check {
                 let size = 0.35;
                 let mut path = Path::new();
@@ -767,7 +780,14 @@ impl Frontend {
         } else {
             if selected {
                 canvas.draw_rect(&*UNIT_RECT, &selection_paint);
-            } else if possible_move {
+            }
+            if prev_action {
+                canvas.draw_rect(
+                    &*UNIT_RECT,
+                    &sk_paint(self.last_move_color, PaintStyle::Fill),
+                );
+            }
+            if possible_move {
                 let point_radius = 0.2;
                 if self.transformed_pieces {
                     canvas.draw_circle(Point::new(0.5, 0.5), point_radius, &selection_paint);
@@ -961,6 +981,7 @@ impl Frontend {
     }
     pub fn perform_move(&mut self, mov: Move) {
         println!("making move: {}", mov.to_string(&mut self.board));
+        self.last_move = Some(ReversableMove::new(&self.board, mov));
         self.board.perform_move(mov);
         self.reset_effects();
     }
@@ -1071,7 +1092,7 @@ impl Frontend {
     }
     pub fn do_engine_move(&mut self) {
         let mut e = three_player_chess_engine::Engine::new();
-        let mov = e.search_position(&self.board, 2);
+        let mov = e.search_position(&self.board, 3);
         if let Some(mov) = mov {
             self.perform_move(mov);
         }
