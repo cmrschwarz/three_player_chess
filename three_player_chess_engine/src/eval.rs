@@ -56,6 +56,7 @@ const FIELD_BONUS_QUEEN: [[i16; ROW_SIZE]; ROW_SIZE] = [
     [-20, -10, -10, -5, -5, -10, -10, -20],
 ];
 
+const CASTLING_AVAILABLE_BONUS: i16 = 5;
 const FIELD_BONUS_KING_MIDDLEGAME: [[i16; ROW_SIZE]; ROW_SIZE] = [
     [-30, -40, -40, -50, -50, -40, -40, -30],
     [30, -40, -40, -50, -50, -40, -40, -30],
@@ -89,34 +90,50 @@ fn piece_score(pt: PieceType) -> Eval {
     }
 }
 
-fn add_location_score(score: &mut Score, tpc: &mut ThreePlayerChess, loc: FieldLocation) {
-    if let Some((color, piece_type)) = *FieldValue::from(tpc.board[usize::from(loc)]) {
-        let mut sc = piece_score(piece_type);
-        let afl = AnnotatedFieldLocation::from_with_origin(color, loc);
-        let f = afl.file as usize - 1;
-        let r = afl.rank as usize - 1;
-        sc += match piece_type {
-            Pawn => FIELD_BONUS_PAWN[r][f],
-            Knight => FIELD_BONUS_KNIGHT[r][f],
-            Bishop => FIELD_BONUS_BISHOP[r][f],
-            Rook => FIELD_BONUS_ROOK[r][f],
-            Queen => FIELD_BONUS_QUEEN[r][f],
-            King => {
-                //TODO: use a proper endgame detection using the piece count
-                if tpc.move_index > 30 {
-                    FIELD_BONUS_KING_ENDGAME[r][f]
-                } else {
-                    FIELD_BONUS_KING_MIDDLEGAME[r][f]
-                }
+fn add_location_score(
+    score: &mut Score,
+    tpc: &mut ThreePlayerChess,
+    loc: FieldLocation,
+    piece_type: PieceType,
+    color: Color,
+) {
+    let mut sc = piece_score(piece_type);
+    let afl = AnnotatedFieldLocation::from_with_origin(color, loc);
+    let f = afl.file as usize - 1;
+    let r = afl.rank as usize - 1;
+    sc += match piece_type {
+        Pawn => FIELD_BONUS_PAWN[r][f],
+        Knight => FIELD_BONUS_KNIGHT[r][f],
+        Bishop => FIELD_BONUS_BISHOP[r][f],
+        Rook => FIELD_BONUS_ROOK[r][f],
+        Queen => FIELD_BONUS_QUEEN[r][f],
+        King => {
+            //TODO: use a proper endgame detection using the piece count
+            if tpc.move_index > 30 {
+                FIELD_BONUS_KING_ENDGAME[r][f]
+            } else {
+                FIELD_BONUS_KING_MIDDLEGAME[r][f]
             }
-        };
-        score[usize::from(color)] += sc;
+        }
+    };
+    score[usize::from(color)] += sc;
+}
+
+fn add_castling_scores(score: &mut Score, tpc: &mut ThreePlayerChess) {
+    for c in Color::iter() {
+        let ci = usize::from(*c);
+        for cr in tpc.possible_rooks_for_castling[ci] {
+            if cr.is_some() {
+                score[ci] += CASTLING_AVAILABLE_BONUS;
+            }
+        }
     }
 }
 
-pub fn evaluate_position(tpc: &mut ThreePlayerChess) -> Score {
+pub fn evaluate_position(e: &mut Engine, force_eval: bool, mov: ReversableMove) -> Option<Score> {
+    let tpc = &mut e.board;
     match tpc.game_status {
-        GameStatus::Draw(_) => [EVAL_DRAW; HB_COUNT],
+        GameStatus::Draw(_) => Some([EVAL_DRAW; HB_COUNT]),
         GameStatus::Win(winner, win_reason) => {
             let mut score = [0 as Eval; HB_COUNT];
             let windex = usize::from(winner);
@@ -136,18 +153,28 @@ pub fn evaluate_position(tpc: &mut ThreePlayerChess) -> Score {
                     score[neutral % 3] = EVAL_NEUTRAL;
                 }
             }
-            score
+            Some(score)
         }
         GameStatus::Ongoing => {
             let mut board_score = [0; HB_COUNT];
             for i in 0..BOARD_SIZE {
-                add_location_score(&mut board_score, tpc, FieldLocation::from(i));
+                if let Some((color, piece_type)) = *FieldValue::from(tpc.board[i]) {
+                    let loc = FieldLocation::from(i);
+                    add_location_score(&mut board_score, tpc, loc, piece_type, color);
+                    if color == tpc.turn {
+                        if !force_eval && tpc.is_piece_capturable_at(loc, None) {
+                            //println!("wtf: {}", e.engine_line_str(e.depth_max, Some(&mov)));
+                            return None;
+                        }
+                    }
+                }
             }
+            add_castling_scores(&mut board_score, tpc);
             let mut score = [0; HB_COUNT];
             for i in 0..HB_COUNT {
                 score[i] = 2 * board_score[i] - board_score[(i + 1) % 3] - board_score[(i + 2) % 3];
             }
-            score
+            Some(score)
         }
     }
 }

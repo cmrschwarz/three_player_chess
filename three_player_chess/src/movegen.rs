@@ -1,7 +1,7 @@
 use crate::board::PieceType::*;
 use crate::board::*;
 use arrayvec::ArrayVec;
-use std::cmp::min;
+use std::cmp::{max, min};
 use std::option::Option::*;
 pub const HBRC: i8 = HB_ROW_COUNT as i8;
 pub const RS: i8 = ROW_SIZE as i8;
@@ -616,10 +616,9 @@ impl ThreePlayerChess {
         };
         self.append_move_unless_check(m, moves)
     }
-    fn is_king_capturable_at(
+    pub fn is_piece_capturable_at(
         &self,
-        kp: FieldLocation,
-        cp: &CheckPossibilities,
+        loc: FieldLocation,
         capturing_color: Option<Color>,
     ) -> bool {
         fn color_may_capture(
@@ -629,7 +628,8 @@ impl ThreePlayerChess {
         ) -> bool {
             col != tpc.turn && capturing_color.map(|cc| cc == col).unwrap_or(true)
         }
-        let kp = AnnotatedFieldLocation::from(kp);
+        let kp = AnnotatedFieldLocation::from(loc);
+        let cp = &CHECK_POSSIBILITIES[usize::from(loc)];
         for (axis, start, end, dir) in [
             (&cp.file, kp.rank - 1, 0, -1i8),
             (&cp.file, kp.rank + 1, RS + 1, 1),
@@ -646,7 +646,7 @@ impl ThreePlayerChess {
                         {
                             return true
                         }
-                        PieceType::King => {
+                        PieceType::King if color_may_capture(self, color, capturing_color) => {
                             let k = AnnotatedFieldLocation::from_with_origin(kp.origin, f);
                             if k.rank.abs_diff(kp.rank) == 1 || k.file.abs_diff(kp.file) == 1 {
                                 return true;
@@ -700,9 +700,8 @@ impl ThreePlayerChess {
         false
     }
     pub fn is_king_capturable(&mut self, capturing_color: Option<Color>) -> bool {
-        let cp = &CHECK_POSSIBILITIES[usize::from(self.king_positions[usize::from(self.turn)])];
         let kp = self.king_positions[usize::from(self.turn)];
-        self.is_king_capturable_at(kp, cp, capturing_color)
+        self.is_piece_capturable_at(kp, capturing_color)
     }
     pub fn is_king_in_checkmate(&mut self) -> bool {
         // PERF: don't do full movegen here, one legal move suffices
@@ -818,42 +817,46 @@ impl ThreePlayerChess {
     }
     pub fn gen_move_castling(&mut self, short: bool) -> Option<Move> {
         let hb = self.turn;
-        let rook_src = self.possible_rooks_for_castling[usize::from(hb)][short as usize]?;
-        let rook_tgt = AnnotatedFieldLocation::from(get_castling_target(hb, false, short));
+        let king_src = AnnotatedFieldLocation::from(self.king_positions[usize::from(hb)]);
+        let rook_src = AnnotatedFieldLocation::from(
+            self.possible_rooks_for_castling[usize::from(hb)][short as usize]?,
+        );
         let king_tgt = AnnotatedFieldLocation::from(get_castling_target(hb, true, short));
-        for tgt in [king_tgt, rook_tgt] {
-            if self.get_field_value(tgt.loc).is_some() {
+        let rook_tgt = AnnotatedFieldLocation::from(get_castling_target(hb, false, short));
+
+        let king_val = self.get_packed_field_value(king_src.loc);
+        let rook_val = self.get_packed_field_value(rook_src.loc);
+
+        if self.is_king_capturable(None) {
+            return None;
+        }
+
+        self.board[usize::from(king_src.loc)] = FieldValue(None).into();
+        self.board[usize::from(rook_src.loc)] = FieldValue(None).into();
+        for i in min(king_src.file, rook_src.file)..max(king_src.file, rook_src.file) + 1 {
+            if self.get_field_value(FieldLocation::new(hb, i, 1)).is_some() {
+                self.board[usize::from(king_src.loc)] = king_val;
+                self.board[usize::from(rook_src.loc)] = rook_val;
                 return None;
             }
         }
-        if self.is_king_capturable(None) {
-            return None; // PERF: this seems a little redundant
-        }
-        let king_src = AnnotatedFieldLocation::from(self.king_positions[usize::from(hb)]);
+        let mut conflict = false;
+        self.board[usize::from(rook_tgt.loc)] = rook_val;
         let (fbegin, fend) = [
             (king_tgt.file, king_src.file),
             (king_src.file + 1, king_tgt.file + 1),
         ][short as usize];
-        let king_val = self.get_packed_field_value(king_src.loc);
-        let rook_val = self.get_packed_field_value(rook_src);
-        let mut conflict = false;
-        self.board[usize::from(rook_tgt.loc)] = rook_val;
-        self.board[usize::from(rook_src)] = FieldValue(None).into();
-
-        self.board[usize::from(king_src.loc)] = FieldValue(None).into();
-
         for f in fbegin..fend {
-            let kp = AnnotatedFieldLocation::from_file_and_rank(hb, hb, f, 1);
-            let cp = CheckPossibilities::from_king_pos(kp.loc);
-            self.board[usize::from(kp.loc)] = king_val;
-            conflict = self.is_king_capturable_at(kp.loc, &cp, None);
-            self.board[usize::from(kp.loc)] = FieldValue(None).into();
             if conflict {
                 break;
             }
+            let kp = AnnotatedFieldLocation::from_file_and_rank(hb, hb, f, 1);
+            self.board[usize::from(kp.loc)] = king_val;
+            conflict = self.is_piece_capturable_at(kp.loc, None);
+            self.board[usize::from(kp.loc)] = FieldValue(None).into();
         }
         self.board[usize::from(king_src.loc)] = king_val;
-        self.board[usize::from(rook_src)] = rook_val;
+        self.board[usize::from(rook_src.loc)] = rook_val;
         self.board[usize::from(rook_tgt.loc)] = FieldValue(None).into();
         if conflict {
             return None;
@@ -877,7 +880,6 @@ impl ThreePlayerChess {
             }
             move_type = MoveType::Capture(piece_val);
         }
-        let cp = CheckPossibilities::from_king_pos(tgt);
         let mov = Move {
             move_type,
             source: src,
@@ -885,7 +887,7 @@ impl ThreePlayerChess {
         };
         //cant use would_move_be_check because of the different king pos
         self.apply_move(mov);
-        let would_be_check = self.is_king_capturable_at(tgt, &cp, None);
+        let would_be_check = self.is_piece_capturable_at(tgt, None);
         self.unapply_move(mov);
         if would_be_check {
             None
