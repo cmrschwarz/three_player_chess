@@ -1,6 +1,10 @@
 #[macro_use]
 extern crate lazy_static;
 
+mod eval;
+
+use eval::evaluate_position;
+
 use three_player_chess::board::PieceType::*;
 use three_player_chess::board::*;
 use three_player_chess::movegen::get_next_hb;
@@ -52,7 +56,7 @@ struct EngineMove {
 
 #[derive(PartialEq, Eq, PartialOrd)]
 enum PropagationResult {
-    Pruned,
+    Pruned(u8),
     Ok,
 }
 
@@ -75,17 +79,6 @@ lazy_static! {
     };
 }
 
-fn piece_score(pt: PieceType) -> Eval {
-    match pt {
-        Pawn => 100,
-        Knight => 300,
-        Bishop => 400,
-        Rook => 500,
-        Queen => 900,
-        King => 0,
-    }
-}
-
 impl Transposition {
     fn new(mov: Option<Move>, score: Score, eval_depth: u16) -> Transposition {
         Transposition {
@@ -99,46 +92,6 @@ impl Transposition {
 impl Default for Transposition {
     fn default() -> Self {
         Transposition::new(None, SCORE_ALL_LOSE, 0)
-    }
-}
-
-fn evaluate_position(tpc: &ThreePlayerChess) -> Score {
-    match tpc.game_status {
-        GameStatus::Draw(_) => [EVAL_DRAW; HB_COUNT],
-        GameStatus::Win(winner, win_reason) => {
-            let mut score = [0 as Eval; HB_COUNT];
-            let windex = usize::from(winner);
-            score[windex] = EVAL_WIN;
-            match win_reason {
-                WinReason::DoubleResign => {
-                    score[(windex + 1) % 3] = EVAL_LOSS;
-                    score[(windex + 2) % 3] = EVAL_LOSS;
-                }
-                WinReason::Checkmate(p) => {
-                    score[usize::from(p)] = EVAL_LOSS;
-                    let neutral = if get_next_hb(winner, true) == p {
-                        windex + 1
-                    } else {
-                        windex + 2
-                    };
-                    score[neutral % 3] = EVAL_NEUTRAL;
-                }
-            }
-            score
-        }
-        GameStatus::Ongoing => {
-            let mut board_score = [0; HB_COUNT];
-            for v in tpc.board {
-                if let Some((color, piece_type)) = *FieldValue::from(v) {
-                    board_score[usize::from(color)] += piece_score(piece_type);
-                }
-            }
-            let mut score = [0; HB_COUNT];
-            for i in 0..HB_COUNT {
-                score[i] = 2 * board_score[i] - board_score[(i + 1) % 3] - board_score[(i + 2) % 3];
-            }
-            score
-        }
     }
 }
 
@@ -269,36 +222,34 @@ impl Engine {
         mov: Option<Move>,
         score: Score,
     ) -> PropagationResult {
+        let mut result = PropagationResult::Ok;
         let player_to_move = usize::from(self.board.turn);
-        let other_players = [(player_to_move + 1) % 3, (player_to_move + 2) % 3];
-        let grandparent_score = if depth > 1 {
-            self.engine_stack[depth as usize - 1].score
-        } else {
-            SCORE_ALL_LOSE
-        };
         let ed = &mut self.engine_stack[depth as usize];
-        let mut worse_for_others = false;
-        for i in other_players {
-            if score[i] < ed.score[i] {
-                ed.score[i] = score[i];
-                if score[i] < grandparent_score[i] {
-                    if worse_for_others {
-                        // if this branch is already worse than another option
-                        // for all other players, there's no need to
-                        // look for an even better move here, since
-                        // it won't change the final evaluation
-                        self.prune_count += 1;
-                        return PropagationResult::Pruned;
-                    }
-                    worse_for_others = true;
-                }
-            }
-        }
         if score[player_to_move] > ed.score[player_to_move] {
             ed.score[player_to_move] = score[player_to_move];
             ed.best_move = mov;
         }
-        PropagationResult::Ok
+        let mut score_modified = false;
+        let mut ed_score = ed.score;
+        for i in 0..2 {
+            let pp = (player_to_move + 2 - i) % 3;
+            if score[pp] < ed_score[pp] {
+                ed_score[pp] = score[pp];
+                score_modified = true;
+                if depth as usize > i {
+                    if score[pp] < self.engine_stack[depth as usize - i - 1].score[pp] {
+                        result = PropagationResult::Pruned(i as u8 + 1);
+                    }
+                }
+            }
+        }
+        if score_modified {
+            self.engine_stack[depth as usize].score = ed_score;
+        }
+        if result != PropagationResult::Ok {
+            self.prune_count += 1;
+        }
+        result
     }
     pub fn engine_line_str(&mut self, depth: u16, last_move: Option<&ReversableMove>) -> String {
         let mut res = String::new();
@@ -338,7 +289,10 @@ impl Engine {
                 if tp.best_move_code == 0 {
                     break;
                 }
-                mov = Some(Move::try_from(tp.best_move_code).unwrap());
+                mov = Move::try_from(tp.best_move_code).ok();
+                if mov.is_none() {
+                    break;
+                }
             } else {
                 break;
             }
@@ -352,7 +306,7 @@ impl Engine {
         let mut propagation_result = PropagationResult::Ok;
         loop {
             let mut ed = &mut self.engine_stack[depth as usize];
-            while ed.index == ed.moves.len() || propagation_result == PropagationResult::Pruned {
+            while ed.index == ed.moves.len() || propagation_result != PropagationResult::Ok {
                 self.transposition_table.insert(
                     ed.hash,
                     Transposition::new(ed.best_move, ed.score, self.depth_max),
@@ -389,10 +343,10 @@ impl Engine {
                 self.board.revert_move(&rm);
                 depth -= 1;
                 propagation_result = self.propagate_move_score(depth, Some(rm.mov), score);
-                if propagation_result != PropagationResult::Pruned {
-                    if score[usize::from(self.board.turn)] == EVAL_WIN {
+                if propagation_result == PropagationResult::Ok {
+                    if score[usize::from(self.board.turn)] >= EVAL_WIN {
                         self.prune_count += 1;
-                        propagation_result = PropagationResult::Pruned;
+                        propagation_result = PropagationResult::Pruned(1);
                     }
                 }
             } else {

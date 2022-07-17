@@ -1086,13 +1086,14 @@ impl Frontend {
     pub fn reset(&mut self) {
         self.board = ThreePlayerChess::default();
         self.reset_effects();
+        self.last_move = None;
     }
     pub fn rotate(&mut self) {
         self.origin = board::Color::from((HB_COUNT + usize::from(self.origin) - 1) as u8 % 3);
     }
     pub fn do_engine_move(&mut self) {
         let mut e = three_player_chess_engine::Engine::new();
-        let mov = e.search_position(&self.board, 4);
+        let mov = e.search_position(&self.board, 5);
         if let Some(mov) = mov {
             self.perform_move(mov);
         }
