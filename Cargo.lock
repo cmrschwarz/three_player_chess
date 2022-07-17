@@ -1512,6 +1512,7 @@ dependencies = [
  "rand_chacha",
  "skia-safe",
  "three_player_chess",
+ "three_player_chess_engine",
  "vecmath",
 ]
 

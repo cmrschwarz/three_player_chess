@@ -2,7 +2,6 @@ use crate::board::PieceType::*;
 use crate::board::*;
 use arrayvec::ArrayVec;
 use std::cmp::min;
-use std::iter::Rev;
 use std::option::Option::*;
 pub const HBRC: i8 = HB_ROW_COUNT as i8;
 pub const RS: i8 = ROW_SIZE as i8;
@@ -576,9 +575,13 @@ impl ThreePlayerChess {
     pub fn unapply_move_sideffects(&mut self, rm: &ReversableMove) {
         self.turn = get_next_hb(self.turn, false);
         self.move_index -= 1;
+        self.game_status = GameStatus::Ongoing;
         self.last_capture_or_pawn_move_index = rm.last_capture_or_pawn_move_index;
         self.possible_rooks_for_castling = rm.possible_rooks_for_castling;
         self.possible_en_passant = rm.possible_en_passant;
+        if (self.move_index < rm.last_capture_or_pawn_move_index) {
+            println!("wtf");
+        }
         if FieldValue::from(self.board[usize::from(rm.mov.target)])
             .piece_type()
             .unwrap()

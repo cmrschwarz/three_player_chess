@@ -1,9 +1,7 @@
-use num_traits::FromPrimitive;
 use std::ffi::CStr;
 use std::fmt::Write;
 use std::ops::{Deref, DerefMut};
 use surena_game::*;
-use three_player_chess::board::MoveType::*;
 use three_player_chess::board::*;
 
 const BUF_SIZER: buf_sizer = buf_sizer {
@@ -33,46 +31,6 @@ impl DerefMut for TpcGame {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
-}
-
-fn move_from_u64(v: u64) -> std::result::Result<Move, ()> {
-    let source = (v & 0xFF) as u8;
-    let target = ((v >> 8) & 0xFF) as u8;
-    let mtype = ((v >> 16) & 0xFF) as u8;
-    let b1 = ((v >> 24) & 0xFF) as u8;
-    let b2 = ((v >> 32) & 0xFF) as u8;
-    let move_type = match mtype {
-        0 => Slide,
-        1 => Capture(b1.try_into()?),
-        2 => EnPassant(b1.try_into()?, FieldLocation::from_checked(b2)?),
-        3 => Castle(b1 > 0),
-        4 => Promotion(PieceType::from_u8(b1).ok_or(())?),
-        5 => CapturePromotion(b1.try_into()?, PieceType::from_u8(b2).ok_or(())?),
-        6 => ClaimDraw,
-        7 => SlideClaimDraw,
-        _ => return Err(()),
-    };
-    Ok(Move {
-        move_type,
-        source: FieldLocation::from_checked(source as u8)?,
-        target: FieldLocation::from_checked(target as u8)?,
-    })
-}
-
-fn move_to_u64(m: Move) -> u64 {
-    let move_type: u64 = match m.move_type {
-        Slide => 0,
-        Capture(piece) => 1 | (u8::from(piece) as u64) << 8,
-        EnPassant(piece, loc) => 2 | (u8::from(piece) as u64) << 8 | (u8::from(loc) as u64) << 16,
-        Castle(rook_src) => 3 | (u8::from(rook_src) as u64) << 8,
-        Promotion(piece) => 4 | (u8::from(piece) as u64) << 8,
-        CapturePromotion(cap, piece) => {
-            5 | (u8::from(piece) as u64) << 8 | (u8::from(cap) as u64) << 16
-        }
-        ClaimDraw => 6,
-        SlideClaimDraw => 7,
-    };
-    move_type << 16 | (u8::from(m.target) as u64) << 8 | (u8::from(m.source) as u64)
 }
 
 pub fn check_player_to_move(game: &mut ThreePlayerChess, player: player_id) -> Result<()> {
@@ -152,13 +110,13 @@ impl GameMethods for TpcGame {
         }
         //TODO: optimize away this copy + allocation?
         for mov in self.gen_moves() {
-            moves.push(move_to_u64(mov));
+            moves.push(mov.into());
         }
         Ok(())
     }
 
     fn is_legal_move(&mut self, player: player_id, mov: move_code) -> Result<()> {
-        let mov = move_from_u64(mov)
+        let mov = Move::try_from(mov)
             .map_err(|_| Error::new_static(ErrorCode::InvalidInput, b"invalid move code\0"))?;
         check_player_to_move(self, player)?;
         if self.is_valid_move(mov) {
@@ -172,7 +130,7 @@ impl GameMethods for TpcGame {
     }
 
     fn make_move(&mut self, _player: player_id, mov_code: move_code) -> Result<()> {
-        let mov = move_from_u64(mov_code)
+        let mov = Move::try_from(mov_code)
             .map_err(|_| Error::new_static(ErrorCode::InvalidInput, b"invalid move code\0"))?;
         self.perform_move(mov);
         Ok(())
@@ -189,7 +147,7 @@ impl GameMethods for TpcGame {
     fn get_move_code(&mut self, player: player_id, string: &str) -> Result<move_code> {
         check_player_to_move(self, player)?;
         Move::from_str(self, string)
-            .map(|mov| move_to_u64(mov))
+            .map(|mov| mov.into())
             .ok_or_else(|| Error::new_static(ErrorCode::InvalidInput, b"failed to parse move\0"))
     }
 
@@ -204,7 +162,7 @@ impl GameMethods for TpcGame {
         str_buf: &mut StrBuf,
     ) -> Result<()> {
         check_player_to_move(self, player)?;
-        move_from_u64(mov)
+        Move::try_from(mov)
             .map_err(|_| Error::new_static(ErrorCode::OutOfMemory, b"invalid move code\0"))?
             .write_as_str(self, str_buf)
             .map_err(|_| {

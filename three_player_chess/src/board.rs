@@ -6,6 +6,7 @@ use arrayvec::ArrayString;
 use std::char;
 use std::collections::HashMap;
 use std::io::Write;
+use MoveType::*;
 use PieceType::*;
 
 pub const ROW_SIZE: usize = 8; // row == rank
@@ -136,6 +137,7 @@ pub struct Move {
     pub target: FieldLocation,
 }
 
+#[derive(Clone)]
 pub struct ReversableMove {
     pub mov: Move,
     pub possible_en_passant: [Option<FieldLocation>; HB_COUNT],
@@ -688,7 +690,7 @@ impl Move {
             return Some(Move {
                 source: Default::default(),
                 target: Default::default(),
-                move_type: MoveType::ClaimDraw,
+                move_type: ClaimDraw,
             });
         }
         None
@@ -724,7 +726,7 @@ impl Move {
             }
             let piece_type = PieceType::from_ascii(promotion[1])?;
             return Some(Move {
-                move_type: MoveType::Promotion(piece_type),
+                move_type: Promotion(piece_type),
                 source: src.loc,
                 target: tgt.loc,
             });
@@ -732,32 +734,25 @@ impl Move {
         let (_, src_piece_type) = src_val.unwrap();
         let mov = if tgt_val.is_some() {
             Move {
-                move_type: MoveType::Capture(tgt_val.into()),
+                move_type: Capture(tgt_val.into()),
                 source: src.loc,
                 target: tgt.loc,
             }
         } else if src_piece_type == PieceType::Pawn && tgt.file != src.file {
             let ep_square = move_rank(tgt, false)?;
             Move {
-                move_type: MoveType::EnPassant(
-                    game.board[usize::from(ep_square.loc)],
-                    ep_square.loc,
-                ),
+                move_type: EnPassant(game.board[usize::from(ep_square.loc)], ep_square.loc),
                 source: src.loc,
                 target: tgt.loc,
             }
         } else {
             Move {
-                move_type: if claim_draw {
-                    MoveType::SlideClaimDraw
-                } else {
-                    MoveType::Slide
-                },
+                move_type: if claim_draw { SlideClaimDraw } else { Slide },
                 source: src.loc,
                 target: tgt.loc,
             }
         };
-        if claim_draw && mov.move_type != MoveType::SlideClaimDraw {
+        if claim_draw && mov.move_type != SlideClaimDraw {
             return None;
         }
         Some(mov)
@@ -860,7 +855,7 @@ impl Move {
         writer: &mut W,
     ) -> Result<(), std::fmt::Error> {
         match self.move_type {
-            MoveType::Castle(_) => {
+            Castle(_) => {
                 if AnnotatedFieldLocation::from(self.source).file
                     < AnnotatedFieldLocation::from(self.target).file
                 {
@@ -869,38 +864,38 @@ impl Move {
                     writer.write_str("O-O-O")?
                 }
             }
-            MoveType::Slide => writer.write_fmt(format_args!(
+            Slide => writer.write_fmt(format_args!(
                 "{}{}",
                 self.get_source_string(game),
                 self.target.to_str_fancy().as_str()
             ))?,
-            MoveType::SlideClaimDraw => writer.write_fmt(format_args!(
+            SlideClaimDraw => writer.write_fmt(format_args!(
                 "{}{} draw",
                 self.get_source_string(game),
                 self.target.to_str_fancy().as_str()
             ))?,
-            MoveType::Capture(_) => writer.write_fmt(format_args!(
+            Capture(_) => writer.write_fmt(format_args!(
                 "{}x{}",
                 self.get_source_string(game),
                 self.target.to_str_fancy().as_str()
             ))?,
-            MoveType::EnPassant(_, _) => writer.write_fmt(format_args!(
+            EnPassant(_, _) => writer.write_fmt(format_args!(
                 "{}x{} e.p.",
                 self.get_source_string(game),
                 self.target.to_str_fancy().as_str()
             ))?,
-            MoveType::Promotion(piece_type) => writer.write_fmt(format_args!(
+            Promotion(piece_type) => writer.write_fmt(format_args!(
                 "{}={}",
                 self.get_source_string(game),
                 piece_type.to_ascii() as char,
             ))?,
-            MoveType::CapturePromotion(_, piece_type) => writer.write_fmt(format_args!(
+            CapturePromotion(_, piece_type) => writer.write_fmt(format_args!(
                 "{}x{}={}",
                 self.get_source_string(game),
                 self.target.to_str_fancy().as_str(),
                 piece_type.to_ascii() as char,
             ))?,
-            MoveType::ClaimDraw => writer.write_str("draw")?,
+            ClaimDraw => writer.write_str("draw")?,
         }
         let turn = game.turn;
         game.apply_move(*self);
@@ -933,5 +928,52 @@ impl Move {
         let mut res = ArrayString::new();
         self.write_as_str(game, &mut res).unwrap();
         res
+    }
+}
+
+impl TryFrom<u64> for Move {
+    type Error = ();
+    fn try_from(v: u64) -> std::result::Result<Move, Self::Error> {
+        let source = (v & 0xFF) as u8;
+        let target = ((v >> 8) & 0xFF) as u8;
+        let mtype = ((v >> 16) & 0xFF) as u8;
+        let b1 = ((v >> 24) & 0xFF) as u8;
+        let b2 = ((v >> 32) & 0xFF) as u8;
+        let move_type = match mtype {
+            0 => Slide,
+            1 => Capture(b1.try_into()?),
+            2 => EnPassant(b1.try_into()?, FieldLocation::from_checked(b2)?),
+            3 => Castle(b1 > 0),
+            4 => Promotion(PieceType::from_u8(b1).ok_or(())?),
+            5 => CapturePromotion(b1.try_into()?, PieceType::from_u8(b2).ok_or(())?),
+            6 => ClaimDraw,
+            7 => SlideClaimDraw,
+            _ => return Err(()),
+        };
+        Ok(Move {
+            move_type,
+            source: FieldLocation::from_checked(source as u8)?,
+            target: FieldLocation::from_checked(target as u8)?,
+        })
+    }
+}
+
+impl From<Move> for u64 {
+    fn from(m: Move) -> u64 {
+        let move_type: u64 = match m.move_type {
+            Slide => 0,
+            Capture(piece) => 1 | (u8::from(piece) as u64) << 8,
+            EnPassant(piece, loc) => {
+                2 | (u8::from(piece) as u64) << 8 | (u8::from(loc) as u64) << 16
+            }
+            Castle(rook_src) => 3 | (u8::from(rook_src) as u64) << 8,
+            Promotion(piece) => 4 | (u8::from(piece) as u64) << 8,
+            CapturePromotion(cap, piece) => {
+                5 | (u8::from(piece) as u64) << 8 | (u8::from(cap) as u64) << 16
+            }
+            ClaimDraw => 6,
+            SlideClaimDraw => 7,
+        };
+        move_type << 16 | (u8::from(m.target) as u64) << 8 | (u8::from(m.source) as u64)
     }
 }

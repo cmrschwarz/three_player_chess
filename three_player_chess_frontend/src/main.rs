@@ -159,6 +159,10 @@ fn main() {
                         fe.rotate();
                         env.windowed_context.window().request_redraw();
                     }
+                    Some(VirtualKeyCode::E) => {
+                        fe.do_engine_move();
+                        env.windowed_context.window().request_redraw();
+                    }
                     Some(VirtualKeyCode::T) => {
                         fe.transform_dragged_pieces ^= true;
                         env.windowed_context.window().request_redraw();

@@ -348,7 +348,7 @@ impl Frontend {
     pub fn new() -> Frontend {
         Frontend {
             prev_second: -1.0,
-            board: ThreePlayerChess::from_str("CEFGH2A5E4D5H4C5Ib/BG1/CF1/AH1/D4/E1/AH/:LKIDCBA7J6/KB8/JC8/LA8/L5/D8/LA/:HGFELbJaK9B2/GKc/FJc/HLc/Ec/Ic/HL/Ka:0:0").unwrap(),//Default::default(),
+            board: ThreePlayerChess::from_str("CEFGH2A5E4D5H4C5/BG1/CF1/AH1/D4/E1/AH/:LKIDCBA7J6/KB8/JC8/LA8/L5/D8/LA/:HGFEILbJaK9B2/GKc/FJc/HLc/Ec/Ic/HL/Ka:0:0").unwrap(),//Default::default(),
             font:  Font::from_typeface(Typeface::from_data(Data::new_copy(&FONT), None).expect("Failed to load font 'Roboto-Regular.ttf'"), None),
             black: Color::from_rgb(161, 119, 67),
             white: Color::from_rgb(240, 217, 181) ,
@@ -959,6 +959,11 @@ impl Frontend {
             self.possible_moves.fill(false);
         }
     }
+    pub fn perform_move(&mut self, mov: Move) {
+        println!("making move: {}", mov.to_string(&mut self.board));
+        self.board.perform_move(mov);
+        self.reset_effects();
+    }
     pub fn apply_move(
         &mut self,
         src: FieldLocation,
@@ -1025,10 +1030,7 @@ impl Frontend {
         }
 
         if self.board.is_valid_move(mov) {
-            println!("making move: {}", mov.to_string(&mut self.board));
-            self.board.apply_move(mov);
-            self.board.apply_move_sideeffects(mov);
-            self.reset_effects();
+            self.perform_move(mov);
             return true;
         }
         false
@@ -1066,5 +1068,12 @@ impl Frontend {
     }
     pub fn rotate(&mut self) {
         self.origin = board::Color::from((HB_COUNT + usize::from(self.origin) - 1) as u8 % 3);
+    }
+    pub fn do_engine_move(&mut self) {
+        let mut e = three_player_chess_engine::Engine::new();
+        let mov = e.search_position(&self.board, 2);
+        if let Some(mov) = mov {
+            self.perform_move(mov);
+        }
     }
 }
