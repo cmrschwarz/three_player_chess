@@ -49,6 +49,7 @@ fn move_from_u64(v: u64) -> std::result::Result<Move, ()> {
         4 => Promotion(PieceType::from_u8(b1).ok_or(())?),
         5 => CapturePromotion(b1.try_into()?, PieceType::from_u8(b2).ok_or(())?),
         6 => ClaimDraw,
+        7 => SlideClaimDraw,
         _ => return Err(()),
     };
     Ok(Move {
@@ -69,6 +70,7 @@ fn move_to_u64(m: Move) -> u64 {
             5 | (u8::from(piece) as u64) << 8 | (u8::from(cap) as u64) << 16
         }
         ClaimDraw => 6,
+        SlideClaimDraw => 7,
     };
     move_type << 16 | (u8::from(m.target) as u64) << 8 | (u8::from(m.source) as u64)
 }
@@ -172,8 +174,7 @@ impl GameMethods for TpcGame {
     fn make_move(&mut self, _player: player_id, mov_code: move_code) -> Result<()> {
         let mov = move_from_u64(mov_code)
             .map_err(|_| Error::new_static(ErrorCode::InvalidInput, b"invalid move code\0"))?;
-        self.0.make_move(mov);
-        self.apply_move_sideeffects(mov);
+        self.perform_move(mov);
         Ok(())
     }
 

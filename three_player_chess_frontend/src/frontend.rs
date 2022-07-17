@@ -905,12 +905,12 @@ impl Frontend {
                         .map(|pos| get_quadrant_from_unit_box_pos(pos, self.transformed_pieces));
                     if let Some(quadrant) = cursor_quadrant {
                         let (piece_type, _, _) = PROMOTION_QUADRANTS[quadrant as usize];
-                        if self.make_move(src.loc, square.loc, Some(piece_type)) {
+                        if self.apply_move(src.loc, square.loc, Some(piece_type)) {
                             return;
                         }
                     }
                 }
-                if self.make_move(src.loc, square.loc, None) {
+                if self.apply_move(src.loc, square.loc, None) {
                     return;
                 }
             }
@@ -948,7 +948,7 @@ impl Frontend {
         let square = self.get_board_pos_from_screen_pos(self.cursor_pos);
         if let Some(src) = self.dragged_square {
             if let Some(tgt) = square {
-                if self.make_move(src.loc, tgt.loc, None) {
+                if self.apply_move(src.loc, tgt.loc, None) {
                     return;
                 }
             }
@@ -959,7 +959,7 @@ impl Frontend {
             self.possible_moves.fill(false);
         }
     }
-    pub fn make_move(
+    pub fn apply_move(
         &mut self,
         src: FieldLocation,
         tgt: FieldLocation,
@@ -1026,7 +1026,7 @@ impl Frontend {
 
         if self.board.is_valid_move(mov) {
             println!("making move: {}", mov.to_string(&mut self.board));
-            self.board.make_move(mov);
+            self.board.apply_move(mov);
             self.board.apply_move_sideeffects(mov);
             self.reset_effects();
             return true;

@@ -2,6 +2,7 @@ use crate::board::PieceType::*;
 use crate::board::*;
 use arrayvec::ArrayVec;
 use std::cmp::min;
+use std::iter::Rev;
 use std::option::Option::*;
 pub const HBRC: i8 = HB_ROW_COUNT as i8;
 pub const RS: i8 = ROW_SIZE as i8;
@@ -10,7 +11,7 @@ const CHECK_LINES_DIAGONALS_MAX_SQUARES: usize = 17;
 const CHECK_LINES_DIAGONALS_COUNT: usize = 5;
 const MAX_KNIGHT_MOVES_PER_SQUARE: usize = 10;
 
-#[derive(Clone, PartialEq, Eq, Default)]
+#[derive(Clone, PartialEq, Eq, Default, Debug)]
 pub struct CheckPossibilities {
     pub knight_moves: ArrayVec<FieldLocation, MAX_KNIGHT_MOVES_PER_SQUARE>,
 
@@ -19,6 +20,16 @@ pub struct CheckPossibilities {
 
     pub file: [FieldLocation; ROW_SIZE],
     pub rank: [FieldLocation; ROW_SIZE],
+}
+
+lazy_static! {
+    static ref CHECK_POSSIBILITIES: [CheckPossibilities; BOARD_SIZE] = {
+        let mut cps = ArrayVec::new();
+        for i in 0..BOARD_SIZE {
+            cps.push(CheckPossibilities::from_king_pos(FieldLocation::from(i)));
+        }
+        cps.into_inner().unwrap()
+    };
 }
 
 impl CheckPossibilities {
@@ -384,7 +395,15 @@ fn move_diagonal(
 }
 
 impl ThreePlayerChess {
-    pub fn make_move(&mut self, m: Move) {
+    pub fn perform_move(&mut self, m: Move) {
+        self.apply_move(m);
+        self.apply_move_sideeffects(m);
+    }
+    pub fn revert_move(&mut self, rm: &ReversableMove) {
+        self.unapply_move_sideffects(rm);
+        self.unapply_move(rm.mov);
+    }
+    pub fn apply_move(&mut self, m: Move) {
         let src = usize::from(m.source);
         let tgt = usize::from(m.target);
         match m.move_type {
@@ -421,8 +440,6 @@ impl ThreePlayerChess {
         for r in self.possible_rooks_for_castling[usize::from(self.turn)].iter_mut() {
             *r = None;
         }
-        self.check_possibilities[usize::from(usize::from(self.turn))] =
-            CheckPossibilities::from_king_pos(m.target);
     }
     pub fn remove_castling_rights_from_rook(&mut self, loc: FieldLocation, color: Color) {
         for r in self.possible_rooks_for_castling[usize::from(color)].iter_mut() {
@@ -458,7 +475,7 @@ impl ThreePlayerChess {
             _ => {}
         }
     }
-    fn apply_draw_claiming_sideeffects(&mut self, m: Move) {
+    fn apply_draw_claiming_sideeffects(&mut self, _m: Move) {
         self.game_status = GameStatus::Draw(if self.fifty_move_rule_applies() {
             DrawReason::FiftyMoveRule
         } else {
@@ -516,7 +533,7 @@ impl ThreePlayerChess {
             }
         }
     }
-    pub fn undo_move(&mut self, m: Move) {
+    pub fn unapply_move(&mut self, m: Move) {
         let src = usize::from(m.source);
         let tgt = usize::from(m.target);
         match m.move_type {
@@ -556,10 +573,24 @@ impl ThreePlayerChess {
             MoveType::ClaimDraw => return,
         }
     }
+    pub fn unapply_move_sideffects(&mut self, rm: &ReversableMove) {
+        self.turn = get_next_hb(self.turn, false);
+        self.move_index -= 1;
+        self.last_capture_or_pawn_move_index = rm.last_capture_or_pawn_move_index;
+        self.possible_rooks_for_castling = rm.possible_rooks_for_castling;
+        self.possible_en_passant = rm.possible_en_passant;
+        if FieldValue::from(self.board[usize::from(rm.mov.target)])
+            .piece_type()
+            .unwrap()
+            == King
+        {
+            self.king_positions[usize::from(self.turn)] = rm.mov.source;
+        }
+    }
     fn would_move_be_check(&mut self, mv: Move) -> bool {
-        self.make_move(mv);
+        self.apply_move(mv);
         let would_be_check = self.is_king_capturable(None);
-        self.undo_move(mv);
+        self.unapply_move(mv);
         would_be_check
     }
     fn append_move_unless_check(&mut self, mv: Move, moves: &mut Vec<Move>) -> bool {
@@ -668,7 +699,7 @@ impl ThreePlayerChess {
         false
     }
     pub fn is_king_capturable(&mut self, capturing_color: Option<Color>) -> bool {
-        let cp = &self.check_possibilities[usize::from(self.turn)];
+        let cp = &CHECK_POSSIBILITIES[usize::from(self.king_positions[usize::from(self.turn)])];
         let kp = self.king_positions[usize::from(self.turn)];
         self.is_king_capturable_at(kp, cp, capturing_color)
     }
@@ -852,9 +883,9 @@ impl ThreePlayerChess {
             target: tgt,
         };
         //cant use would_move_be_check because of the different king pos
-        self.make_move(mov);
+        self.apply_move(mov);
         let would_be_check = self.is_king_capturable_at(tgt, &cp, None);
-        self.undo_move(mov);
+        self.unapply_move(mov);
         if would_be_check {
             None
         } else {

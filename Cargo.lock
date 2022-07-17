@@ -1489,6 +1489,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "three_player_chess_engine"
+version = "0.1.0"
+dependencies = [
+ "lazy_static",
+ "num-traits",
+ "rand",
+ "three_player_chess",
+]
+
+[[package]]
 name = "three_player_chess_frontend"
 version = "0.1.0"
 dependencies = [

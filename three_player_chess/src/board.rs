@@ -136,6 +136,24 @@ pub struct Move {
     pub target: FieldLocation,
 }
 
+pub struct ReversableMove {
+    pub mov: Move,
+    pub possible_en_passant: [Option<FieldLocation>; HB_COUNT],
+    pub possible_rooks_for_castling: [[Option<FieldLocation>; 2]; HB_COUNT],
+    pub last_capture_or_pawn_move_index: u16,
+}
+
+impl ReversableMove {
+    pub fn new(board: &ThreePlayerChess, mov: Move) -> ReversableMove {
+        ReversableMove {
+            mov,
+            possible_en_passant: board.possible_en_passant,
+            possible_rooks_for_castling: board.possible_rooks_for_castling,
+            last_capture_or_pawn_move_index: board.last_capture_or_pawn_move_index,
+        }
+    }
+}
+
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
 pub struct AnnotatedFieldLocation {
     pub origin: Color,
@@ -169,7 +187,6 @@ pub struct ThreePlayerChess {
     pub game_status: GameStatus,
     pub resigned_player: Option<Color>,
     pub board: [PackedFieldValue; BOARD_SIZE],
-    pub check_possibilities: [CheckPossibilities; HB_COUNT],
 }
 
 impl ThreePlayerChess {
@@ -184,7 +201,6 @@ impl ThreePlayerChess {
             game_status: GameStatus::Ongoing,
             resigned_player: None,
             board: [FieldValue(None).into(); BOARD_SIZE],
-            check_possibilities: Default::default(),
         }
     }
     fn player_state_from_str<'a>(
@@ -306,10 +322,6 @@ impl ThreePlayerChess {
             .parse()
             .or_else(|_| Err("move index is not a valid integer"))?;
         tpc.turn = Color::from((tpc.move_index % HB_COUNT as u16) as u8);
-        for c in Color::iter() {
-            tpc.check_possibilities[usize::from(*c)] =
-                CheckPossibilities::from_king_pos(tpc.king_positions[usize::from(*c)])
-        }
         Ok(tpc)
     }
     pub fn write_state_str<'a, W: std::fmt::Write>(
@@ -891,7 +903,7 @@ impl Move {
             MoveType::ClaimDraw => writer.write_str("draw")?,
         }
         let turn = game.turn;
-        game.make_move(*self);
+        game.apply_move(*self);
         game.turn = get_next_hb(game.turn, true);
         if game.is_king_in_checkmate() {
             if game.is_king_capturable(Some(turn)) {
@@ -912,7 +924,7 @@ impl Move {
             }
         }
         game.turn = turn;
-        game.undo_move(*self);
+        game.unapply_move(*self);
         Ok(())
     }
     // regular move has max 11 characters, e.g.: 'exf10 e.p.(#)'
