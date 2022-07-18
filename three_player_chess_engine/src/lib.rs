@@ -185,13 +185,10 @@ impl Engine {
         max_time_seconds: f32,
     ) -> Option<Move> {
         self.board = tpc.clone();
-        if depth == 0 {
-            return self.board.gen_moves().get(0).map(|m| *m);
-        }
         self.eval_depth_max = self.board.move_index;
         self.depth_max = 0;
-        self.transposition_table
-            .retain(|_, tp| tp.eval_depth > self.eval_depth_max);
+        //self.transposition_table.retain(|_, tp| tp.eval_depth > self.eval_depth_max);
+        self.transposition_table.clear(); // since we use
         self.transposition_count = 0;
         self.prune_count = 0;
         self.pos_count = 0;
@@ -199,8 +196,10 @@ impl Engine {
         let end = Instant::now()
             .checked_add(Duration::from_secs_f32(max_time_seconds))
             .unwrap();
-        let mut bm = None;
-        let mut bm_str = "".to_owned();
+        let mut bm = self.board.gen_moves().get(0).map(|m| *m);
+        let mut bm_str = bm.map_or("".to_owned(), |bm| {
+            bm.to_string(&mut self.board).as_str().to_owned()
+        });
         for _ in 0..depth {
             self.depth_max += 1;
             self.eval_depth_max += 1;
@@ -272,7 +271,6 @@ impl Engine {
         }
         let mut score_modified = false;
         let mut ed_score = ed.score;
-        let mut worse_for_all = 0;
         for i in 0..2 {
             let pp = (player_to_move + 2 - i) % 3;
             if score[pp] < ed_score[pp] {
@@ -287,14 +285,10 @@ impl Engine {
             }
         }
         if player_to_move == self.deciding_player {
-            if depth > 1
-                && self.engine_stack[depth - 2].score[player_to_move] < score[player_to_move]
+            if depth >= 3
+                && self.engine_stack[depth - 3].score[player_to_move] > score[player_to_move]
             {
-                result = PropagationResult::Pruned(2);
-            } else if depth > 0
-                && self.engine_stack[depth - 1].score[player_to_move] < score[player_to_move]
-            {
-                result = PropagationResult::Pruned(1);
+                result = PropagationResult::Pruned(3);
             }
         }
         if score_modified {
@@ -340,11 +334,17 @@ impl Engine {
                 board.perform_move(mov);
             }
             if let Some(tp) = self.transposition_table.get(&hash_board(&board)) {
-                if tp.best_move_code == 0 {
-                    break;
+                if mov.is_some() {
+                    let turn = usize::from(get_next_hb(board.turn, false));
+                    let tp_eval = tp.score[turn];
+                    let board_eval = evaluate_position(&mut board, true).unwrap()[turn];
+                    res += &format_args!(" ({} / {})", tp_eval, board_eval).to_string();
                 }
                 mov = Move::try_from(tp.best_move_code).ok();
                 if mov.is_none() {
+                    break;
+                }
+                if tp.best_move_code == 0 {
                     break;
                 }
             } else {
@@ -392,6 +392,7 @@ impl Engine {
                 }
             }
             let rm = ReversableMove::new(&self.board, em.mov);
+
             self.board.perform_move(em.mov);
             depth += 1;
             if depth >= self.depth_max || self.board.game_status != GameStatus::Ongoing {
@@ -399,11 +400,15 @@ impl Engine {
                     &mut self.board,
                     depth > self.depth_max + MAX_UNSTABLE_LINE_DEPTH,
                 );
+
                 if let Some(score) = score {
+                    let hash = em.hash;
                     self.pos_count += 1;
                     self.board.revert_move(&rm);
                     depth -= 1;
                     propagation_result = self.propagate_move_score(depth, Some(rm.mov), score);
+                    self.transposition_table
+                        .insert(hash, Transposition::new(None, score, self.eval_depth_max));
                     if propagation_result == PropagationResult::Ok {
                         if score[usize::from(self.board.turn)] >= EVAL_WIN {
                             self.prune_count += 1;

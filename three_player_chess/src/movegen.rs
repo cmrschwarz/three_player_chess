@@ -619,14 +619,15 @@ impl ThreePlayerChess {
     pub fn is_piece_capturable_at(
         &self,
         loc: FieldLocation,
+        piece_color: Color,
         capturing_color: Option<Color>,
     ) -> bool {
         fn color_may_capture(
-            tpc: &ThreePlayerChess,
             col: Color,
+            piece_color: Color,
             capturing_color: Option<Color>,
         ) -> bool {
-            col != tpc.turn && capturing_color.map(|cc| cc == col).unwrap_or(true)
+            col != piece_color && capturing_color.map(|cc| cc == col).unwrap_or(true)
         }
         let kp = AnnotatedFieldLocation::from(loc);
         let cp = &CHECK_POSSIBILITIES[usize::from(loc)];
@@ -642,11 +643,13 @@ impl ThreePlayerChess {
                 match *self.get_field_value(f) {
                     Some((color, piece_type)) => match piece_type {
                         PieceType::Rook | PieceType::Queen
-                            if color_may_capture(self, color, capturing_color) =>
+                            if color_may_capture(color, piece_color, capturing_color) =>
                         {
                             return true
                         }
-                        PieceType::King if color_may_capture(self, color, capturing_color) => {
+                        PieceType::King
+                            if color_may_capture(color, piece_color, capturing_color) =>
+                        {
                             let k = AnnotatedFieldLocation::from_with_origin(kp.origin, f);
                             if k.rank.abs_diff(kp.rank) == 1 || k.file.abs_diff(kp.file) == 1 {
                                 return true;
@@ -668,11 +671,13 @@ impl ThreePlayerChess {
                     None => continue,
                     Some((color, piece_type)) => match piece_type {
                         PieceType::Bishop | PieceType::Queen
-                            if color_may_capture(self, color, capturing_color) =>
+                            if color_may_capture(color, piece_color, capturing_color) =>
                         {
                             return true
                         }
-                        PieceType::Pawn if color_may_capture(self, color, capturing_color) => {
+                        PieceType::Pawn
+                            if color_may_capture(color, piece_color, capturing_color) =>
+                        {
                             let pos = AnnotatedFieldLocation::from_with_origin(color, *f);
                             if pos.rank + 1 == kp.reorient(color).rank {
                                 return true;
@@ -690,7 +695,7 @@ impl ThreePlayerChess {
             match *FieldValue::from(board_val) {
                 None => continue,
                 Some((color, piece_type)) => match piece_type {
-                    PieceType::Knight if color_may_capture(self, color, capturing_color) => {
+                    PieceType::Knight if color_may_capture(color, piece_color, capturing_color) => {
                         return true
                     }
                     _ => break,
@@ -701,7 +706,7 @@ impl ThreePlayerChess {
     }
     pub fn is_king_capturable(&mut self, capturing_color: Option<Color>) -> bool {
         let kp = self.king_positions[usize::from(self.turn)];
-        self.is_piece_capturable_at(kp, capturing_color)
+        self.is_piece_capturable_at(kp, self.turn, capturing_color)
     }
     pub fn is_king_in_checkmate(&mut self) -> bool {
         // PERF: don't do full movegen here, one legal move suffices
@@ -852,7 +857,7 @@ impl ThreePlayerChess {
             }
             let kp = AnnotatedFieldLocation::from_file_and_rank(hb, hb, f, 1);
             self.board[usize::from(kp.loc)] = king_val;
-            conflict = self.is_piece_capturable_at(kp.loc, None);
+            conflict = self.is_piece_capturable_at(kp.loc, self.turn, None);
             self.board[usize::from(kp.loc)] = FieldValue(None).into();
         }
         self.board[usize::from(king_src.loc)] = king_val;
@@ -887,7 +892,7 @@ impl ThreePlayerChess {
         };
         //cant use would_move_be_check because of the different king pos
         self.apply_move(mov);
-        let would_be_check = self.is_piece_capturable_at(tgt, None);
+        let would_be_check = self.is_piece_capturable_at(tgt, self.turn, None);
         self.unapply_move(mov);
         if would_be_check {
             None

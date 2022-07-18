@@ -100,7 +100,7 @@ fn add_location_score(
     let mut sc = piece_score(piece_type);
     let afl = AnnotatedFieldLocation::from_with_origin(color, loc);
     let f = afl.file as usize - 1;
-    let r = afl.rank as usize - 1;
+    let r = ROW_SIZE - afl.rank as usize;
     sc += match piece_type {
         Pawn => FIELD_BONUS_PAWN[r][f],
         Knight => FIELD_BONUS_KNIGHT[r][f],
@@ -131,7 +131,7 @@ fn add_castling_scores(score: &mut Score, tpc: &mut ThreePlayerChess) {
 }
 
 pub fn evaluate_position(tpc: &mut ThreePlayerChess, force_eval: bool) -> Option<Score> {
-    let mut force_eval_cost: i16 = 0;
+    let mut force_eval_cost = 0;
     match tpc.game_status {
         GameStatus::Draw(_) => Some([EVAL_DRAW; HB_COUNT]),
         GameStatus::Win(winner, win_reason) => {
@@ -159,18 +159,15 @@ pub fn evaluate_position(tpc: &mut ThreePlayerChess, force_eval: bool) -> Option
             let mut board_score = [0; HB_COUNT];
             for i in 0..BOARD_SIZE {
                 if let Some((color, piece_type)) = *FieldValue::from(tpc.board[i]) {
+                    let c = usize::from(color);
                     let loc = FieldLocation::from(i);
                     add_location_score(&mut board_score, tpc, loc, piece_type, color);
-                    if color == tpc.turn {
-                        if tpc.is_piece_capturable_at(loc, None) {
-                            if force_eval {
-                                if force_eval_cost == 0 {
-                                    force_eval_cost += FORCE_EVAL_COST;
-                                }
-                                force_eval_cost += piece_score(piece_type);
-                            } else {
-                                return None;
-                            }
+                    if tpc.is_piece_capturable_at(loc, color, None) {
+                        if force_eval {
+                            force_eval_cost = FORCE_EVAL_COST;
+                            board_score[c] -= piece_score(piece_type) / 2;
+                        } else {
+                            return None;
                         }
                     }
                 }
