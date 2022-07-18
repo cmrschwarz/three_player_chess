@@ -21,6 +21,7 @@ const EVAL_MAX: Eval = Eval::MAX;
 
 const PIECE_TYPE_CASTLABLE_ROOK: usize = PIECE_COUNT;
 const PIECE_TYPE_EN_PASSENT_SQUARE: usize = PIECE_COUNT + 1;
+const MAX_CAPTURE_LINE_LENGTH: u16 = 6;
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 struct Transposition {
@@ -235,7 +236,7 @@ impl Engine {
         &mut self,
         depth: u16,
         rm: Option<ReversableMove>,
-        stabilize_only: bool,
+        captures_only: bool,
     ) -> &EngineDepth {
         let parent_hash = if depth > 0 {
             let parent = &self.engine_stack[depth as usize - 1];
@@ -256,30 +257,24 @@ impl Engine {
         ed.hash = parent_hash;
         ed.move_rev = rm;
         ed.eval = -EVAL_MAX;
-        let turn = self.board.turn;
-        let next = get_next_hb(self.board.turn, true);
         let moves = self.board.gen_moves();
         ed.moves.reserve(moves.len());
         for mov in moves {
+            if captures_only {
+                match mov.move_type {
+                    Capture(..) | CapturePromotion(..) => (),
+                    _ => continue,
+                }
+            }
             let rm = ReversableMove::new(&self.board, mov);
             self.board.perform_move(rm.mov);
-            let skip = stabilize_only
-                && mov.move_type == Slide
-                && !self.board.is_king_capturable(Some(turn))
-                && !self.board.is_piece_capturable_at(
-                    self.board.king_positions[usize::from(next)],
-                    next,
-                    Some(turn),
-                );
             let hash = hash_board(&self.board);
             let eval = self.transposition_table.get(&hash).map_or_else(
                 || get_initial_pos_eval_for_sort(&mut self.board, mov),
                 |tp| -tp.eval,
             );
             self.board.revert_move(&rm);
-            if !skip {
-                ed.moves.push(EngineMove { eval, hash, mov });
-            }
+            ed.moves.push(EngineMove { eval, hash, mov });
         }
         ed.moves.sort_by(|m_l, m_r| m_r.eval.cmp(&m_l.eval));
         ed
@@ -323,7 +318,7 @@ impl Engine {
             if depth >= 2 && (prev2_us || us) {
                 let ed1 = &self.engine_stack[depth as usize - 1];
                 let ed2 = &self.engine_stack[depth as usize - 2];
-                if eval >= -ed1.eval
+                if eval >= -ed2.eval
                     && ed1
                         .move_rev
                         .as_ref()
@@ -374,7 +369,7 @@ impl Engine {
             if let Some(tp) = self.transposition_table.get(&hash_board(&board)) {
                 if mov.is_some() {
                     let tp_eval = tp.eval;
-                    let board_eval =
+                    let (board_eval, _) =
                         evaluate_position(&mut board, self.deciding_player, true).unwrap();
                     res += &format_args!(
                         " ({} ({}) / {})",
@@ -447,8 +442,9 @@ impl Engine {
             depth += 1;
             if depth >= self.depth_max || self.board.game_status != GameStatus::Ongoing {
                 self.pos_count += 1;
-                if let Some(eval_perspective) =
-                    evaluate_position(&mut self.board, self.deciding_player, false)
+                let force_eval = depth > self.depth_max + MAX_CAPTURE_LINE_LENGTH;
+                if let Some((eval_perspective, captures_exist)) =
+                    evaluate_position(&mut self.board, self.deciding_player, force_eval)
                 {
                     let hash = em.hash;
 
@@ -462,29 +458,34 @@ impl Engine {
                             eval_perspective,
                         );
                     }
-
                     self.transposition_table
                         .insert(hash, Transposition::new(None, eval, self.eval_depth_max));
-                    self.board.revert_move(&rm);
-                    depth -= 1;
-                    propagation_result = self.propagate_move_eval(depth, Some(rm.mov), eval);
-                    if propagation_result == PropagationResult::Ok {
-                        if eval >= EVAL_WIN {
-                            self.prune_count += 1;
-                            propagation_result = PropagationResult::Pruned(1);
+                    if !captures_exist || force_eval {
+                        self.board.revert_move(&rm);
+                        depth -= 1;
+                        propagation_result = self.propagate_move_eval(depth, Some(rm.mov), eval);
+                        if propagation_result == PropagationResult::Ok {
+                            if eval >= EVAL_WIN {
+                                self.prune_count += 1;
+                                propagation_result = PropagationResult::Pruned(1);
+                            }
                         }
-                    }
-                    if propagation_result != PropagationResult::Ok {
                         continue;
                     }
-                    self.board.perform_move(rm.mov);
-                    depth += 1;
+                } else if self.debug_log {
+                    if self.debug_log {
+                        println!(
+                            "expanding unstable position: (@depth {}): {}",
+                            depth,
+                            self.engine_line_str(depth, Some(&rm)),
+                        );
+                    }
                 }
             }
             if Instant::now().gt(&end) {
                 return Err(());
             }
-            self.gen_engine_depth(depth, Some(rm), depth > self.depth_max);
+            self.gen_engine_depth(depth, Some(rm), depth >= self.depth_max);
         }
     }
 }

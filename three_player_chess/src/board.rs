@@ -269,7 +269,7 @@ impl ThreePlayerChess {
                 return Err("unexpected end of string");
             }
             let b = bytes[i];
-            i += 1;
+
             if b >= 'A'.try_into().unwrap() && b <= 'L'.try_into().unwrap() {
                 let field =
                     FieldLocation::from_utf8([b, FieldLocation::from(ci * HB_SIZE).rank_char()])
@@ -279,6 +279,7 @@ impl ThreePlayerChess {
                     return Err("conflicting castling files");
                 }
                 self.possible_rooks_for_castling[ci][short as usize] = Some(field);
+                i += 1;
             } else {
                 break;
             }

@@ -134,12 +134,13 @@ pub fn evaluate_position(
     tpc: &mut ThreePlayerChess,
     perspective: Color,
     force_eval: bool,
-) -> Option<Eval> {
+) -> Option<(Eval, bool)> {
     let capturing_players = if tpc.turn == get_next_hb(perspective, true) {
         Some(tpc.turn)
     } else {
         None
     };
+    let mut captures_exist = false;
     let eval = match tpc.game_status {
         GameStatus::Draw(_) => EVAL_DRAW,
         GameStatus::Win(winner, win_reason) => {
@@ -174,6 +175,12 @@ pub fn evaluate_position(
                     {
                         return None;
                     }
+                    if color != tpc.turn
+                        && !captures_exist
+                        && tpc.is_piece_capturable_at(loc, color, Some(tpc.turn))
+                    {
+                        captures_exist = true;
+                    }
                 }
             }
             add_castling_scores(&mut board_score, tpc);
@@ -181,5 +188,5 @@ pub fn evaluate_position(
             2 * board_score[p] - board_score[(p + 1) % 3] - board_score[(p + 2) % 3]
         }
     };
-    Some(eval)
+    Some((eval, captures_exist))
 }

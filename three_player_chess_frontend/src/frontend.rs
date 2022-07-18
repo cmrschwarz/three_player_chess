@@ -5,6 +5,7 @@ use skia_safe::{
     radians_to_degrees, Bitmap, Canvas, Color, ColorType, Data, Font, IPoint, Image, ImageInfo,
     Matrix, Paint, PaintStyle, Path, Point, Rect, Typeface,
 };
+use std::cmp::min;
 use std::f32::consts::PI;
 use std::ops::{Add, Sub};
 use three_player_chess::board;
@@ -50,11 +51,11 @@ pub struct Frontend {
     pub selection_color: Color,
     pub danger: Color,
     pub background: Color,
-    pub last_move_color: Color,
+    pub last_move_color_1: Color,
+    pub last_move_color_2: Color,
     pub player_colors: [Color; HB_COUNT],
     pub prev_second: f32,
     pub transformed_pieces: bool,
-    pub last_move: Option<ReversableMove>,
     pub history: Vec<ReversableMove>,
     pub board: ThreePlayerChess,
     pub selected_square: Option<AnnotatedFieldLocation>,
@@ -71,6 +72,7 @@ pub struct Frontend {
     pub pieces: [[Image; PIECE_COUNT]; HB_COUNT],
     pub piece_scale_non_transformed: f32,
     pub engine: Engine,
+    pub autoplay: bool,
 }
 const PROMOTION_QUADRANTS: [(PieceType, f32, f32); 4] = [
     (Queen, 0., 0.),
@@ -353,17 +355,18 @@ impl Frontend {
     pub fn new() -> Frontend {
         Frontend {
             prev_second: -1.0,
-            board: ThreePlayerChess::from_str("CEFGH2A5E4D5H4C5/BG1/CF1/AH1/D4/E1/AH/:LKIDCBA7J6/KB8/JC8/LA8/L5/D8/LA/:HGFEILbJaK9B2/GKc/FJc/HLc/Ec/Ic/HL/Ka:0:0").unwrap(),//Default::default(),
+            board: ThreePlayerChess::from_str("ABCEFGH2D3/B5G9/CF1/AH1/D1/E1/AH/:LKJDCBA7I9/JC6/JC8/KA8/I8/D8/A/:GFEJKLbIaH9/FLa/FJc/GLc/Ec/Ic/L/:15:15").unwrap(),
+           // board: ThreePlayerChess::from_str("CEFGH2A5E4D5H4C5/BG1/CF1/AH1/D4/E1/AH/:LKIDCBA7J6/KB8/JC8/LA8/L5/D8/LA/:HGFEILbJaK9B2/GKc/FJc/HLc/Ec/Ic/HL/Ka:0:0").unwrap(),//Default::default(),
             font:  Font::from_typeface(Typeface::from_data(Data::new_copy(&FONT), None).expect("Failed to load font 'Roboto-Regular.ttf'"), None),
             black: Color::from_rgb(161, 119, 67),
             white: Color::from_rgb(240, 217, 181) ,
             selection_color: Color::from_argb(128, 56, 173, 105),
-            last_move_color:  Color::from_argb(190, 160, 200, 255),
+            last_move_color_1: Color::from_argb(190, 160, 200, 255),
+            last_move_color_2: Color::from_argb(170, 120, 230, 130) ,
             background: Color::from_rgb(201, 144, 73),
             danger: Color::from_rgb(232, 15, 13),
             transformed_pieces: false,
             selected_square: None,
-            last_move: None,
             history: Default::default(),
             cursor_pos: Vector2::new(-1, -1),
             board_radius: 1.,
@@ -378,7 +381,8 @@ impl Frontend {
             pieces: PIECE_IMAGES.clone(),
             transform_dragged_pieces: true,
             piece_scale_non_transformed: 1.2,
-            engine: Engine::new()
+            engine: Engine::new(),
+            autoplay: false,
         }
     }
     fn get_hb_id(&self, color: board::Color) -> usize {
@@ -698,9 +702,19 @@ impl Frontend {
         let selected = Some(field) == self.hovered_square
             || Some(field) == self.selected_square
             || Some(field) == self.dragged_square;
-        let prev_action = self.last_move.clone().map_or(false, |lm| {
-            field.loc == lm.mov.source || field.loc == lm.mov.target
-        });
+
+        let mut prev_action_col = None;
+        for i in 0..min(2, self.history.len()) {
+            let m = self.history[self.history.len() - i - 1].mov;
+            if m.source == field.loc || m.target == field.loc {
+                if i == 0 {
+                    prev_action_col = Some(self.last_move_color_2);
+                } else {
+                    prev_action_col = Some(self.last_move_color_1);
+                }
+            }
+        }
+
         let promotion = Some(field.loc) == self.promotion_preview.map(|f| f.loc);
         let flip_pieces = (field_val.is_some() && field_val.color() != Some(hb)) || promotion;
 
@@ -743,11 +757,8 @@ impl Frontend {
             if selected {
                 canvas.draw_rect(&*UNIT_RECT, &selection_paint);
             }
-            if prev_action {
-                canvas.draw_rect(
-                    &*UNIT_RECT,
-                    &sk_paint(self.last_move_color, PaintStyle::Fill),
-                );
+            if let Some(col) = prev_action_col {
+                canvas.draw_rect(&*UNIT_RECT, &sk_paint(col, PaintStyle::Fill));
             }
             if (!selected && possible_move) || king_check {
                 let size = 0.35;
@@ -786,11 +797,8 @@ impl Frontend {
             if selected {
                 canvas.draw_rect(&*UNIT_RECT, &selection_paint);
             }
-            if prev_action {
-                canvas.draw_rect(
-                    &*UNIT_RECT,
-                    &sk_paint(self.last_move_color, PaintStyle::Fill),
-                );
+            if let Some(col) = prev_action_col {
+                canvas.draw_rect(&*UNIT_RECT, &sk_paint(col, PaintStyle::Fill));
             }
             if possible_move {
                 let point_radius = 0.2;
@@ -988,9 +996,11 @@ impl Frontend {
         println!("making move: {}", mov.to_string(&mut self.board));
         let rm = ReversableMove::new(&self.board, mov);
         self.history.push(rm.clone());
-        self.last_move = Some(rm);
         self.board.perform_move(mov);
         self.reset_effects();
+        if self.autoplay && self.board.turn != self.origin {
+            self.do_engine_move();
+        }
     }
     pub fn apply_move(
         &mut self,
@@ -1094,18 +1104,17 @@ impl Frontend {
         self.board = ThreePlayerChess::default();
         self.reset_effects();
         self.history.clear();
-        self.last_move = None;
     }
     pub fn rotate(&mut self) {
         self.origin = board::Color::from((HB_COUNT + usize::from(self.origin) - 1) as u8 % 3);
     }
     pub fn do_engine_move(&mut self) {
-        if let Some((mov, line_str, eval)) = self.engine.search_position(&self.board, 4, 5.) {
-            self.perform_move(mov);
+        if let Some((mov, line_str, eval)) = self.engine.search_position(&self.board, 3, 3.) {
             println!(
                 "evaluated {} positions (depth {}), pruned {} branches, skipped {} transpositions, result: ({}) {}",
                 self.engine.pos_count, self.engine.depth_max , self.engine.prune_count, self.engine.transposition_count, eval, line_str
             );
+            self.perform_move(mov);
         }
     }
     pub fn undo_move(&mut self) {
@@ -1113,7 +1122,6 @@ impl Frontend {
         if let Some(rm) = rm {
             self.board.revert_move(&rm);
             self.reset_effects();
-            self.last_move = self.history.last().map(|rm| rm.clone());
             println!("undid move: {}", rm.mov.to_string(&mut self.board));
         }
     }

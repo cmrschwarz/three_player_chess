@@ -146,7 +146,8 @@ fn main() {
                             *control_flow = ControlFlow::Exit;
                         }
                         Some(VirtualKeyCode::F) => {
-                            fe.transformed_pieces = !fe.transformed_pieces;
+                            fe.transformed_pieces ^= true;
+                            println!("set transform pieces to {}", fe.transformed_pieces);
                         }
                         Some(VirtualKeyCode::C) => {
                             fe.recolor();
@@ -157,17 +158,26 @@ fn main() {
                         Some(VirtualKeyCode::R) => {
                             fe.rotate();
                         }
+                        Some(VirtualKeyCode::A) => {
+                            fe.autoplay ^= true;
+                            println!("set autoplay to {}", fe.autoplay);
+                        }
                         Some(VirtualKeyCode::E) => {
                             fe.do_engine_move();
                         }
                         Some(VirtualKeyCode::T) => {
                             fe.transform_dragged_pieces ^= true;
+                            println!(
+                                "set transform dragged pieces to {}",
+                                fe.transform_dragged_pieces
+                            );
                         }
                         Some(VirtualKeyCode::U) => {
                             fe.undo_move();
                         }
                         Some(VirtualKeyCode::L) => {
                             fe.engine.debug_log ^= true;
+                            println!("set debug log to {}", fe.engine.debug_log);
                         }
                         Some(VirtualKeyCode::X) => {
                             println!("{}", fe.board.state_string());
