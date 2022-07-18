@@ -55,6 +55,7 @@ pub struct Frontend {
     pub prev_second: f32,
     pub transformed_pieces: bool,
     pub last_move: Option<ReversableMove>,
+    pub history: Vec<ReversableMove>,
     pub board: ThreePlayerChess,
     pub selected_square: Option<AnnotatedFieldLocation>,
     pub hovered_square: Option<AnnotatedFieldLocation>,
@@ -360,9 +361,10 @@ impl Frontend {
             last_move_color:  Color::from_argb(190, 160, 200, 255),
             background: Color::from_rgb(201, 144, 73),
             danger: Color::from_rgb(232, 15, 13),
-            transformed_pieces: true,
+            transformed_pieces: false,
             selected_square: None,
             last_move: None,
+            history: Default::default(),
             cursor_pos: Vector2::new(-1, -1),
             board_radius: 1.,
             board_origin: Vector2::new(1, 1),
@@ -984,7 +986,9 @@ impl Frontend {
     }
     pub fn perform_move(&mut self, mov: Move) {
         println!("making move: {}", mov.to_string(&mut self.board));
-        self.last_move = Some(ReversableMove::new(&self.board, mov));
+        let rm = ReversableMove::new(&self.board, mov);
+        self.history.push(rm.clone());
+        self.last_move = Some(rm);
         self.board.perform_move(mov);
         self.reset_effects();
     }
@@ -1089,13 +1093,14 @@ impl Frontend {
     pub fn reset(&mut self) {
         self.board = ThreePlayerChess::default();
         self.reset_effects();
+        self.history.clear();
         self.last_move = None;
     }
     pub fn rotate(&mut self) {
         self.origin = board::Color::from((HB_COUNT + usize::from(self.origin) - 1) as u8 % 3);
     }
     pub fn do_engine_move(&mut self) {
-        if let Some((mov, line_str, eval)) = self.engine.search_position(&self.board, 3, 3000.) {
+        if let Some((mov, line_str, eval)) = self.engine.search_position(&self.board, 4, 5.) {
             self.perform_move(mov);
             println!(
                 "evaluated {} positions (depth {}), pruned {} branches, skipped {} transpositions, result: ({}) {}",
@@ -1104,9 +1109,11 @@ impl Frontend {
         }
     }
     pub fn undo_move(&mut self) {
-        if let Some(rm) = self.last_move.take() {
+        let rm = self.history.pop();
+        if let Some(rm) = rm {
             self.board.revert_move(&rm);
             self.reset_effects();
+            self.last_move = self.history.last().map(|rm| rm.clone());
             println!("undid move: {}", rm.mov.to_string(&mut self.board));
         }
     }

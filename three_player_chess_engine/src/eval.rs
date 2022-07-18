@@ -135,8 +135,11 @@ pub fn evaluate_position(
     perspective: Color,
     force_eval: bool,
 ) -> Option<Eval> {
-    let second_to_move = get_next_hb(tpc.turn, true);
-    let third_to_move = get_next_hb(tpc.turn, false);
+    let capturing_players = if tpc.turn == get_next_hb(perspective, true) {
+        Some(tpc.turn)
+    } else {
+        None
+    };
     let eval = match tpc.game_status {
         GameStatus::Draw(_) => EVAL_DRAW,
         GameStatus::Win(winner, win_reason) => {
@@ -165,8 +168,9 @@ pub fn evaluate_position(
                     let loc = FieldLocation::from(i);
                     add_location_score(&mut board_score, tpc, loc, piece_type, color);
                     if !force_eval
-                        && color == third_to_move
-                        && tpc.is_piece_capturable_at(loc, color, Some(second_to_move))
+                        && color == perspective
+                        && tpc.turn != perspective
+                        && tpc.is_piece_capturable_at(loc, color, capturing_players)
                     {
                         return None;
                     }

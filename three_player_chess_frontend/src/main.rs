@@ -15,6 +15,7 @@ use skia_safe::{
 
 mod frontend;
 use frontend::*;
+use three_player_chess::board::ThreePlayerChess;
 fn main() {
     type WindowedContext = glutin::ContextWrapper<glutin::PossiblyCurrent, glutin::window::Window>;
 
@@ -164,6 +165,25 @@ fn main() {
                         }
                         Some(VirtualKeyCode::U) => {
                             fe.undo_move();
+                        }
+                        Some(VirtualKeyCode::L) => {
+                            fe.engine.debug_log ^= true;
+                        }
+                        Some(VirtualKeyCode::X) => {
+                            println!("{}", fe.board.state_string());
+                        }
+                        Some(VirtualKeyCode::I) => {
+                            let mut buffer = String::new();
+                            println!("please input state string:");
+                            let stdin = std::io::stdin();
+                            stdin.read_line(&mut buffer).unwrap();
+                            let board = ThreePlayerChess::from_str(&buffer.trim());
+                            if let Ok(board) = board {
+                                fe.reset();
+                                fe.board = board;
+                            } else {
+                                println!("failed to parse: {}", board.err().unwrap());
+                            }
                         }
                         _ => (),
                     }

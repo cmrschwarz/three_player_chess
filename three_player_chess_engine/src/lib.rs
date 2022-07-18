@@ -39,6 +39,7 @@ pub struct Engine {
     pub prune_count: usize,
     pub pos_count: usize,
     pub deciding_player: Color,
+    pub debug_log: bool,
 }
 
 #[derive(Default)]
@@ -175,6 +176,7 @@ impl Engine {
             transposition_count: 0,
             pos_count: 0,
             deciding_player: Color::C0,
+            debug_log: false,
         }
     }
 
@@ -210,14 +212,16 @@ impl Engine {
                     bm = Some(best_move);
                     bm_str = self.transposition_line_str(bm);
                 }
-                #[cfg(feature = "debug")]
-                println!("finished depth {} [{}]: {}", self.depth_max, eval, bm_str);
+                if self.debug_log {
+                    println!("finished depth {} [{}]: {}", self.depth_max, eval, bm_str);
+                }
             } else {
-                #[cfg(feature = "debug")]
-                println!(
-                    "aborted depth {} (after {} positions)",
-                    self.depth_max, self.pos_count
-                );
+                if self.debug_log {
+                    println!(
+                        "aborted depth {} (after {} positions)",
+                        self.depth_max, self.pos_count
+                    );
+                }
                 self.depth_max -= 1;
                 break;
             }
@@ -292,8 +296,7 @@ impl Engine {
         if eval > ed.eval {
             ed.eval = eval;
             ed.best_move = mov;
-            #[cfg(feature = "debug")]
-            if mov.is_some() {
+            if self.debug_log && mov.is_some() {
                 println!(
                     "new best move (@depth {}): [{}({})]: {} --> {}",
                     depth,
@@ -451,13 +454,14 @@ impl Engine {
 
                     let eval = flip_eval(!is_depth_of_us(depth), eval_perspective);
 
-                    #[cfg(feature = "debug")]
-                    println!(
-                        "eval@ {}: {} ({})",
-                        self.engine_line_str(depth, Some(&rm)),
-                        eval,
-                        eval_perspective,
-                    );
+                    if self.debug_log {
+                        println!(
+                            "eval@ {}: {} ({})",
+                            self.engine_line_str(depth, Some(&rm)),
+                            eval,
+                            eval_perspective,
+                        );
+                    }
 
                     self.transposition_table
                         .insert(hash, Transposition::new(None, eval, self.eval_depth_max));
