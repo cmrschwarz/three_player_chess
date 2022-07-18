@@ -130,38 +130,52 @@ fn add_castling_scores(score: &mut Score, tpc: &mut ThreePlayerChess) {
     }
 }
 
-pub fn evaluate_position(tpc: &mut ThreePlayerChess, perspective: Color) -> Option<Eval> {
-    match tpc.game_status {
-        GameStatus::Draw(_) => Some(EVAL_DRAW),
+pub fn evaluate_position(
+    tpc: &mut ThreePlayerChess,
+    perspective: Color,
+    force_eval: bool,
+) -> Option<Eval> {
+    let second_to_move = get_next_hb(tpc.turn, true);
+    let third_to_move = get_next_hb(tpc.turn, false);
+    let eval = match tpc.game_status {
+        GameStatus::Draw(_) => EVAL_DRAW,
         GameStatus::Win(winner, win_reason) => {
             if winner == perspective {
-                return Some(EVAL_WIN);
-            }
-            match win_reason {
-                WinReason::DoubleResign => Some(EVAL_LOSS),
-                WinReason::Checkmate(looser) => {
-                    if looser == perspective {
-                        Some(EVAL_LOSS)
-                    } else {
-                        Some(EVAL_NEUTRAL)
+                EVAL_WIN
+            } else {
+                match win_reason {
+                    WinReason::DoubleResign => EVAL_LOSS,
+                    WinReason::Checkmate(looser) => {
+                        if looser == perspective {
+                            EVAL_LOSS
+                        } else {
+                            EVAL_NEUTRAL
+                        }
                     }
                 }
             }
         }
         GameStatus::Ongoing => {
             let mut board_score = [0; HB_COUNT];
+            if !force_eval && tpc.is_king_capturable(None) {
+                return None;
+            }
             for i in 0..BOARD_SIZE {
                 if let Some((color, piece_type)) = *FieldValue::from(tpc.board[i]) {
                     let loc = FieldLocation::from(i);
                     add_location_score(&mut board_score, tpc, loc, piece_type, color);
-                    if tpc.is_piece_capturable_at(loc, color, None) {
+                    if !force_eval
+                        && color == third_to_move
+                        && tpc.is_piece_capturable_at(loc, color, Some(second_to_move))
+                    {
                         return None;
                     }
                 }
             }
             add_castling_scores(&mut board_score, tpc);
             let p = usize::from(perspective);
-            Some(2 * board_score[p] - board_score[(p + 1) % 3] - board_score[(p + 2) % 3])
+            2 * board_score[p] - board_score[(p + 1) % 3] - board_score[(p + 2) % 3]
         }
-    }
+    };
+    Some(eval)
 }

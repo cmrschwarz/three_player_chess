@@ -310,13 +310,18 @@ fn get_knight_moves_for_field(
     // because knight moves are calculated with the origin being set
     // to the starting board, only moving up can change the board
     assert!(field.hb == field.origin);
-    if field.rank == HBRC || field.rank == HBRC - 1 {
+    // if we are on the left hb, the new moves are up right
+    let move_right = field.file <= HBRC;
+    let hb_file = if move_right {
+        field.file
+    } else {
+        RS - field.file + 1
+    };
+    if (field.rank == HBRC && hb_file >= HBRC - 1) || (field.rank == HBRC - 1 && hb_file == HBRC) {
         //these must exist because of the rank check above
         let u1 = move_rank(field, true).unwrap();
         let u2 = move_rank(u1, true).unwrap();
 
-        // if we are on the left hb, the new moves are up right
-        let move_right = field.file <= HBRC;
         if field.rank == HBRC {
             if coord_in_bounds(field.file + 2 * coord_dir(move_right)) {
                 let u1r1 = move_file(u1, move_right).unwrap();

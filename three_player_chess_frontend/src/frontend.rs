@@ -1095,9 +1095,12 @@ impl Frontend {
         self.origin = board::Color::from((HB_COUNT + usize::from(self.origin) - 1) as u8 % 3);
     }
     pub fn do_engine_move(&mut self) {
-        let mov = self.engine.search_position(&self.board, 2, 3000.);
-        if let Some(mov) = mov {
+        if let Some((mov, line_str, eval)) = self.engine.search_position(&self.board, 3, 3000.) {
             self.perform_move(mov);
+            println!(
+                "evaluated {} positions (depth {}), pruned {} branches, skipped {} transpositions, result: ({}) {}",
+                self.engine.pos_count, self.engine.depth_max , self.engine.prune_count, self.engine.transposition_count, eval, line_str
+            );
         }
     }
     pub fn undo_move(&mut self) {
