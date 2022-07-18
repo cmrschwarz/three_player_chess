@@ -1095,7 +1095,7 @@ impl Frontend {
         self.origin = board::Color::from((HB_COUNT + usize::from(self.origin) - 1) as u8 % 3);
     }
     pub fn do_engine_move(&mut self) {
-        let mov = self.engine.search_position(&self.board, 4, 3.);
+        let mov = self.engine.search_position(&self.board, 2, 3000.);
         if let Some(mov) = mov {
             self.perform_move(mov);
         }

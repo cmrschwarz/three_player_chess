@@ -130,57 +130,38 @@ fn add_castling_scores(score: &mut Score, tpc: &mut ThreePlayerChess) {
     }
 }
 
-pub fn evaluate_position(tpc: &mut ThreePlayerChess, force_eval: bool) -> Option<Score> {
-    let mut force_eval_cost = 0;
+pub fn evaluate_position(tpc: &mut ThreePlayerChess, perspective: Color) -> Option<Eval> {
     match tpc.game_status {
-        GameStatus::Draw(_) => Some([EVAL_DRAW; HB_COUNT]),
+        GameStatus::Draw(_) => Some(EVAL_DRAW),
         GameStatus::Win(winner, win_reason) => {
-            let mut score = [0 as Eval; HB_COUNT];
-            let windex = usize::from(winner);
-            score[windex] = EVAL_WIN;
+            if winner == perspective {
+                return Some(EVAL_WIN);
+            }
             match win_reason {
-                WinReason::DoubleResign => {
-                    score[(windex + 1) % 3] = EVAL_LOSS;
-                    score[(windex + 2) % 3] = EVAL_LOSS;
-                }
+                WinReason::DoubleResign => Some(EVAL_LOSS),
                 WinReason::Checkmate(looser) => {
-                    score[usize::from(looser)] = EVAL_LOSS;
-                    let neutral = if get_next_hb(winner, true) == looser {
-                        windex + 2
+                    if looser == perspective {
+                        Some(EVAL_LOSS)
                     } else {
-                        windex + 1
-                    };
-                    score[neutral % 3] = EVAL_NEUTRAL;
+                        Some(EVAL_NEUTRAL)
+                    }
                 }
             }
-            Some(score)
         }
         GameStatus::Ongoing => {
             let mut board_score = [0; HB_COUNT];
             for i in 0..BOARD_SIZE {
                 if let Some((color, piece_type)) = *FieldValue::from(tpc.board[i]) {
-                    let c = usize::from(color);
                     let loc = FieldLocation::from(i);
                     add_location_score(&mut board_score, tpc, loc, piece_type, color);
                     if tpc.is_piece_capturable_at(loc, color, None) {
-                        if force_eval {
-                            force_eval_cost = FORCE_EVAL_COST;
-                            board_score[c] -= piece_score(piece_type) / 2;
-                        } else {
-                            return None;
-                        }
+                        return None;
                     }
                 }
             }
             add_castling_scores(&mut board_score, tpc);
-            let mut score = [0; HB_COUNT];
-            for i in 0..HB_COUNT {
-                score[i] = 2 * board_score[i]
-                    - board_score[(i + 1) % 3]
-                    - board_score[(i + 2) % 3]
-                    - force_eval_cost;
-            }
-            Some(score)
+            let p = usize::from(perspective);
+            Some(2 * board_score[p] - board_score[(p + 1) % 3] - board_score[(p + 2) % 3])
         }
     }
 }

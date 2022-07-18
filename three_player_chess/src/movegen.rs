@@ -698,7 +698,7 @@ impl ThreePlayerChess {
                     PieceType::Knight if color_may_capture(color, piece_color, capturing_color) => {
                         return true
                     }
-                    _ => break,
+                    _ => continue,
                 },
             }
         }
