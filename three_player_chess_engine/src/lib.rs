@@ -20,7 +20,7 @@ const EVAL_MAX: Eval = Eval::MAX;
 
 const PIECE_TYPE_CASTLABLE_ROOK: usize = PIECE_COUNT;
 const PIECE_TYPE_EN_PASSENT_SQUARE: usize = PIECE_COUNT + 1;
-const MAX_CAPTURE_LINE_LENGTH: u16 = 20;
+const MAX_CAPTURE_LINE_LENGTH: u16 = 6;
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 struct Transposition {

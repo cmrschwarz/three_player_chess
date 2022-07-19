@@ -76,6 +76,8 @@ impl CheckPossibilities {
                         }
                         let line_split_point = lines_idx;
                         let mut pos2 = two;
+                        self.diagonal_lines[lines_idx] = two.loc;
+                        lines_idx += 1;
                         for _ in i..length {
                             match move_diagonal(pos2, up != swap_dir, right != swap_dir) {
                                 None => break,
@@ -90,11 +92,15 @@ impl CheckPossibilities {
                         let line_end = lines_idx;
                         self.diagonal_line_ends[lines_count] = line_end;
                         lines_count += 1;
-                        for i in line_begin..line_split_point + 1 {
-                            self.diagonal_lines[lines_idx] = self.diagonal_lines[i];
-                            lines_idx += 1;
+                        if line_begin != line_split_point {
+                            for i in line_begin..line_split_point + 1 {
+                                self.diagonal_lines[lines_idx] = self.diagonal_lines[i];
+                                lines_idx += 1;
+                            }
                         }
                         line_begin = line_end;
+                        self.diagonal_lines[lines_idx] = one.loc;
+                        lines_idx += 1;
                         pos = one;
                     }
                 }
@@ -666,6 +672,7 @@ impl ThreePlayerChess {
                             if !check_for_checks || !self.would_move_bypass_check(m) {
                                 return Some(m);
                             }
+                            break;
                         }
                         PieceType::King
                             if color_may_capture(color, piece_color, capturing_color) =>
@@ -700,6 +707,7 @@ impl ThreePlayerChess {
                             if !check_for_checks || !self.would_move_bypass_check(m) {
                                 return Some(m);
                             }
+                            break;
                         }
                         PieceType::King
                             if color_may_capture(color, piece_color, capturing_color) =>
