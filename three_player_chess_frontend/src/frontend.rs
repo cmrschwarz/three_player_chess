@@ -8,6 +8,7 @@ use skia_safe::{
 use std::cmp::min;
 use std::f32::consts::PI;
 use std::ops::{Add, Sub};
+use std::time::Instant;
 use three_player_chess::board;
 use three_player_chess::board::PieceType::*;
 use three_player_chess::board::*;
@@ -51,8 +52,8 @@ pub struct Frontend {
     pub selection_color: Color,
     pub danger: Color,
     pub background: Color,
-    pub last_move_color_1: Color,
-    pub last_move_color_2: Color,
+    pub last_move_color: Color,
+    pub move_before_last_color: Color,
     pub player_colors: [Color; HB_COUNT],
     pub prev_second: f32,
     pub transformed_pieces: bool,
@@ -363,8 +364,8 @@ impl Frontend {
             black: Color::from_rgb(161, 119, 67),
             white: Color::from_rgb(240, 217, 181) ,
             selection_color: Color::from_argb(128, 56, 173, 105),
-            last_move_color_1: Color::from_argb(190, 160, 200, 255),
-            last_move_color_2: Color::from_argb(170, 120, 230, 130) ,
+            last_move_color: Color::from_argb(170, 120, 230, 130) ,
+            move_before_last_color: Color::from_argb(190, 160, 200, 255) ,
             background: Color::from_rgb(201, 144, 73),
             danger: Color::from_rgb(232, 15, 13),
             transformed_pieces: false,
@@ -712,10 +713,11 @@ impl Frontend {
             let m = self.history[self.history.len() - i - 1].mov;
             if m.source == field.loc || m.target == field.loc {
                 if i == 0 {
-                    prev_action_col = Some(self.last_move_color_2);
+                    prev_action_col = Some(self.last_move_color);
                 } else {
-                    prev_action_col = Some(self.last_move_color_1);
+                    prev_action_col = Some(self.move_before_last_color);
                 }
+                break;
             }
         }
 
@@ -1113,14 +1115,18 @@ impl Frontend {
         self.origin = board::Color::from((HB_COUNT + usize::from(self.origin) - 1) as u8 % 3);
     }
     pub fn do_engine_move(&mut self) {
+        let start = Instant::now();
         if let Some((mov, line_str, eval)) = self.engine.search_position(
             &self.board,
             self.engine_depth,
             if self.go_infinite { 10e6 } else { 3. },
         ) {
+            let end = Instant::now();
             println!(
-                "evaluated {} positions (depth {}), pruned {} branches, skipped {} transpositions, result: ({}) {}",
-                self.engine.pos_count, self.engine.depth_max , self.engine.prune_count, self.engine.transposition_count, eval, line_str
+                "evaluated {} positions in {:.1}s (depth {}), pruned {} branches, skipped {} transpositions, result: ({}) {}",
+                self.engine.pos_count,
+                end.sub(start).as_secs_f32(),
+                self.engine.depth_max , self.engine.prune_count, self.engine.transposition_count, eval, line_str
             );
             self.perform_move(mov);
         }
