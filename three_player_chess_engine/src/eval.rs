@@ -1,6 +1,9 @@
 use crate::*;
 use three_player_chess::board::PieceType::*;
 
+// e.g. two rooks and three pawns per side, just a heuristic
+const ENDGAME_MATERIAL_THRESHOLD: i16 = 1300 * 3;
+
 const FIELD_BONUS_PAWN: [[i16; ROW_SIZE]; ROW_SIZE] = [
     [0, 0, 0, 0, 0, 0, 0, 0],
     [50, 50, 50, 50, 50, 50, 50, 50],
@@ -107,14 +110,7 @@ fn add_location_score(
         Bishop => FIELD_BONUS_BISHOP[r][f],
         Rook => FIELD_BONUS_ROOK[r][f],
         Queen => FIELD_BONUS_QUEEN[r][f],
-        King => {
-            //TODO: use a proper endgame detection using the piece count
-            if tpc.move_index > 30 {
-                FIELD_BONUS_KING_ENDGAME[r][f]
-            } else {
-                FIELD_BONUS_KING_MIDDLEGAME[r][f]
-            }
-        }
+        King => 0, // we must delay this because there are two different tables depending on the total piece score
     };
     score[usize::from(color)] += sc;
 }
@@ -127,6 +123,20 @@ fn add_castling_scores(score: &mut Score, tpc: &mut ThreePlayerChess) {
                 score[ci] += CASTLING_AVAILABLE_BONUS;
             }
         }
+    }
+}
+
+fn add_king_location_scores(score: &mut Score, tpc: &mut ThreePlayerChess) {
+    let endgame = score.iter().sum::<i16>() <= ENDGAME_MATERIAL_THRESHOLD;
+    for c in Color::iter() {
+        let afl = AnnotatedFieldLocation::from_with_origin(*c, tpc.king_positions[usize::from(*c)]);
+        let f = afl.file as usize - 1;
+        let r = ROW_SIZE - afl.rank as usize;
+        score[usize::from(*c)] += if endgame {
+            FIELD_BONUS_KING_ENDGAME[r][f]
+        } else {
+            FIELD_BONUS_KING_MIDDLEGAME[r][f]
+        };
     }
 }
 
@@ -164,6 +174,7 @@ pub fn evaluate_position(tpc: &mut ThreePlayerChess, perspective: Color) -> (Eva
                 }
             }
             add_castling_scores(&mut board_score, tpc);
+            add_king_location_scores(&mut board_score, tpc);
             let p = usize::from(perspective);
             2 * board_score[p] - board_score[(p + 1) % 3] - board_score[(p + 2) % 3]
         }
