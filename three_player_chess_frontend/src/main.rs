@@ -162,6 +162,11 @@ fn main() {
                             fe.autoplay ^= true;
                             println!("set autoplay to {}", fe.autoplay);
                         }
+                        Some(VirtualKeyCode::D) => {
+                            // #deep
+                            fe.go_infinite ^= true;
+                            println!("set infinite search to {}", fe.go_infinite);
+                        }
                         Some(VirtualKeyCode::E) => {
                             fe.do_engine_move();
                         }

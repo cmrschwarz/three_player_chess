@@ -72,6 +72,7 @@ pub struct Frontend {
     pub pieces: [[Image; PIECE_COUNT]; HB_COUNT],
     pub piece_scale_non_transformed: f32,
     pub engine: Engine,
+    pub go_infinite: bool,
     pub autoplay: bool,
 }
 const PROMOTION_QUADRANTS: [(PieceType, f32, f32); 4] = [
@@ -383,6 +384,7 @@ impl Frontend {
             piece_scale_non_transformed: 1.2,
             engine: Engine::new(),
             autoplay: false,
+            go_infinite: false
         }
     }
     fn get_hb_id(&self, color: board::Color) -> usize {
@@ -1109,7 +1111,11 @@ impl Frontend {
         self.origin = board::Color::from((HB_COUNT + usize::from(self.origin) - 1) as u8 % 3);
     }
     pub fn do_engine_move(&mut self) {
-        if let Some((mov, line_str, eval)) = self.engine.search_position(&self.board, 3, 3.) {
+        if let Some((mov, line_str, eval)) = self.engine.search_position(
+            &self.board,
+            3,
+            if self.go_infinite { f32::MAX } else { 3. },
+        ) {
             println!(
                 "evaluated {} positions (depth {}), pruned {} branches, skipped {} transpositions, result: ({}) {}",
                 self.engine.pos_count, self.engine.depth_max , self.engine.prune_count, self.engine.transposition_count, eval, line_str
