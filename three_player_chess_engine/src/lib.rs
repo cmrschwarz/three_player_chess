@@ -3,6 +3,7 @@ extern crate lazy_static;
 
 mod eval;
 
+use crate::eval::piece_score;
 use eval::evaluate_position;
 use std::time::{Duration, Instant};
 use three_player_chess::board::MoveType::*;
@@ -139,14 +140,15 @@ fn hash_board(tpc: &ThreePlayerChess) -> u64 {
 fn get_initial_pos_eval_for_sort(tpc: &mut ThreePlayerChess, mov: Move) -> i16 {
     let mut sc = 0;
     if tpc.is_king_capturable(None) {
-        sc += 99;
+        sc += 500;
     }
     sc += match mov.move_type {
-        ClaimDraw | SlideClaimDraw => 90,
-        CapturePromotion(..) => 70,
-        Promotion(_) => 60,
-        Capture(_) | EnPassant(..) => 50,
-        Castle(..) => 40,
+        ClaimDraw | SlideClaimDraw => 2000,
+        CapturePromotion(..) => 1000,
+        Promotion(_) => 900,
+        Capture(piece_value) => piece_score(FieldValue::from(piece_value).piece_type().unwrap()),
+        EnPassant(..) => 100,
+        Castle(..) => 100,
         Slide => EVAL_DRAW,
     };
     sc
@@ -456,7 +458,8 @@ impl Engine {
                 if let Some(tp) = self.transposition_table.get(&em.hash) {
                     if tp.eval_depth >= self.eval_depth_max {
                         self.transposition_count += 1;
-                        propagation_result = self.propagate_move_eval(depth, Some(mov), tp.eval);
+                        let tp_eval = tp.eval;
+                        propagation_result = self.propagate_move_eval(depth, Some(mov), tp_eval);
                         continue;
                     }
                 }

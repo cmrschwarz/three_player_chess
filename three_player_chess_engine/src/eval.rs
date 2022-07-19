@@ -82,7 +82,7 @@ const FIELD_BONUS_KING_ENDGAME: [[i16; ROW_SIZE]; ROW_SIZE] = [
     [-50, -30, -30, -30, -30, -30, -30, -50],
 ];
 
-fn piece_score(pt: PieceType) -> Eval {
+pub fn piece_score(pt: PieceType) -> Eval {
     match pt {
         Pawn => 100,
         Knight => 300,
