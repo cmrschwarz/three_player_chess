@@ -301,26 +301,6 @@ impl Engine {
         if eval > ed.eval {
             ed.eval = eval;
             ed.best_move = mov;
-            if self.debug_log && mov.is_some() {
-                // we really like this as debug break point, so we keep separate lines
-                let flavor_text;
-                if depth > 0 {
-                    flavor_text = "new best move";
-                } else {
-                    flavor_text = "new main line";
-                }
-                println!(
-                    "{} (@depth {}): [{}({})]: {} --> {}",
-                    flavor_text,
-                    depth,
-                    eval,
-                    flip_eval(!is_depth_of_us(depth), eval),
-                    self.engine_line_str(depth, None),
-                    self.transposition_line_str(mov),
-                );
-
-                ed = &mut self.engine_stack[depth as usize];
-            }
 
             let us = is_depth_of_us(depth);
             let prev1_us = is_depth_of_us(depth + 2);
@@ -329,24 +309,49 @@ impl Engine {
             if depth >= 1 && (prev1_us || us) {
                 let ed_move_ref = ed.move_rev.as_ref().map(|mr| mr.mov);
                 let ed1 = &self.engine_stack[depth as usize - 1];
-                if eval >= -ed1.eval && ed_move_ref != ed1.best_move {
+                if eval >= -ed1.eval && ed1.best_move != ed_move_ref {
                     self.prune_count += 1;
                     result = PropagationResult::Pruned(1);
                 }
-            }
-            if depth >= 2 && (prev2_us || us) {
+            } else if depth >= 2 && (prev2_us || us) {
+                let ed_move_ref = ed.move_rev.as_ref().map(|mr| mr.mov);
                 let ed1 = &self.engine_stack[depth as usize - 1];
+                let ed1_best_move = ed1.best_move;
+                let ed1_move_ref = ed1.move_rev.as_ref().map(|mr| mr.mov);
                 let ed2 = &self.engine_stack[depth as usize - 2];
                 if eval >= -ed2.eval
-                    && ed1
-                        .move_rev
-                        .as_ref()
-                        .map(|mr| Some(mr.mov) == ed2.best_move)
-                        != Some(true)
+                    && ed2.best_move != ed1_move_ref
+                    && ed1_best_move != ed_move_ref
                 {
                     self.prune_count += 1;
                     result = PropagationResult::Pruned(2);
                 }
+            }
+            if self.debug_log && mov.is_some() {
+                // we really like this as debug break point, so we keep separate lines
+                let flavor_text;
+                if depth > 0 {
+                    flavor_text = "new best move";
+                } else {
+                    flavor_text = "new main line";
+                }
+                let (p1, p2, p3) = if result.prune_depth() > 0 {
+                    (" [prune: ", result.prune_depth().to_string(), "]")
+                } else {
+                    ("", "".to_string(), "")
+                };
+                println!(
+                    "{} (@depth {}): [{}({})]: {} --> {} {}{}{}",
+                    flavor_text,
+                    depth,
+                    eval,
+                    flip_eval(!is_depth_of_us(depth), eval),
+                    self.engine_line_str(depth, None),
+                    self.transposition_line_str(mov),
+                    p1,
+                    p2,
+                    p3
+                );
             }
         }
         result
