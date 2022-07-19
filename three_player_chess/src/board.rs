@@ -680,6 +680,13 @@ impl std::convert::TryFrom<u8> for PackedFieldValue {
 }
 
 impl Move {
+    pub fn new(source: FieldLocation, target: FieldLocation, move_type: MoveType) -> Move {
+        Move {
+            source,
+            target,
+            move_type,
+        }
+    }
     fn parse_special_move(game: &mut ThreePlayerChess, string: &str) -> Option<Move> {
         if string == "O-O" {
             return game.gen_move_castling(true);

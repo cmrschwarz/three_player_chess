@@ -167,6 +167,14 @@ fn main() {
                             fe.go_infinite ^= true;
                             println!("set infinite search to {}", fe.go_infinite);
                         }
+                        Some(VirtualKeyCode::Plus) => {
+                            fe.engine_depth += 1;
+                            println!("set infinite search to {}", fe.engine_depth);
+                        }
+                        Some(VirtualKeyCode::Minus) => {
+                            fe.engine_depth -= 1;
+                            println!("set infinite search to {}", fe.engine_depth);
+                        }
                         Some(VirtualKeyCode::E) => {
                             fe.do_engine_move();
                         }

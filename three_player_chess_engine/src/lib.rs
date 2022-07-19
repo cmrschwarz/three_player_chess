@@ -55,7 +55,7 @@ struct EngineDepth {
 
 struct EngineMove {
     hash: u64,
-    mov: Move,
+    mov: Option<Move>, // we allow null moves
     eval: Eval,
 }
 
@@ -259,6 +259,14 @@ impl Engine {
         ed.eval = -EVAL_MAX;
         let moves = self.board.gen_moves();
         ed.moves.reserve(moves.len());
+        //disable null moves for now
+        if captures_only && false {
+            ed.moves.push(EngineMove {
+                eval: EVAL_DRAW,
+                hash: parent_hash,
+                mov: None,
+            });
+        }
         for mov in moves {
             if captures_only {
                 match mov.move_type {
@@ -274,7 +282,11 @@ impl Engine {
                 |tp| -tp.eval,
             );
             self.board.revert_move(&rm);
-            ed.moves.push(EngineMove { eval, hash, mov });
+            ed.moves.push(EngineMove {
+                eval,
+                hash,
+                mov: Some(mov),
+            });
         }
         ed.moves.sort_by(|m_l, m_r| m_r.eval.cmp(&m_l.eval));
         ed
@@ -292,14 +304,23 @@ impl Engine {
             ed.eval = eval;
             ed.best_move = mov;
             if self.debug_log && mov.is_some() {
+                // we really like this as debug break point, so we keep separate lines
+                let flavor_text;
+                if depth > 0 {
+                    flavor_text = "new best move";
+                } else {
+                    flavor_text = "new main line";
+                }
                 println!(
-                    "new best move (@depth {}): [{}({})]: {} --> {}",
+                    "{} (@depth {}): [{}({})]: {} --> {}",
+                    flavor_text,
                     depth,
                     eval,
                     flip_eval(!is_depth_of_us(depth), eval),
                     self.engine_line_str(depth, None),
                     self.transposition_line_str(mov),
                 );
+
                 ed = &mut self.engine_stack[depth as usize];
             }
 
@@ -369,8 +390,7 @@ impl Engine {
             if let Some(tp) = self.transposition_table.get(&hash_board(&board)) {
                 if mov.is_some() {
                     let tp_eval = tp.eval;
-                    let (board_eval, _) =
-                        evaluate_position(&mut board, self.deciding_player, true).unwrap();
+                    let (board_eval, _) = evaluate_position(&mut board, self.deciding_player);
                     res += &format_args!(
                         " ({} ({}) / {})",
                         tp_eval,
@@ -428,56 +448,71 @@ impl Engine {
             let em = &mut ed.moves[ed.index];
             ed.index += 1;
 
-            if let Some(tp) = self.transposition_table.get(&em.hash) {
-                if tp.eval_depth >= self.eval_depth_max {
-                    let mov = em.mov;
-                    self.transposition_count += 1;
-                    propagation_result = self.propagate_move_eval(depth, Some(mov), tp.eval);
-                    continue;
-                }
-            }
-            let rm = ReversableMove::new(&self.board, em.mov);
-
-            self.board.perform_move(em.mov);
-            depth += 1;
-            if depth >= self.depth_max || self.board.game_status != GameStatus::Ongoing {
-                self.pos_count += 1;
-                let force_eval = depth > self.depth_max + MAX_CAPTURE_LINE_LENGTH;
-                if let Some((eval_perspective, captures_exist)) =
-                    evaluate_position(&mut self.board, self.deciding_player, force_eval)
-                {
-                    let hash = em.hash;
-
-                    let eval = flip_eval(!is_depth_of_us(depth), eval_perspective);
-
-                    if self.debug_log {
-                        println!(
-                            "eval@ {}: {} ({})",
-                            self.engine_line_str(depth, Some(&rm)),
-                            eval,
-                            eval_perspective,
-                        );
-                    }
-                    self.transposition_table
-                        .insert(hash, Transposition::new(None, eval, self.eval_depth_max));
-                    if !captures_exist || force_eval {
-                        self.board.revert_move(&rm);
-                        depth -= 1;
-                        propagation_result = self.propagate_move_eval(depth, Some(rm.mov), eval);
-                        if propagation_result == PropagationResult::Ok {
-                            if eval >= EVAL_WIN {
-                                self.prune_count += 1;
-                                propagation_result = PropagationResult::Pruned(1);
-                            }
-                        }
+            let rm;
+            if let Some(mov) = em.mov {
+                if let Some(tp) = self.transposition_table.get(&em.hash) {
+                    if tp.eval_depth >= self.eval_depth_max {
+                        self.transposition_count += 1;
+                        propagation_result = self.propagate_move_eval(depth, Some(mov), tp.eval);
                         continue;
                     }
-                } else if self.debug_log {
+                }
+                rm = Some(ReversableMove::new(&self.board, mov));
+                self.board.perform_move(mov);
+            } else {
+                rm = None;
+            }
+            // even for null moves, we increase the depth, because we want them to be
+            // 'overrulable' by actual moves
+            depth += 1;
+            let force_eval = rm.is_none() || depth > self.depth_max + MAX_CAPTURE_LINE_LENGTH;
+            if (depth >= self.depth_max
+                && self.board.turn != get_next_hb(self.deciding_player, false))
+                || self.board.game_status != GameStatus::Ongoing
+                || force_eval
+            {
+                self.pos_count += 1;
+                let (eval_perspective, captures_exist) =
+                    evaluate_position(&mut self.board, self.deciding_player);
+
+                let hash = em.hash;
+
+                let eval = flip_eval(!is_depth_of_us(depth), eval_perspective);
+
+                if self.debug_log {
+                    let line_depth = depth - rm.as_ref().map_or(1, |_| 0);
+                    println!(
+                        "eval@ {}{}: {} ({}) (cap: {}, force: {})",
+                        self.engine_line_str(line_depth, rm.as_ref()),
+                        rm.as_ref().map_or(" NULL", |_| ""),
+                        eval,
+                        eval_perspective,
+                        captures_exist,
+                        force_eval
+                    );
+                }
+                self.transposition_table
+                    .insert(hash, Transposition::new(None, eval, self.eval_depth_max));
+                if !captures_exist || force_eval {
+                    if let Some(ref rm) = rm {
+                        self.board.revert_move(rm);
+                    }
+                    depth -= 1;
+                    propagation_result = self.propagate_move_eval(depth, rm.map(|rm| rm.mov), eval);
+                    if propagation_result == PropagationResult::Ok {
+                        if eval >= EVAL_WIN {
+                            self.prune_count += 1;
+                            propagation_result = PropagationResult::Pruned(1);
+                        }
+                    }
+                    continue;
+                }
+                if self.debug_log {
                     if self.debug_log {
                         println!(
                             "expanding unstable position: (@depth {}): {}",
                             depth,
-                            self.engine_line_str(depth, Some(&rm)),
+                            self.engine_line_str(depth, rm.as_ref()),
                         );
                     }
                 }
@@ -485,7 +520,7 @@ impl Engine {
             if Instant::now().gt(&end) {
                 return Err(());
             }
-            self.gen_engine_depth(depth, Some(rm), depth >= self.depth_max);
+            self.gen_engine_depth(depth, rm, depth >= self.depth_max);
         }
     }
 }

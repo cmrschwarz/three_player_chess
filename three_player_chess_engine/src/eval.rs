@@ -130,16 +130,7 @@ fn add_castling_scores(score: &mut Score, tpc: &mut ThreePlayerChess) {
     }
 }
 
-pub fn evaluate_position(
-    tpc: &mut ThreePlayerChess,
-    perspective: Color,
-    force_eval: bool,
-) -> Option<(Eval, bool)> {
-    let capturing_players = if tpc.turn == get_next_hb(perspective, true) {
-        Some(tpc.turn)
-    } else {
-        None
-    };
+pub fn evaluate_position(tpc: &mut ThreePlayerChess, perspective: Color) -> (Eval, bool) {
     let mut captures_exist = false;
     let eval = match tpc.game_status {
         GameStatus::Draw(_) => EVAL_DRAW,
@@ -161,25 +152,14 @@ pub fn evaluate_position(
         }
         GameStatus::Ongoing => {
             let mut board_score = [0; HB_COUNT];
-            if !force_eval && tpc.is_king_capturable(None) {
-                return None;
-            }
             for i in 0..BOARD_SIZE {
                 if let Some((color, piece_type)) = *FieldValue::from(tpc.board[i]) {
                     let loc = FieldLocation::from(i);
                     add_location_score(&mut board_score, tpc, loc, piece_type, color);
-                    if !force_eval
-                        && color == perspective
-                        && tpc.turn != perspective
-                        && tpc.is_piece_capturable_at(loc, color, capturing_players)
-                    {
-                        return None;
-                    }
-                    if color != tpc.turn
-                        && !captures_exist
-                        && tpc.is_piece_capturable_at(loc, color, Some(tpc.turn))
-                    {
-                        captures_exist = true;
+                    if color != tpc.turn && !captures_exist {
+                        captures_exist = tpc
+                            .is_piece_capturable_at(loc, color, Some(tpc.turn), true)
+                            .is_some();
                     }
                 }
             }
@@ -188,5 +168,5 @@ pub fn evaluate_position(
             2 * board_score[p] - board_score[(p + 1) % 3] - board_score[(p + 2) % 3]
         }
     };
-    Some((eval, captures_exist))
+    (eval, captures_exist)
 }
