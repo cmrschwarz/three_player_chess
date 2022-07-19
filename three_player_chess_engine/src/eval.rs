@@ -93,17 +93,17 @@ fn piece_score(pt: PieceType) -> Eval {
     }
 }
 
-fn add_location_score(
-    score: &mut Score,
-    tpc: &mut ThreePlayerChess,
-    loc: FieldLocation,
-    piece_type: PieceType,
-    color: Color,
-) {
-    let mut sc = piece_score(piece_type);
+fn get_indices_for_field_bonus(color: Color, loc: FieldLocation) -> (usize, usize) {
     let afl = AnnotatedFieldLocation::from_with_origin(color, loc);
     let f = afl.file as usize - 1;
+    // the rank is flipped so the arrays look like a chess board in the code
     let r = ROW_SIZE - afl.rank as usize;
+    (f, r)
+}
+
+fn add_location_score(score: &mut Score, loc: FieldLocation, piece_type: PieceType, color: Color) {
+    let mut sc = piece_score(piece_type);
+    let (f, r) = get_indices_for_field_bonus(color, loc);
     sc += match piece_type {
         Pawn => FIELD_BONUS_PAWN[r][f],
         Knight => FIELD_BONUS_KNIGHT[r][f],
@@ -129,9 +129,7 @@ fn add_castling_scores(score: &mut Score, tpc: &mut ThreePlayerChess) {
 fn add_king_location_scores(score: &mut Score, tpc: &mut ThreePlayerChess) {
     let endgame = score.iter().sum::<i16>() <= ENDGAME_MATERIAL_THRESHOLD;
     for c in Color::iter() {
-        let afl = AnnotatedFieldLocation::from_with_origin(*c, tpc.king_positions[usize::from(*c)]);
-        let f = afl.file as usize - 1;
-        let r = ROW_SIZE - afl.rank as usize;
+        let (f, r) = get_indices_for_field_bonus(*c, tpc.king_positions[usize::from(*c)]);
         score[usize::from(*c)] += if endgame {
             FIELD_BONUS_KING_ENDGAME[r][f]
         } else {
@@ -165,7 +163,7 @@ pub fn evaluate_position(tpc: &mut ThreePlayerChess, perspective: Color) -> (Eva
             for i in 0..BOARD_SIZE {
                 if let Some((color, piece_type)) = *FieldValue::from(tpc.board[i]) {
                     let loc = FieldLocation::from(i);
-                    add_location_score(&mut board_score, tpc, loc, piece_type, color);
+                    add_location_score(&mut board_score, loc, piece_type, color);
                     if color != tpc.turn && !captures_exist {
                         captures_exist = tpc
                             .is_piece_capturable_at(loc, color, Some(tpc.turn), true)
