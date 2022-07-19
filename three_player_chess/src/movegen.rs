@@ -595,7 +595,17 @@ impl ThreePlayerChess {
     }
     fn would_move_bypass_check(&mut self, mv: Move) -> bool {
         self.apply_move(mv);
-        let would_be_check = self.is_king_capturable(None);
+        // the turn is only updated by move sideeffects, so this is correct
+        let would_be_check = if FieldValue::from(self.board[usize::from(mv.target)])
+            .piece_type()
+            .unwrap()
+            == King
+        {
+            self.is_piece_capturable_at(mv.target, self.turn, None, false)
+                .is_some()
+        } else {
+            self.is_king_capturable(None)
+        };
         self.unapply_move(mv);
         would_be_check
     }
@@ -652,14 +662,20 @@ impl ThreePlayerChess {
                         PieceType::Rook | PieceType::Queen
                             if color_may_capture(color, piece_color, capturing_color) =>
                         {
-                            return Some(Move::new(f, loc, MoveType::Capture(field_value)));
+                            let m = Move::new(f, loc, MoveType::Capture(field_value));
+                            if !check_for_checks || !self.would_move_bypass_check(m) {
+                                return Some(m);
+                            }
                         }
                         PieceType::King
                             if color_may_capture(color, piece_color, capturing_color) =>
                         {
                             let k = AnnotatedFieldLocation::from_with_origin(kp.origin, f);
                             if k.rank.abs_diff(kp.rank) == 1 || k.file.abs_diff(kp.file) == 1 {
-                                return Some(Move::new(f, loc, MoveType::Capture(field_value)));
+                                let m = Move::new(f, loc, MoveType::Capture(field_value));
+                                if !check_for_checks || !self.would_move_bypass_check(m) {
+                                    return Some(m);
+                                }
                             }
                             break;
                         }
@@ -744,7 +760,9 @@ impl ThreePlayerChess {
                         if piece_type == PieceType::Pawn
                             && color_may_capture(color, piece_color, capturing_color)
                         {
-                            let m = Move::new(src_loc, loc, MoveType::EnPassant(field_value, loc));
+                            let tgt_loc = FieldLocation::new(kp.hb, kp.file + f, kp.rank - 1);
+                            let m =
+                                Move::new(src_loc, tgt_loc, MoveType::EnPassant(field_value, loc));
                             if !check_for_checks || !self.would_move_bypass_check(m) {
                                 return Some(m);
                             }

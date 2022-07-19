@@ -8,7 +8,6 @@ use std::time::{Duration, Instant};
 use three_player_chess::board::MoveType::*;
 use three_player_chess::board::PieceType::*;
 use three_player_chess::board::*;
-use three_player_chess::movegen::get_next_hb;
 
 type Eval = i16;
 type Score = [i16; HB_COUNT];
@@ -259,8 +258,7 @@ impl Engine {
         ed.eval = -EVAL_MAX;
         let moves = self.board.gen_moves();
         ed.moves.reserve(moves.len());
-        //disable null moves for now
-        if captures_only && false {
+        if captures_only {
             ed.moves.push(EngineMove {
                 eval: EVAL_DRAW,
                 hash: parent_hash,
@@ -466,15 +464,13 @@ impl Engine {
             // 'overrulable' by actual moves
             depth += 1;
             let force_eval = rm.is_none() || depth > self.depth_max + MAX_CAPTURE_LINE_LENGTH;
-            if (depth >= self.depth_max
-                && self.board.turn != get_next_hb(self.deciding_player, false))
-                || self.board.game_status != GameStatus::Ongoing
+            if depth >= self.depth_max
                 || force_eval
+                || self.board.game_status != GameStatus::Ongoing
             {
                 self.pos_count += 1;
                 let (eval_perspective, captures_exist) =
                     evaluate_position(&mut self.board, self.deciding_player);
-
                 let hash = em.hash;
 
                 let eval = flip_eval(!is_depth_of_us(depth), eval_perspective);

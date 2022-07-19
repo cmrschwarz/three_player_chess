@@ -923,7 +923,7 @@ impl Move {
         } else {
             game.turn = get_next_hb(game.turn, true);
             if game.is_king_capturable(Some(turn)) {
-                writer.write_char('+')?;
+                writer.write_str("(+)")?;
             }
         }
         game.turn = turn;
