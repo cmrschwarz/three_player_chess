@@ -108,7 +108,7 @@ impl GameMethods for TpcGame {
         if player != u8::from(self.turn) + 1 {
             return Ok(());
         }
-        //TODO: optimize away this copy + allocation?
+        //TODO: optimize away this allocation?
         for mov in self.gen_moves() {
             moves.push(mov.into());
         }

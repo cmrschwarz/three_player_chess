@@ -633,31 +633,29 @@ impl ThreePlayerChess {
             self.king_positions[usize::from(self.turn)] = rm.mov.source;
         }
     }
-    fn would_move_bypass_check(&mut self, mv: Move) -> bool {
+    fn would_king_move_bypass_check(&mut self, mv: Move) -> bool {
         self.apply_move(mv);
-        // the turn is only updated by move sideeffects, so this is correct
-        let would_be_check = if FieldValue::from(self.board[usize::from(mv.target)])
-            .piece_type()
-            .unwrap()
-            == King
-        {
-            self.is_piece_capturable_at(mv.target, self.turn, None, false)
-                .is_some()
-        } else {
-            self.is_king_capturable(None)
-        };
+        let would_be_check = self
+            .is_piece_capturable_at(mv.target, self.turn, None, false)
+            .is_some();
         self.unapply_move(mv);
         would_be_check
     }
-    fn append_move_unless_check(&mut self, mv: Move, moves: &mut Vec<Move>) -> bool {
-        if !self.would_move_bypass_check(mv) {
+    fn would_non_king_move_bypass_check(&mut self, mv: Move) -> bool {
+        self.apply_move(mv);
+        let would_be_check = self.is_king_capturable(None);
+        self.unapply_move(mv);
+        would_be_check
+    }
+    fn append_non_king_move_unless_check(&mut self, mv: Move, moves: &mut Vec<Move>) -> bool {
+        if !self.would_non_king_move_bypass_check(mv) {
             moves.push(mv);
             true
         } else {
             false
         }
     }
-    fn gen_move_unless_check(
+    fn gen_non_king_move_unless_check(
         &mut self,
         src: AnnotatedFieldLocation,
         tgt: AnnotatedFieldLocation,
@@ -669,7 +667,7 @@ impl ThreePlayerChess {
             source: src.loc,
             target: tgt.loc,
         };
-        self.append_move_unless_check(m, moves)
+        self.append_non_king_move_unless_check(m, moves)
     }
     pub fn is_piece_capturable_at(
         &mut self,
@@ -678,6 +676,8 @@ impl ThreePlayerChess {
         capturing_color: Option<Color>,
         check_for_checks: bool,
     ) -> Option<Move> {
+        //checking for checks only makes sense for the current player
+        assert!(!check_for_checks || capturing_color == Some(self.turn));
         let field_value = self.board[usize::from(loc)];
         fn color_may_capture(
             col: Color,
@@ -703,7 +703,7 @@ impl ThreePlayerChess {
                             if color_may_capture(color, piece_color, capturing_color) =>
                         {
                             let m = Move::new(f, loc, Capture(field_value));
-                            if !check_for_checks || !self.would_move_bypass_check(m) {
+                            if !check_for_checks || !self.would_non_king_move_bypass_check(m) {
                                 return Some(m);
                             }
                             break;
@@ -714,7 +714,7 @@ impl ThreePlayerChess {
                             let k = AnnotatedFieldLocation::from_with_origin(kp.origin, f);
                             if k.rank.abs_diff(kp.rank) == 1 || k.file.abs_diff(kp.file) == 1 {
                                 let m = Move::new(f, loc, Capture(field_value));
-                                if !check_for_checks || !self.would_move_bypass_check(m) {
+                                if !check_for_checks || !self.would_king_move_bypass_check(m) {
                                     return Some(m);
                                 }
                             }
@@ -738,7 +738,7 @@ impl ThreePlayerChess {
                             if color_may_capture(color, piece_color, capturing_color) =>
                         {
                             let m = Move::new(*f, loc, Capture(field_value));
-                            if !check_for_checks || !self.would_move_bypass_check(m) {
+                            if !check_for_checks || !self.would_non_king_move_bypass_check(m) {
                                 return Some(m);
                             }
                             break;
@@ -749,7 +749,7 @@ impl ThreePlayerChess {
                             let k = AnnotatedFieldLocation::from_with_origin(kp.origin, *f);
                             if k.rank.abs_diff(kp.rank) == 1 && k.file.abs_diff(kp.file) == 1 {
                                 let m = Move::new(*f, loc, Capture(field_value));
-                                if !check_for_checks || !self.would_move_bypass_check(m) {
+                                if !check_for_checks || !self.would_king_move_bypass_check(m) {
                                     return Some(m);
                                 }
                             }
@@ -761,7 +761,7 @@ impl ThreePlayerChess {
                             let pos = AnnotatedFieldLocation::from_with_origin(color, *f);
                             if pos.rank + 1 == kp.reorient(color).rank {
                                 let m = Move::new(*f, loc, Capture(field_value));
-                                if !check_for_checks || !self.would_move_bypass_check(m) {
+                                if !check_for_checks || !self.would_non_king_move_bypass_check(m) {
                                     return Some(m);
                                 }
                             }
@@ -780,7 +780,7 @@ impl ThreePlayerChess {
                 Some((color, piece_type)) => match piece_type {
                     PieceType::Knight if color_may_capture(color, piece_color, capturing_color) => {
                         let m = Move::new(*f, loc, Capture(field_value));
-                        if !check_for_checks || !self.would_move_bypass_check(m) {
+                        if !check_for_checks || !self.would_non_king_move_bypass_check(m) {
                             return Some(m);
                         }
                     }
@@ -804,7 +804,7 @@ impl ThreePlayerChess {
                         {
                             let tgt_loc = FieldLocation::new(kp.hb, kp.file + f, kp.rank - 1);
                             let m = Move::new(src_loc, tgt_loc, EnPassant(field_value, loc));
-                            if !check_for_checks || !self.would_move_bypass_check(m) {
+                            if !check_for_checks || !self.would_non_king_move_bypass_check(m) {
                                 return Some(m);
                             }
                         }
@@ -848,7 +848,7 @@ impl ThreePlayerChess {
         true
     }
 
-    fn gen_move(
+    fn gen_non_king_slide_move(
         &mut self,
         src: AnnotatedFieldLocation,
         tgt: AnnotatedFieldLocation,
@@ -860,7 +860,7 @@ impl ThreePlayerChess {
             FieldValue(None) => {
                 if opts.captures_only {
                     SlideButCapturesOnly
-                } else if self.gen_move_unless_check(src, tgt, Slide, moves) {
+                } else if self.gen_non_king_move_unless_check(src, tgt, Slide, moves) {
                     SuccessSlide
                 } else {
                     SlideButCheck
@@ -868,7 +868,7 @@ impl ThreePlayerChess {
             }
             FieldValue(Some((color, _))) if color != self.turn => {
                 let cap = Capture(piece_value);
-                if self.gen_move_unless_check(src, tgt, cap, moves) {
+                if self.gen_non_king_move_unless_check(src, tgt, cap, moves) {
                     SuccessCapture
                 } else {
                     CaptureButCheck
@@ -904,7 +904,7 @@ impl ThreePlayerChess {
                 };
                 match res {
                     Some(tgt) => {
-                        match self.gen_move(field, tgt, moves, opts) {
+                        match self.gen_non_king_slide_move(field, tgt, moves, opts) {
                             SuccessCapture | SuccessSlide if opts.only_one => return,
                             SuccessCapture | CaptureButCheck | SameColorCollision => break,
                             SlideButCheck | SuccessSlide | SlideButCapturesOnly => {}
@@ -933,7 +933,7 @@ impl ThreePlayerChess {
                 match move_diagonal(pos, up, right) {
                     None => break,
                     Some((one, None)) => {
-                        match self.gen_move(field, one, moves, opts) {
+                        match self.gen_non_king_slide_move(field, one, moves, opts) {
                             SuccessCapture | SuccessSlide if opts.only_one => return,
                             SuccessCapture | CaptureButCheck | SameColorCollision => break,
                             SlideButCheck | SuccessSlide | SlideButCapturesOnly => {}
@@ -949,7 +949,7 @@ impl ThreePlayerChess {
                             // to avoid for the outer loop
                             std::mem::swap(&mut one, &mut two);
                         }
-                        match self.gen_move(field, two, moves, opts) {
+                        match self.gen_non_king_slide_move(field, two, moves, opts) {
                             SuccessCapture | SuccessSlide if opts.only_one => return,
                             SuccessCapture | CaptureButCheck | SameColorCollision => break,
                             SlideButCheck | SuccessSlide | SlideButCapturesOnly => {
@@ -958,7 +958,9 @@ impl ThreePlayerChess {
                                     match move_diagonal(pos2, up != swap_dir, right != swap_dir) {
                                         None => break,
                                         Some((one, None)) => {
-                                            match self.gen_move(field, one, moves, opts) {
+                                            match self
+                                                .gen_non_king_slide_move(field, one, moves, opts)
+                                            {
                                                 SuccessCapture | SuccessSlide if opts.only_one => {
                                                     return
                                                 }
@@ -974,7 +976,7 @@ impl ThreePlayerChess {
                                 }
                             }
                         }
-                        match self.gen_move(field, one, moves, opts) {
+                        match self.gen_non_king_slide_move(field, one, moves, opts) {
                             SuccessCapture | SuccessSlide if opts.only_one => return,
                             SuccessCapture | CaptureButCheck | SameColorCollision => break,
                             SlideButCheck | SuccessSlide | SlideButCapturesOnly => {}
@@ -994,7 +996,8 @@ impl ThreePlayerChess {
         let mut knight_moves = arrayvec::ArrayVec::new();
         get_knight_moves_for_field(field, &mut knight_moves);
         for m in knight_moves {
-            let mt = self.gen_move(field, AnnotatedFieldLocation::from(m), moves, opts);
+            let mt =
+                self.gen_non_king_slide_move(field, AnnotatedFieldLocation::from(m), moves, opts);
             if opts.only_one && mt.success() {
                 return;
             };
@@ -1155,7 +1158,7 @@ impl ThreePlayerChess {
                         target: tgt.loc,
                         move_type: CapturePromotion(piece_value, Queen),
                     };
-                    if !self.would_move_bypass_check(mov) {
+                    if !self.would_non_king_move_bypass_check(mov) {
                         for promotion_piece in [Queen, Bishop, Knight, Rook] {
                             mov.move_type = CapturePromotion(piece_value, promotion_piece);
                             moves.push(mov);
@@ -1168,7 +1171,7 @@ impl ThreePlayerChess {
                         false
                     }
                 } else {
-                    self.gen_move_unless_check(src, tgt, Capture(piece_value), moves)
+                    self.gen_non_king_move_unless_check(src, tgt, Capture(piece_value), moves)
                 }
             }
             FieldValue(None) => {
@@ -1176,7 +1179,7 @@ impl ThreePlayerChess {
                     && self.possible_en_passant[usize::from(tgt.hb)] == Some(tgt.loc)
                 {
                     let ep_pawn_pos = move_rank(tgt, false).unwrap().loc;
-                    self.gen_move_unless_check(
+                    self.gen_non_king_move_unless_check(
                         src,
                         tgt,
                         EnPassant(self.board[usize::from(ep_pawn_pos)], ep_pawn_pos),
@@ -1202,7 +1205,9 @@ impl ThreePlayerChess {
                     if src.rank == 2 {
                         let up2 = move_rank(up, true).unwrap();
                         if let FieldValue(None) = self.get_field_value(up2.loc) {
-                            if self.gen_move_unless_check(src, up2, Slide, moves) && opts.only_one {
+                            if self.gen_non_king_move_unless_check(src, up2, Slide, moves)
+                                && opts.only_one
+                            {
                                 return;
                             }
                         }
@@ -1213,7 +1218,7 @@ impl ThreePlayerChess {
                             target: up.loc,
                             move_type: Promotion(Queen),
                         };
-                        if !self.would_move_bypass_check(mov) {
+                        if !self.would_non_king_move_bypass_check(mov) {
                             for promotion_piece in [Queen, Bishop, Knight, Rook] {
                                 mov.move_type = Promotion(promotion_piece);
                                 moves.push(mov);
@@ -1223,7 +1228,9 @@ impl ThreePlayerChess {
                             }
                         }
                     } else {
-                        if self.gen_move_unless_check(src, up, Slide, moves) && opts.only_one {
+                        if self.gen_non_king_move_unless_check(src, up, Slide, moves)
+                            && opts.only_one
+                        {
                             return;
                         }
                     }
