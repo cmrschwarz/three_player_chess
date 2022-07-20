@@ -657,15 +657,15 @@ impl ThreePlayerChess {
     }
     fn gen_non_king_move_unless_check(
         &mut self,
-        src: AnnotatedFieldLocation,
-        tgt: AnnotatedFieldLocation,
+        src: FieldLocation,
+        tgt: FieldLocation,
         move_type: MoveType,
         moves: &mut Vec<Move>,
     ) -> bool {
         let m = Move {
             move_type,
-            source: src.loc,
-            target: tgt.loc,
+            source: src,
+            target: tgt,
         };
         self.append_non_king_move_unless_check(m, moves)
     }
@@ -850,12 +850,12 @@ impl ThreePlayerChess {
 
     fn gen_non_king_slide_move(
         &mut self,
-        src: AnnotatedFieldLocation,
-        tgt: AnnotatedFieldLocation,
+        src: FieldLocation,
+        tgt: FieldLocation,
         moves: &mut Vec<Move>,
         opts: MovegenOptions,
     ) -> MovegenResult {
-        let piece_value = self.get_packed_field_value(tgt.loc);
+        let piece_value = self.get_packed_field_value(tgt);
         match FieldValue::from(piece_value) {
             FieldValue(None) => {
                 if opts.captures_only {
@@ -904,7 +904,7 @@ impl ThreePlayerChess {
                 };
                 match res {
                     Some(tgt) => {
-                        match self.gen_non_king_slide_move(field, tgt, moves, opts) {
+                        match self.gen_non_king_slide_move(field.loc, tgt.loc, moves, opts) {
                             SuccessCapture | SuccessSlide if opts.only_one => return,
                             SuccessCapture | CaptureButCheck | SameColorCollision => break,
                             SlideButCheck | SuccessSlide | SlideButCapturesOnly => {}
@@ -933,7 +933,7 @@ impl ThreePlayerChess {
                 match move_diagonal(pos, up, right) {
                     None => break,
                     Some((one, None)) => {
-                        match self.gen_non_king_slide_move(field, one, moves, opts) {
+                        match self.gen_non_king_slide_move(field.loc, one.loc, moves, opts) {
                             SuccessCapture | SuccessSlide if opts.only_one => return,
                             SuccessCapture | CaptureButCheck | SameColorCollision => break,
                             SlideButCheck | SuccessSlide | SlideButCapturesOnly => {}
@@ -949,7 +949,7 @@ impl ThreePlayerChess {
                             // to avoid for the outer loop
                             std::mem::swap(&mut one, &mut two);
                         }
-                        match self.gen_non_king_slide_move(field, two, moves, opts) {
+                        match self.gen_non_king_slide_move(field.loc, two.loc, moves, opts) {
                             SuccessCapture | SuccessSlide if opts.only_one => return,
                             SuccessCapture | CaptureButCheck | SameColorCollision => break,
                             SlideButCheck | SuccessSlide | SlideButCapturesOnly => {
@@ -958,9 +958,9 @@ impl ThreePlayerChess {
                                     match move_diagonal(pos2, up != swap_dir, right != swap_dir) {
                                         None => break,
                                         Some((one, None)) => {
-                                            match self
-                                                .gen_non_king_slide_move(field, one, moves, opts)
-                                            {
+                                            match self.gen_non_king_slide_move(
+                                                field.loc, one.loc, moves, opts,
+                                            ) {
                                                 SuccessCapture | SuccessSlide if opts.only_one => {
                                                     return
                                                 }
@@ -976,7 +976,7 @@ impl ThreePlayerChess {
                                 }
                             }
                         }
-                        match self.gen_non_king_slide_move(field, one, moves, opts) {
+                        match self.gen_non_king_slide_move(field.loc, one.loc, moves, opts) {
                             SuccessCapture | SuccessSlide if opts.only_one => return,
                             SuccessCapture | CaptureButCheck | SameColorCollision => break,
                             SlideButCheck | SuccessSlide | SlideButCapturesOnly => {}
@@ -996,8 +996,7 @@ impl ThreePlayerChess {
         let mut knight_moves = arrayvec::ArrayVec::new();
         get_knight_moves_for_field(field, &mut knight_moves);
         for m in knight_moves {
-            let mt =
-                self.gen_non_king_slide_move(field, AnnotatedFieldLocation::from(m), moves, opts);
+            let mt = self.gen_non_king_slide_move(field.loc, m, moves, opts);
             if opts.only_one && mt.success() {
                 return;
             };
@@ -1171,7 +1170,12 @@ impl ThreePlayerChess {
                         false
                     }
                 } else {
-                    self.gen_non_king_move_unless_check(src, tgt, Capture(piece_value), moves)
+                    self.gen_non_king_move_unless_check(
+                        src.loc,
+                        tgt.loc,
+                        Capture(piece_value),
+                        moves,
+                    )
                 }
             }
             FieldValue(None) => {
@@ -1180,8 +1184,8 @@ impl ThreePlayerChess {
                 {
                     let ep_pawn_pos = move_rank(tgt, false).unwrap().loc;
                     self.gen_non_king_move_unless_check(
-                        src,
-                        tgt,
+                        src.loc,
+                        tgt.loc,
                         EnPassant(self.board[usize::from(ep_pawn_pos)], ep_pawn_pos),
                         moves,
                     )
@@ -1205,7 +1209,7 @@ impl ThreePlayerChess {
                     if src.rank == 2 {
                         let up2 = move_rank(up, true).unwrap();
                         if let FieldValue(None) = self.get_field_value(up2.loc) {
-                            if self.gen_non_king_move_unless_check(src, up2, Slide, moves)
+                            if self.gen_non_king_move_unless_check(src.loc, up2.loc, Slide, moves)
                                 && opts.only_one
                             {
                                 return;
@@ -1228,7 +1232,7 @@ impl ThreePlayerChess {
                             }
                         }
                     } else {
-                        if self.gen_non_king_move_unless_check(src, up, Slide, moves)
+                        if self.gen_non_king_move_unless_check(src.loc, up.loc, Slide, moves)
                             && opts.only_one
                         {
                             return;
