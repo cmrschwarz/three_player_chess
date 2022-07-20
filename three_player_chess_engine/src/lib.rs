@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 use three_player_chess::board::MoveType::*;
 use three_player_chess::board::PieceType::*;
 use three_player_chess::board::*;
+use three_player_chess::movegen::MovegenOptions;
 
 type Eval = i16;
 type Score = [i16; HB_COUNT];
@@ -41,6 +42,7 @@ pub struct Engine {
     pub pos_count: usize,
     pub deciding_player: Color,
     pub debug_log: bool,
+    pub dummy_vec: Vec<Move>,
 }
 
 #[derive(Default)]
@@ -179,6 +181,7 @@ impl Engine {
             pos_count: 0,
             deciding_player: Color::C0,
             debug_log: false,
+            dummy_vec: Vec::new(),
         }
     }
 
@@ -200,7 +203,15 @@ impl Engine {
         let end = Instant::now()
             .checked_add(Duration::from_secs_f32(max_time_seconds))
             .unwrap();
-        let mut bm = self.board.gen_moves().get(0).map(|m| *m);
+        let mut start_mov = Vec::new();
+        self.board.gen_moves_with_options(
+            &mut start_mov,
+            MovegenOptions {
+                captures_only: false,
+                only_one: true,
+            },
+        );
+        let mut bm = start_mov.pop();
         let mut bm_str = bm.map_or("".to_owned(), |bm| {
             bm.to_string(&mut self.board).as_str().to_owned()
         });
@@ -258,8 +269,15 @@ impl Engine {
         ed.hash = parent_hash;
         ed.move_rev = rm;
         ed.eval = -EVAL_MAX;
-        let moves = self.board.gen_moves();
-        ed.moves.reserve(moves.len());
+        self.dummy_vec.clear();
+        self.board.gen_moves_with_options(
+            &mut self.dummy_vec,
+            MovegenOptions {
+                captures_only: captures_only,
+                only_one: false,
+            },
+        );
+        ed.moves.reserve(self.dummy_vec.len() + 1);
         if captures_only {
             ed.moves.push(EngineMove {
                 eval: EVAL_DRAW,
@@ -267,27 +285,28 @@ impl Engine {
                 mov: None,
             });
         }
-        for mov in moves {
+        for mov in self.dummy_vec.iter() {
             if captures_only {
                 match mov.move_type {
                     Capture(..) | CapturePromotion(..) => (),
                     _ => continue,
                 }
             }
-            let rm = ReversableMove::new(&self.board, mov);
+            let rm = ReversableMove::new(&self.board, *mov);
             self.board.perform_move(rm.mov);
             let hash = hash_board(&self.board);
             let eval = self.transposition_table.get(&hash).map_or_else(
-                || get_initial_pos_eval_for_sort(&mut self.board, mov),
+                || get_initial_pos_eval_for_sort(&mut self.board, *mov),
                 |tp| -tp.eval,
             );
             self.board.revert_move(&rm);
             ed.moves.push(EngineMove {
                 eval,
                 hash,
-                mov: Some(mov),
+                mov: Some(*mov),
             });
         }
+        self.dummy_vec.clear();
         ed.moves.sort_by(|m_l, m_r| m_r.eval.cmp(&m_l.eval));
         ed
     }

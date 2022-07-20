@@ -189,6 +189,7 @@ pub struct ThreePlayerChess {
     pub game_status: GameStatus,
     pub resigned_player: Option<Color>,
     pub board: [PackedFieldValue; BOARD_SIZE],
+    pub dummy_vec: Option<Vec<Move>>, //used in movegen to avoid uneccessary allocations
 }
 
 impl ThreePlayerChess {
@@ -203,6 +204,7 @@ impl ThreePlayerChess {
             game_status: GameStatus::Ongoing,
             resigned_player: None,
             board: [FieldValue(None).into(); BOARD_SIZE],
+            dummy_vec: Some(Vec::new()),
         }
     }
     fn player_state_from_str<'a>(

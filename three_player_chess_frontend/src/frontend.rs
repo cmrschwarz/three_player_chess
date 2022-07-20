@@ -964,7 +964,8 @@ impl Frontend {
                     self.selected_square = self.dragged_square;
                 }
                 let mut moves = Default::default();
-                self.board.gen_moves_for_field(square.loc, &mut moves);
+                self.board
+                    .gen_moves_for_field(square.loc, &mut moves, MovegenOptions::default());
                 for m in moves {
                     self.possible_moves.set(usize::from(m.target), true);
                     if let MoveType::Castle(short) = m.move_type {
