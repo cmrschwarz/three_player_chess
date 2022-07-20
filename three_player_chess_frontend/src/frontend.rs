@@ -367,14 +367,19 @@ impl Frontend {
     pub fn new() -> Frontend {
         Frontend {
             prev_second: -1.0,
+            //board: ThreePlayerChess::from_str("ABEG2G3D7///D1Ib//C1//:CBA7LK5///K8J7//B8//K6:G4GLbLaE9/////L9//:68:68").unwrap(),
             board: ThreePlayerChess::from_str("ABCEFGH2D3/B5G9/CF1/AH1/D1/E1/AH/:LKJDCBA7I9/JC6/JC8/KA8/I8/D8/A/:GFEJKLbIaH9/FLa/FJc/GLc/Ec/Ic/L/:15:15").unwrap(),
-           // board: ThreePlayerChess::from_str("CEFGH2A5E4D5H4C5/BG1/CF1/AH1/D4/E1/AH/:LKIDCBA7J6/KB8/JC8/LA8/L5/D8/LA/:HGFEILbJaK9B2/GKc/FJc/HLc/Ec/Ic/HL/Ka:0:0").unwrap(),//Default::default(),
-            font:  Font::from_typeface(Typeface::from_data(Data::new_copy(&FONT), None).expect("Failed to load font 'Roboto-Regular.ttf'"), None),
+            // board: ThreePlayerChess::from_str("CEFGH2A5E4D5H4C5/BG1/CF1/AH1/D4/E1/AH/:LKIDCBA7J6/KB8/JC8/LA8/L5/D8/LA/:HGFEILbJaK9B2/GKc/FJc/HLc/Ec/Ic/HL/Ka:0:0").unwrap(),//Default::default(),
+            font: Font::from_typeface(
+                Typeface::from_data(Data::new_copy(&FONT), None)
+                    .expect("Failed to load font 'Roboto-Regular.ttf'"),
+                None,
+            ),
             black: Color::from_rgb(161, 119, 67),
-            white: Color::from_rgb(240, 217, 181) ,
+            white: Color::from_rgb(240, 217, 181),
             selection_color: Color::from_argb(128, 56, 173, 105),
-            last_move_color: Color::from_argb(170, 120, 230, 130) ,
-            move_before_last_color: Color::from_argb(190, 160, 200, 255) ,
+            last_move_color: Color::from_argb(170, 120, 230, 130),
+            move_before_last_color: Color::from_argb(190, 160, 200, 255),
             background: Color::from_rgb(201, 144, 73),
             danger: Color::from_rgb(232, 15, 13),
             transformed_pieces: false,
@@ -388,7 +393,11 @@ impl Frontend {
             dragged_square: None,
             promotion_preview: None,
             hovered_square: None,
-            player_colors: [Color::from_rgb(236, 236, 236), Color::from_rgb(41, 41, 41), Color::from_rgb(36, 36, 128)],
+            player_colors: [
+                Color::from_rgb(236, 236, 236),
+                Color::from_rgb(41, 41, 41),
+                Color::from_rgb(36, 36, 128),
+            ],
             king_in_check: false,
             pieces: PIECE_IMAGES.clone(),
             transform_dragged_pieces: true,
@@ -1048,7 +1057,7 @@ impl Frontend {
         let src_val = self.board.get_field_value(src);
         let tgt_val = self.board.get_field_value(tgt);
         let src_afl = AnnotatedFieldLocation::from(src);
-        let tgt_afl = AnnotatedFieldLocation::from(tgt);
+        let tgt_afl = AnnotatedFieldLocation::from_with_origin(src_afl.hb, tgt);
         if tgt_val.is_some() {
             mov.move_type = MoveType::Capture(tgt_val.into());
         }

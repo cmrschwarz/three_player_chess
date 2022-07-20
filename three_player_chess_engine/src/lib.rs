@@ -4,6 +4,7 @@ use crate::eval::piece_score;
 use eval::evaluate_position;
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
+use std::borrow::Borrow;
 use std::ops::Sub;
 use std::time::{Duration, Instant};
 use three_player_chess::board::MoveType::*;
@@ -458,11 +459,9 @@ impl Engine {
             // even for null moves, we increase the depth, because we want them to be
             // 'overrulable' by actual moves
             depth += 1;
+            let game_over = self.board.game_status != GameStatus::Ongoing;
             let force_eval = rm.is_none() || depth > self.depth_max + MAX_CAPTURE_LINE_LENGTH;
-            if depth >= self.depth_max
-                || force_eval
-                || self.board.game_status != GameStatus::Ongoing
-            {
+            if depth >= self.depth_max || force_eval || game_over {
                 self.pos_count += 1;
                 let (eval_perspective, captures_exist) =
                     evaluate_position(&mut self.board, self.deciding_player);
@@ -484,14 +483,16 @@ impl Engine {
                 }
                 self.transposition_table
                     .insert(hash, Transposition::new(None, eval, self.eval_depth_max));
-                if !captures_exist || force_eval {
+                if !captures_exist || force_eval || game_over {
                     if let Some(ref rm) = rm {
                         self.board.revert_move(rm);
                     }
                     depth -= 1;
                     propagation_result = self.propagate_move_eval(depth, rm.map(|rm| rm.mov), eval);
                     if propagation_result == PropagationResult::Ok {
-                        if eval >= EVAL_WIN {
+                        if (eval_perspective >= EVAL_WIN - self.board.move_index as i16)
+                            == (self.board.turn == self.deciding_player)
+                        {
                             self.prune_count += 1;
                             propagation_result = PropagationResult::Pruned(1);
                         }

@@ -152,7 +152,7 @@ pub struct Move {
     pub target: FieldLocation,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ReversableMove {
     pub mov: Move,
     pub possible_en_passant: [Option<FieldLocation>; HB_COUNT],

@@ -144,14 +144,16 @@ pub fn evaluate_position(tpc: &mut ThreePlayerChess, perspective: Color) -> (Eva
         GameStatus::Draw(_) => EVAL_DRAW,
         GameStatus::Win(winner, win_reason) => {
             if winner == perspective {
-                EVAL_WIN
+                // reward faster mates
+                EVAL_WIN - tpc.move_index as i16
             } else {
                 match win_reason {
+                    // encourage fighting on
                     WinReason::Checkmate(looser) => {
                         if looser == perspective {
-                            EVAL_LOSS
+                            EVAL_LOSS + tpc.move_index as i16
                         } else {
-                            EVAL_NEUTRAL
+                            EVAL_NEUTRAL + tpc.move_index as i16
                         }
                     }
                 }
