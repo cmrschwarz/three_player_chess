@@ -215,15 +215,6 @@ impl AnnotatedFieldLocation {
     pub fn from_with_origin(origin: Color, field: FieldLocation) -> Self {
         Self::from_field_with_origin_and_hb(origin, field.hb(), field)
     }
-    pub fn reorient(&self, origin: Color) -> Self {
-        let mut res = self.clone();
-        if origin != self.origin {
-            res.origin = origin;
-            res.file = invert_coord(self.file);
-            res.rank = invert_coord(self.rank);
-        }
-        res
-    }
 }
 
 impl From<FieldLocation> for AnnotatedFieldLocation {
@@ -626,7 +617,13 @@ impl ThreePlayerChess {
                 if captured_piece == PieceType::Rook {
                     self.remove_castling_rights_from_rook(m.target, color);
                 } else if captured_piece == PieceType::Pawn {
-                    self.remove_en_passent_target(m.target, color);
+                    let ci = usize::from(color);
+                    let loc = AnnotatedFieldLocation::from_with_origin(color, m.target);
+                    if loc.rank == 4
+                        && self.possible_en_passant[ci] == Some(move_rank(loc, false).unwrap().loc)
+                    {
+                        self.possible_en_passant[ci] = None;
+                    }
                 }
             }
             Promotion(piece_type) => {
@@ -839,8 +836,9 @@ impl ThreePlayerChess {
                         PieceType::Pawn
                             if color_may_capture(color, piece_color, capturing_color) =>
                         {
+                            let kp_r = AnnotatedFieldLocation::from_with_origin(color, kp.loc);
                             let pos = AnnotatedFieldLocation::from_with_origin(color, *f);
-                            if pos.rank + 1 == kp.reorient(color).rank {
+                            if pos.rank + 1 == kp_r.rank {
                                 let m = Move::new(*f, loc, Capture(field_value));
                                 if !check_for_checks || !self.would_non_king_move_bypass_check(m) {
                                     return Some(m);
@@ -869,24 +867,26 @@ impl ThreePlayerChess {
                 },
             }
         }
-        if FieldValue::from(field_value).piece_type() == Some(PieceType::Pawn)
-            && kp.rank > 1
-            && self.possible_en_passant[usize::from(piece_color)]
-                == Some(FieldLocation::new(kp.hb, kp.file, kp.rank - 1))
-        {
-            for f in [-1, 1] {
-                if coord_in_bounds(kp.file + f) {
-                    let src_loc = FieldLocation::new(kp.hb, kp.file + f, kp.rank);
-                    if let Some((color, piece_type)) =
-                        *FieldValue::from(self.board[usize::from(src_loc)])
-                    {
-                        if piece_type == PieceType::Pawn
-                            && color_may_capture(color, piece_color, capturing_color)
+        let field_val = FieldValue::from(field_value);
+        if let Some((color, PieceType::Pawn)) = *field_val {
+            let kp_r = AnnotatedFieldLocation::from_with_origin(color, kp.loc);
+            if self.possible_en_passant[usize::from(piece_color)]
+                == Some(FieldLocation::new(kp.hb, kp_r.file, kp_r.rank - 1))
+            {
+                for f in [-1, 1] {
+                    if coord_in_bounds(kp.file + f) {
+                        let src_loc = FieldLocation::new(kp.hb, kp.file + f, kp.rank);
+                        if let Some((color, piece_type)) =
+                            *FieldValue::from(self.board[usize::from(src_loc)])
                         {
-                            let tgt_loc = FieldLocation::new(kp.hb, kp.file + f, kp.rank - 1);
-                            let m = Move::new(src_loc, tgt_loc, EnPassant(field_value, loc));
-                            if !check_for_checks || !self.would_non_king_move_bypass_check(m) {
-                                return Some(m);
+                            if piece_type == PieceType::Pawn
+                                && color_may_capture(color, piece_color, capturing_color)
+                            {
+                                let tgt_loc = FieldLocation::new(kp.hb, kp.file + f, kp.rank - 1);
+                                let m = Move::new(src_loc, tgt_loc, EnPassant(field_value, loc));
+                                if !check_for_checks || !self.would_non_king_move_bypass_check(m) {
+                                    return Some(m);
+                                }
                             }
                         }
                     }

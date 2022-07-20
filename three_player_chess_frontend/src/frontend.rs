@@ -8,7 +8,6 @@ use skia_safe::{
 use std::cmp::min;
 use std::f32::consts::PI;
 use std::ops::{Add, Sub};
-use std::time::Instant;
 use three_player_chess::board;
 use three_player_chess::board::PieceType::*;
 use three_player_chess::board::*;
@@ -737,7 +736,15 @@ impl Frontend {
         let flip_pieces = (field_val.is_some() && field_val.color() != Some(hb)) || promotion;
 
         canvas.save();
-        self.transform_to_cell_nonaffine(canvas, hb, right, file, rank, promotion, flip_pieces);
+        self.transform_to_cell_nonaffine(
+            canvas,
+            hb,
+            right,
+            file,
+            rank,
+            promotion || flip_pieces,
+            flip_pieces,
+        );
         canvas.draw_rect(&*UNIT_RECT, &field_paint);
 
         if promotion {
@@ -1131,8 +1138,7 @@ impl Frontend {
         self.origin = board::Color::from((HB_COUNT + usize::from(self.origin) - 1) as u8 % 3);
     }
     pub fn do_engine_move(&mut self) {
-        let start = Instant::now();
-        if let Some((mov, line_str, eval)) = self.engine.search_position(
+        if let Some(mov) = self.engine.search_position(
             &self.board,
             self.engine_depth,
             if self.go_infinite {
@@ -1140,14 +1146,8 @@ impl Frontend {
             } else {
                 self.engine_time_secs as f32
             },
+            true,
         ) {
-            let end = Instant::now();
-            println!(
-                "evaluated {} positions in {:.1}s (depth {}), pruned {} branches, skipped {} transpositions, result: ({}) {}",
-                self.engine.pos_count,
-                end.sub(start).as_secs_f32(),
-                self.engine.depth_max , self.engine.prune_count, self.engine.transposition_count, eval, line_str
-            );
             self.perform_move(mov);
         }
     }

@@ -147,7 +147,6 @@ pub fn evaluate_position(tpc: &mut ThreePlayerChess, perspective: Color) -> (Eva
                 EVAL_WIN
             } else {
                 match win_reason {
-                    WinReason::DoubleResign => EVAL_LOSS,
                     WinReason::Checkmate(looser) => {
                         if looser == perspective {
                             EVAL_LOSS

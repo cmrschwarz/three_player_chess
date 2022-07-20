@@ -2,6 +2,9 @@ mod eval;
 
 use crate::eval::piece_score;
 use eval::evaluate_position;
+use rand::prelude::StdRng;
+use rand::{Rng, SeedableRng};
+use std::ops::Sub;
 use std::time::{Duration, Instant};
 use three_player_chess::board::MoveType::*;
 use three_player_chess::board::*;
@@ -132,22 +135,36 @@ impl Engine {
             dummy_vec: Vec::new(),
         }
     }
-
+    pub fn report_search_depth_results(&mut self, start: Instant) {
+        let eval = self.engine_stack[0].eval;
+        let mut line_str = "".to_owned();
+        if let Some(bm) = self.engine_stack[0].best_move {
+            line_str = self.transposition_line_str(Some(bm));
+        }
+        let time = Instant::now().sub(start).as_secs_f32();
+        println!(
+            "(depth {} took {:.1}s, {:.2} kN/s, {} positions, {} pruned branches, {} transpositions): eval {} with {}",
+            self.depth_max ,
+            time,
+            (self.pos_count as f32 / time) / 1000.,
+            self.pos_count,
+            self.prune_count, self.transposition_count, eval, line_str
+        );
+    }
     pub fn search_position(
         &mut self,
         tpc: &ThreePlayerChess,
         depth: u16,
         max_time_seconds: f32,
-    ) -> Option<(Move, String, i16)> {
+        report_results_per_depth: bool,
+    ) -> Option<Move> {
         self.board = tpc.clone();
         self.eval_depth_max = self.board.move_index;
         self.depth_max = 0;
         //self.transposition_table.retain(|_, tp| tp.eval_depth > self.eval_depth_max);
         self.transposition_table.clear(); // since we use
-        self.transposition_count = 0;
-        self.prune_count = 0;
-        self.pos_count = 0;
         self.deciding_player = self.board.turn;
+        let mut start = Instant::now();
         let end = Instant::now()
             .checked_add(Duration::from_secs_f32(max_time_seconds))
             .unwrap();
@@ -159,24 +176,26 @@ impl Engine {
                 only_one: true,
             },
         );
-        let mut bm = start_mov.pop();
-        let mut bm_str = bm.map_or("".to_owned(), |bm| {
-            bm.to_string(&mut self.board).as_str().to_owned()
-        });
-        let mut eval = -1;
+        let mut best_move = start_mov.pop();
+
         for _ in 0..depth {
+            let (transp_count, prune_count, pos_count) =
+                (self.transposition_count, self.prune_count, self.pos_count);
+            self.transposition_count = 0;
+            self.prune_count = 0;
+            self.pos_count = 0;
             self.depth_max += 1;
             self.eval_depth_max += 1;
             if self.search_iterate(end).is_ok() {
-                eval = self.engine_stack[0].eval;
-                if let Some(best_move) = self.engine_stack[0].best_move {
-                    bm = Some(best_move);
-                    bm_str = self.transposition_line_str(bm);
+                best_move = self.engine_stack[0].best_move;
+                if report_results_per_depth || self.debug_log {
+                    self.report_search_depth_results(start);
                 }
-                if self.debug_log {
-                    println!("finished depth {} [{}]: {}", self.depth_max, eval, bm_str);
-                }
+                start = Instant::now();
             } else {
+                self.transposition_count = transp_count;
+                self.prune_count = prune_count;
+                self.pos_count = pos_count;
                 if self.debug_log {
                     println!(
                         "aborted depth {} (after {} positions)",
@@ -187,8 +206,8 @@ impl Engine {
                 break;
             }
         }
-        if let Some(bm) = bm {
-            return Some((bm, bm_str, eval));
+        if let Some(bm) = best_move {
+            return Some(bm);
         }
         None
     }
@@ -425,6 +444,7 @@ impl Engine {
                 if let Some(tp) = self.transposition_table.get(&em.hash) {
                     if tp.eval_depth >= self.eval_depth_max {
                         self.transposition_count += 1;
+                        self.pos_count += 1;
                         let tp_eval = tp.eval;
                         propagation_result = self.propagate_move_eval(depth, Some(mov), tp_eval);
                         continue;

@@ -1,4 +1,6 @@
 use crate::board::*;
+use rand::prelude::StdRng;
+
 const PIECE_TYPE_CASTLABLE_ROOK: usize = PIECE_COUNT;
 const PIECE_TYPE_EN_PASSENT_SQUARE: usize = PIECE_COUNT + 1;
 
@@ -10,18 +12,20 @@ pub struct ZobristData {
 lazy_static! {
     static ref ZOBRIST_DATA: ZobristData = ZobristData {
         field_values: {
+            let mut rng = StdRng::seed_from_u64(17);
             let mut zobrist_vals = [[0u64; (PIECE_COUNT + 2) * HB_COUNT]; BOARD_SIZE];
             for field in zobrist_vals.iter_mut() {
                 for col in field.iter_mut() {
-                    *col = rand::random::<u64>();
+                    *col = rng.gen();
                 }
             }
             zobrist_vals
         },
         turn_values: {
+            let mut rng = StdRng::seed_from_u64(42);
             let mut zobrist_turns = [0; HB_COUNT];
             for t in zobrist_turns.iter_mut() {
-                *t = rand::random::<u64>();
+                *t = rng.gen();
             }
             zobrist_turns
         }

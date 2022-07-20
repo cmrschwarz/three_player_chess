@@ -110,7 +110,7 @@ impl Default for Color {
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum WinReason {
     Checkmate(Color),
-    DoubleResign,
+    //todo: maybe allow resignation?
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug, FromPrimitive, ToPrimitive)]
@@ -214,7 +214,6 @@ pub struct ThreePlayerChess {
     pub move_index: u16,
     pub last_capture_or_pawn_move_index: u16,
     pub game_status: GameStatus,
-    pub resigned_player: Option<Color>,
     pub board: [PackedFieldValue; BOARD_SIZE],
     pub zobrist_hash: ZobristHash,
     pub dummy_vec: Option<Vec<Move>>, //used in movegen to avoid uneccessary allocations
@@ -230,7 +229,6 @@ impl ThreePlayerChess {
             move_index: 0,
             last_capture_or_pawn_move_index: 0,
             game_status: GameStatus::Ongoing,
-            resigned_player: None,
             board: [FieldValue(None).into(); BOARD_SIZE],
             zobrist_hash: ZobristHash::default(),
             dummy_vec: Some(Vec::new()),
