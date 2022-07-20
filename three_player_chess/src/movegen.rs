@@ -1419,20 +1419,17 @@ impl ThreePlayerChess {
     pub fn is_valid_move(&mut self, mov: Move) -> bool {
         // this is not used by engines, and therfore not performance critical
         // we are therefore fine with using a rather inefficient implementation
-        let mut moves = Vec::new();
-        self.gen_moves_for_field(
-            mov.source,
-            &mut moves,
-            MovegenOptions {
-                captures_only: false,
-                only_one: false,
-            },
-        );
-        for candidate_move in moves {
-            if mov == candidate_move {
+        let mut dv = self.dummy_vec.take().unwrap();
+        self.gen_moves_for_field(mov.source, &mut dv, MovegenOptions::default());
+        for candidate_move in dv.iter() {
+            if mov == *candidate_move {
+                dv.clear();
+                self.dummy_vec = Some(dv);
                 return true;
             }
         }
+        dv.clear();
+        self.dummy_vec = Some(dv);
         false
     }
 }
