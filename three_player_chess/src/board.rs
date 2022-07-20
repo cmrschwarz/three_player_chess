@@ -19,6 +19,8 @@ pub const PIECE_COUNT: usize = 6;
 pub const HB_SIZE: usize = ROW_SIZE * HB_ROW_COUNT;
 pub const BOARD_SIZE: usize = HB_SIZE * HB_COUNT; // 96
 
+pub const DRAW_AFTER_N_SLIDES: usize = 50 * HB_COUNT;
+
 pub const BOARD_STRING: &'static str = include_str!("board.txt");
 
 pub const START_POSITION_STRING: &'static str = concat!(
@@ -111,12 +113,17 @@ pub enum WinReason {
     DoubleResign,
 }
 
+#[derive(Copy, Clone, PartialEq, Eq, Debug, FromPrimitive, ToPrimitive)]
+pub enum DrawClaimBasis {
+    FiftyMoveRule = 0,
+    ThreefoldRepetition = 1,
+}
+
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum DrawReason {
     Stalemate(Color),
     InsufficientMaterial, //TODO: implement this
-    FiftyMoveRule,
-    ThreefoldRepetition,
+    DrawClaimed(DrawClaimBasis),
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -129,13 +136,13 @@ pub enum GameStatus {
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum MoveType {
     Slide,
-    SlideClaimDraw,
+    ClaimDraw(DrawClaimBasis),
+    SlideClaimDraw(DrawClaimBasis),
     Capture(PackedFieldValue),                  // (captured piece)
     EnPassant(PackedFieldValue, FieldLocation), // (captured piece, captured piece square)
     Castle(bool), // long castle(left) is false, short castle (right) is true
     Promotion(PieceType),
     CapturePromotion(PackedFieldValue, PieceType), // (captured piece, promotion piece type)
-    ClaimDraw,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -735,11 +742,24 @@ impl Move {
         if string == "O-O-O" {
             return game.gen_move_castling(false);
         }
-        if string == "draw" {
+        let draw_claim_basis = if string == "draw" {
+            if game.threefold_repetition_applies() {
+                Some(DrawClaimBasis::FiftyMoveRule)
+            } else {
+                Some(DrawClaimBasis::ThreefoldRepetition)
+            }
+        } else if string == "draw50" {
+            Some(DrawClaimBasis::FiftyMoveRule)
+        } else if string == "draw3" {
+            Some(DrawClaimBasis::ThreefoldRepetition)
+        } else {
+            None
+        };
+        if let Some(dcb) = draw_claim_basis {
             return Some(Move {
                 source: Default::default(),
                 target: Default::default(),
-                move_type: ClaimDraw,
+                move_type: ClaimDraw(dcb),
             });
         }
         None
@@ -763,10 +783,21 @@ impl Move {
 
         let tgt_val = game.get_field_value(tgt.loc);
         let mut str_rem = &string[0..];
-        let mut claim_draw = false;
+        let mut draw_claim_basis: Option<DrawClaimBasis> = None;
         if string.ends_with(" draw") {
-            claim_draw = true;
+            // debatable wethere we should have separate move encodings for this
+            if game.fifty_move_rule_applies() {
+                draw_claim_basis = Some(DrawClaimBasis::FiftyMoveRule)
+            } else {
+                draw_claim_basis = Some(DrawClaimBasis::ThreefoldRepetition)
+            }
             str_rem = &string[0..string.len() - 5];
+        } else if string.ends_with(" draw50") {
+            draw_claim_basis = Some(DrawClaimBasis::FiftyMoveRule);
+            str_rem = &string[0..string.len() - 8];
+        } else if string.ends_with(" draw3") {
+            draw_claim_basis = Some(DrawClaimBasis::ThreefoldRepetition);
+            str_rem = &string[0..string.len() - 7];
         }
         if str_rem.len() > 4 {
             let promotion: [u8; 2] = str_rem[4..].as_bytes().try_into().ok()?;
@@ -796,12 +827,17 @@ impl Move {
             }
         } else {
             Move {
-                move_type: if claim_draw { SlideClaimDraw } else { Slide },
+                move_type: if let Some(dcb) = draw_claim_basis {
+                    SlideClaimDraw(dcb)
+                } else {
+                    Slide
+                },
                 source: src.loc,
                 target: tgt.loc,
             }
         };
-        if claim_draw && mov.move_type != SlideClaimDraw {
+        if draw_claim_basis.is_some() && mov.move_type != SlideClaimDraw(draw_claim_basis.unwrap())
+        {
             return None;
         }
         Some(mov)
@@ -918,10 +954,15 @@ impl Move {
                 self.get_source_string(game),
                 self.target.to_str_fancy().as_str()
             ))?,
-            SlideClaimDraw => writer.write_fmt(format_args!(
-                "{}{} draw",
+            SlideClaimDraw(dcb) => writer.write_fmt(format_args!(
+                "{}{} draw{}",
                 self.get_source_string(game),
-                self.target.to_str_fancy().as_str()
+                self.target.to_str_fancy().as_str(),
+                if dcb == DrawClaimBasis::FiftyMoveRule {
+                    "50"
+                } else {
+                    "3"
+                }
             ))?,
             Capture(_) => writer.write_fmt(format_args!(
                 "{}x{}",
@@ -944,7 +985,14 @@ impl Move {
                 self.target.to_str_fancy().as_str(),
                 piece_type.to_ascii() as char,
             ))?,
-            ClaimDraw => writer.write_str("draw")?,
+            ClaimDraw(dcb) => writer.write_fmt(format_args!(
+                "draw{}",
+                if dcb == DrawClaimBasis::FiftyMoveRule {
+                    "50"
+                } else {
+                    "3"
+                }
+            ))?,
         }
         let turn = game.turn;
         game.apply_move(*self);
@@ -972,8 +1020,8 @@ impl Move {
         Ok(())
     }
     // regular move has max 11 characters, e.g.: 'exf10 e.p.(#)'
-    // because of draw claims we have 14 (draw move can't be capture): "Ra3c3 (#) draw"
-    pub fn to_string(&self, game: &mut ThreePlayerChess) -> ArrayString<14> {
+    // because of draw claims we have 14 (draw move can't be capture): "Ra3c3 (+) draw50"
+    pub fn to_string(&self, game: &mut ThreePlayerChess) -> ArrayString<16> {
         let mut res = ArrayString::new();
         self.write_as_str(game, &mut res).unwrap();
         res
@@ -995,8 +1043,8 @@ impl TryFrom<u64> for Move {
             3 => Castle(b1 > 0),
             4 => Promotion(PieceType::from_u8(b1).ok_or(())?),
             5 => CapturePromotion(b1.try_into()?, PieceType::from_u8(b2).ok_or(())?),
-            6 => ClaimDraw,
-            7 => SlideClaimDraw,
+            6 => ClaimDraw(FromPrimitive::from_u8(b1).ok_or(())?),
+            7 => SlideClaimDraw(FromPrimitive::from_u8(b1).ok_or(())?),
             _ => return Err(()),
         };
         Ok(Move {
@@ -1020,8 +1068,8 @@ impl From<Move> for u64 {
             CapturePromotion(cap, piece) => {
                 5 | (u8::from(piece) as u64) << 8 | (u8::from(cap) as u64) << 16
             }
-            ClaimDraw => 6,
-            SlideClaimDraw => 7,
+            ClaimDraw(claim_reason) => 6 | ToPrimitive::to_u64(&claim_reason).unwrap() << 8,
+            SlideClaimDraw(claim_reason) => 7 | ToPrimitive::to_u64(&claim_reason).unwrap() << 8,
         };
         move_type << 16 | (u8::from(m.target) as u64) << 8 | (u8::from(m.source) as u64)
     }

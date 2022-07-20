@@ -93,7 +93,7 @@ fn get_initial_pos_eval_for_sort(tpc: &mut ThreePlayerChess, mov: Move) -> i16 {
         sc += 500;
     }
     sc += match mov.move_type {
-        ClaimDraw | SlideClaimDraw => 2000,
+        ClaimDraw(_) | SlideClaimDraw(_) => 2000,
         CapturePromotion(..) => 1000,
         Promotion(_) => 900,
         Capture(piece_value) => piece_score(FieldValue::from(piece_value).piece_type().unwrap()),

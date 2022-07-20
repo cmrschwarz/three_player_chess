@@ -452,7 +452,7 @@ impl ThreePlayerChess {
         let src = usize::from(m.source);
         let tgt = usize::from(m.target);
         match m.move_type {
-            Slide | SlideClaimDraw | Capture(_) => {
+            Slide | SlideClaimDraw(_) | Capture(_) => {
                 self.board[tgt] = self.board[src];
                 self.board[src] = Default::default();
             }
@@ -477,7 +477,7 @@ impl ThreePlayerChess {
                 self.board[tgt] = FieldValue(Some((self.turn, piece_type))).into();
                 self.board[src] = Default::default();
             }
-            ClaimDraw => return,
+            ClaimDraw(_) => return,
         }
     }
     pub fn apply_king_move_sideeffects(&mut self, m: Move) {
@@ -547,13 +547,6 @@ impl ThreePlayerChess {
             }
         }
     }
-    fn apply_draw_claiming_sideeffects(&mut self, _m: Move) {
-        self.game_status = GameStatus::Draw(if self.fifty_move_rule_applies() {
-            DrawReason::FiftyMoveRule
-        } else {
-            DrawReason::ThreefoldRepetition
-        });
-    }
     pub fn apply_move_sideeffects(&mut self, m: Move) {
         self.move_index += 1;
         let ep = &mut self.possible_en_passant[usize::from(self.turn)];
@@ -565,9 +558,9 @@ impl ThreePlayerChess {
         let (_, piece) = self.get_field_value(m.target).unwrap();
         match m.move_type {
             Slide => self.apply_slide_sideeffects(m),
-            SlideClaimDraw => {
+            SlideClaimDraw(draw_claim_basis) => {
                 self.apply_slide_sideeffects(m);
-                self.apply_draw_claiming_sideeffects(m);
+                self.game_status = GameStatus::Draw(DrawReason::DrawClaimed(draw_claim_basis));
             }
             Castle(short) => {
                 let king = FieldValue(Some((self.turn, King)));
@@ -604,8 +597,8 @@ impl ThreePlayerChess {
                     .unwrap();
                 self.zobrist_hash.toggle_en_passent_square(ep_square);
             }
-            ClaimDraw => {
-                self.apply_draw_claiming_sideeffects(m);
+            ClaimDraw(draw_claim_basis) => {
+                self.game_status = GameStatus::Draw(DrawReason::DrawClaimed(draw_claim_basis));
             }
             Capture(field_val) | CapturePromotion(field_val, _) => {
                 let capturer = self.get_field_value(m.target);
@@ -668,7 +661,7 @@ impl ThreePlayerChess {
         let src = usize::from(m.source);
         let tgt = usize::from(m.target);
         match m.move_type {
-            Slide | SlideClaimDraw => {
+            Slide | SlideClaimDraw(_) => {
                 self.board[src] = self.board[tgt];
                 self.board[tgt] = Default::default();
             }
@@ -701,7 +694,7 @@ impl ThreePlayerChess {
                 self.board[tgt] = Default::default();
                 self.board[src] = FieldValue(Some((self.turn, PieceType::Pawn))).into();
             }
-            ClaimDraw => return,
+            ClaimDraw(_) => return,
         }
     }
     pub fn unapply_move_sideffects(&mut self, rm: &ReversableMove) {
@@ -1360,7 +1353,7 @@ impl ThreePlayerChess {
         self.gen_moves_bishop(field, moves, opts);
     }
     pub fn fifty_move_rule_applies(&self) -> bool {
-        self.move_index >= self.last_capture_or_pawn_move_index + 50 * HB_COUNT as u16
+        self.move_index >= self.last_capture_or_pawn_move_index + DRAW_AFTER_N_SLIDES as u16
     }
     pub fn threefold_repetition_applies(&self) -> bool {
         false //TODO: implement this
@@ -1397,9 +1390,16 @@ impl ThreePlayerChess {
                 return;
             }
         }
-        if self.fifty_move_rule_applies() || self.threefold_repetition_applies() {
+        if self.fifty_move_rule_applies() {
             moves.push(Move {
-                move_type: ClaimDraw,
+                move_type: ClaimDraw(DrawClaimBasis::FiftyMoveRule),
+                source: Default::default(),
+                target: Default::default(),
+            });
+        }
+        if self.threefold_repetition_applies() {
+            moves.push(Move {
+                move_type: ClaimDraw(DrawClaimBasis::ThreefoldRepetition),
                 source: Default::default(),
                 target: Default::default(),
             });
