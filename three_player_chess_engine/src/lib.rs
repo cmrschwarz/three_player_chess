@@ -1,7 +1,6 @@
 mod eval;
 
-use crate::eval::piece_score;
-use eval::evaluate_position;
+use eval::*;
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
 use std::ops::Sub;
@@ -57,6 +56,7 @@ struct EngineMove {
     hash: u64,
     mov: Option<Move>, // we allow null moves
     eval: Eval,
+    captures_available: Option<bool>,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd)]
@@ -89,7 +89,6 @@ impl Default for Transposition {
         Transposition::new(None, EVAL_LOSS, 0)
     }
 }
-
 fn get_initial_pos_eval_for_sort(tpc: &mut ThreePlayerChess, mov: Move) -> i16 {
     let mut sc = 0;
     if tpc.is_king_capturable(None) {
@@ -217,11 +216,17 @@ impl Engine {
         rm: Option<ReversableMove>,
         captures_only: bool,
     ) -> &EngineDepth {
-        let parent_hash = if depth > 0 {
+        let (parent_hash, parent_eval, parent_has_caps) = if depth > 0 {
             let parent = &self.engine_stack[depth as usize - 1];
-            parent.moves[parent.index - 1].hash
+            let p_mov = &parent.moves[parent.index - 1];
+            (p_mov.hash, p_mov.eval, p_mov.captures_available)
         } else {
-            self.board.get_zobrist_hash()
+            let (eval, has_caps) = evaluate_position(&mut self.board, self.deciding_player);
+            (
+                self.board.get_zobrist_hash(),
+                flip_eval(!is_depth_of_us(depth + 2), eval),
+                Some(has_caps),
+            )
         };
         let ed = if self.engine_stack.len() == depth as usize {
             self.engine_stack.push(Default::default());
@@ -247,7 +252,8 @@ impl Engine {
         ed.moves.reserve(self.dummy_vec.len() + 1);
         if captures_only {
             ed.moves.push(EngineMove {
-                eval: EVAL_DRAW,
+                eval: flip_eval(!is_depth_of_us(depth + 1), parent_eval),
+                captures_available: parent_has_caps,
                 hash: parent_hash,
                 mov: None,
             });
@@ -261,20 +267,30 @@ impl Engine {
             }
             let rm = ReversableMove::new(&self.board, *mov);
             self.board.perform_move(rm.mov);
-            let hash = self.board.get_zobrist_hash();
-            let eval = self.transposition_table.get(&hash).map_or_else(
-                || get_initial_pos_eval_for_sort(&mut self.board, *mov),
-                |tp| -tp.eval,
+
+            let hash = self.board.get_zobrist_hash()
+            //get_initial_pos_eval_for_sort(&mut self.board, *mov), tp)
+
+            let (eval, has_caps) = self.transposition_table.get(&hash).map_or_else(
+                || {
+                    let (ev, caps) = evaluate_position(&mut self.board, self.deciding_player);
+                    (
+                        flip_eval(self.board.turn != self.deciding_player, ev),
+                        Some(caps),
+                    )
+                },
+                |tp| (-tp.eval, None),
             );
             self.board.revert_move(&rm);
             ed.moves.push(EngineMove {
                 eval,
+                captures_available: has_caps,
                 hash,
                 mov: Some(*mov),
             });
         }
         self.dummy_vec.clear();
-        ed.moves.sort_by(|m_l, m_r| m_r.eval.cmp(&m_l.eval));
+        ed.moves.sort_by(|m_l, m_r| m_l.eval.cmp(&m_r.eval));
         ed
     }
     fn propagate_move_eval(
@@ -314,6 +330,9 @@ impl Engine {
                     self.prune_count += 1;
                     result = PropagationResult::Pruned(2);
                 }
+            } else if eval >= EVAL_WIN - self.board.move_index as i16 - 1 {
+                self.prune_count += 1;
+                result = PropagationResult::Pruned(1);
             }
             if self.debug_log && mov.is_some() {
                 // we really like this as debug break point, so we keep separate lines
@@ -342,6 +361,7 @@ impl Engine {
                 );
             }
         }
+
         result
     }
     pub fn engine_line_str(&mut self, depth: u16, last_move: Option<&ReversableMove>) -> String {
@@ -406,7 +426,7 @@ impl Engine {
     }
     fn search_iterate(&mut self, end: Instant) -> Result<(), ()> {
         self.gen_engine_depth(0, None, false);
-        let mut depth = 0;
+        let mut depth: u16 = 0;
         let mut propagation_result = PropagationResult::Ok;
         loop {
             let mut ed = &mut self.engine_stack[depth as usize];
@@ -436,13 +456,14 @@ impl Engine {
                 }
                 ed = &mut self.engine_stack[depth as usize];
             }
+            let only_move = ed.moves.len() == 1;
             let em = &mut ed.moves[ed.index];
             ed.index += 1;
 
             let rm;
             if let Some(mov) = em.mov {
-                let ed_hash = ed.hash;
-                debug_assert!(hash_board(&self.board) == ed_hash);
+                //let ed_hash = ed.hash;
+                //assert!(hash_board(&self.board) == ed_hash);
                 if let Some(tp) = self.transposition_table.get(&em.hash) {
                     if tp.eval_depth >= self.eval_depth_max {
                         self.transposition_count += 1;
@@ -461,43 +482,40 @@ impl Engine {
             // 'overrulable' by actual moves
             depth += 1;
             let game_over = self.board.game_status != GameStatus::Ongoing;
-            let force_eval = rm.is_none() || depth > self.depth_max + MAX_CAPTURE_LINE_LENGTH;
+            let force_eval =
+                rm.is_none() || depth > self.depth_max + MAX_CAPTURE_LINE_LENGTH || only_move;
             if depth >= self.depth_max || force_eval || game_over {
                 self.pos_count += 1;
-                let (eval_perspective, captures_exist) =
-                    evaluate_position(&mut self.board, self.deciding_player);
+                let eval = em.eval;
+                let eval_now = if game_over || force_eval {
+                    true
+                } else {
+                    !em.captures_available
+                        .unwrap_or_else(|| board_has_captures(&mut self.board))
+                };
                 let hash = em.hash;
-
-                let eval = flip_eval(!is_depth_of_us(depth), eval_perspective);
 
                 if self.debug_log {
                     let line_depth = depth - rm.as_ref().map_or(1, |_| 0);
                     println!(
-                        "eval@ {}{}: {} ({}) (cap: {}, force: {})",
+                        "eval@ {}{}: {} ({}) (eval_now: {})",
                         self.engine_line_str(line_depth, rm.as_ref()),
                         rm.as_ref().map_or(" NULL", |_| ""),
                         eval,
-                        eval_perspective,
-                        captures_exist,
-                        force_eval
+                        flip_eval(!is_depth_of_us(depth), eval),
+                        eval_now
                     );
                 }
-                self.transposition_table
-                    .insert(hash, Transposition::new(None, eval, self.eval_depth_max));
-                if !captures_exist || force_eval || game_over {
+
+                if eval_now {
+                    self.transposition_table
+                        .insert(hash, Transposition::new(None, eval, self.eval_depth_max));
                     if let Some(ref rm) = rm {
                         self.board.revert_move(rm);
                     }
                     depth -= 1;
+
                     propagation_result = self.propagate_move_eval(depth, rm.map(|rm| rm.mov), eval);
-                    if propagation_result == PropagationResult::Ok {
-                        if (eval_perspective >= EVAL_WIN - self.board.move_index as i16)
-                            == (self.board.turn == self.deciding_player)
-                        {
-                            self.prune_count += 1;
-                            propagation_result = PropagationResult::Pruned(1);
-                        }
-                    }
                     continue;
                 }
                 if self.debug_log {

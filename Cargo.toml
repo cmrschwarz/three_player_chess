@@ -1,3 +1,7 @@
 [workspace]
 members = ["three_player_chess_frontend", "three_player_chess_game", "three_player_chess", "three_player_chess_engine"]
 exclude = ["./deps/**"]
+
+[profile.release-with-debug]
+inherits = "release"
+debug = true

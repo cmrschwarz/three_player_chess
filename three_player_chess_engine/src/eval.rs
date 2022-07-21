@@ -137,6 +137,22 @@ fn add_king_location_scores(score: &mut Score, tpc: &mut ThreePlayerChess) {
         };
     }
 }
+pub fn board_has_captures(tpc: &mut ThreePlayerChess) -> bool {
+    for i in 0..BOARD_SIZE {
+        if let Some((color, _)) = *FieldValue::from(tpc.board[i]) {
+            let loc = FieldLocation::from(i);
+            if color != tpc.turn {
+                if tpc
+                    .is_piece_capturable_at(loc, Some(tpc.turn), true)
+                    .is_some()
+                {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
 
 pub fn evaluate_position(tpc: &mut ThreePlayerChess, perspective: Color) -> (Eval, bool) {
     let mut captures_exist = false;
