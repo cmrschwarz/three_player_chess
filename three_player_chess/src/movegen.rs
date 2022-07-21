@@ -145,7 +145,7 @@ impl CheckPossibilities {
             lines_count += 1;
         }
         if lines_count != CHECK_LINES_DIAGONALS_COUNT {
-            assert!(lines_count + 1 == CHECK_LINES_DIAGONALS_COUNT);
+            debug_assert!(lines_count + 1 == CHECK_LINES_DIAGONALS_COUNT);
             self.diagonal_line_ends[lines_count] = self.diagonal_line_ends[lines_count - 1];
         }
     }
@@ -190,7 +190,7 @@ impl AnnotatedFieldLocation {
         }
     }
     pub fn from_field_with_origin_and_hb(origin: Color, hb: Color, field: FieldLocation) -> Self {
-        assert!(hb == field.hb());
+        debug_assert!(hb == field.hb());
         AnnotatedFieldLocation {
             origin,
             loc: field,
@@ -289,7 +289,7 @@ pub fn move_rank(field: AnnotatedFieldLocation, up: bool) -> Option<AnnotatedFie
     // we don't have to support changing rank across the top center line,
     // as AFLs for rook and queen moves get the origin of the field they
     // are on. this way they don't have to change direction
-    assert!(hb == field.origin || field.hb == field.origin);
+    debug_assert!(hb == field.origin || field.hb == field.origin);
     let file = adjust_coord(field.file, field.origin != hb);
     Some(AnnotatedFieldLocation::new(
         field.origin,
@@ -341,7 +341,7 @@ fn get_knight_moves_for_field(
     // excluding the ones already covered
     // because knight moves are calculated with the origin being set
     // to the starting board, only moving up can change the board
-    assert!(field.hb == field.origin);
+    debug_assert!(field.hb == field.origin);
     // if we are on the left hb, the new moves are up right
     let move_right = field.file <= HBRC;
     let hb_file = if move_right {
@@ -702,6 +702,7 @@ impl ThreePlayerChess {
         self.last_capture_or_pawn_move_index = rm.last_capture_or_pawn_move_index;
         self.possible_rooks_for_castling = rm.possible_rooks_for_castling;
         self.possible_en_passant = rm.possible_en_passant;
+        debug_assert!(self.move_index >= rm.last_capture_or_pawn_move_index);
         if FieldValue::from(self.board[usize::from(rm.mov.target)])
             .piece_type()
             .unwrap()
@@ -754,7 +755,7 @@ impl ThreePlayerChess {
         check_for_checks: bool,
     ) -> Option<Move> {
         //checking for checks only makes sense for the current player
-        assert!(!check_for_checks || capturing_color == Some(self.turn));
+        debug_assert!(!check_for_checks || capturing_color == Some(self.turn));
         let field_value = self.board[usize::from(loc)];
         let (piece_color, piece_type) = FieldValue::from(field_value).unwrap();
         fn color_may_capture(
@@ -974,7 +975,7 @@ impl ThreePlayerChess {
         // to move up/down(!) across the upper center line
         // therefore we use the native origin of the starting field
         // so this can't happen
-        assert!(field.origin == field.hb);
+        debug_assert!(field.origin == field.hb);
         for (length, rank, increase) in [
             (RS - field.rank, true, true),  // up
             (field.rank - 1, true, false),  // down
