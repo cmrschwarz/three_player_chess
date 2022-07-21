@@ -167,7 +167,7 @@ pub fn evaluate_position(tpc: &mut ThreePlayerChess, perspective: Color) -> (Eva
                     add_location_score(&mut board_score, loc, piece_type, color);
                     if color != tpc.turn && !captures_exist {
                         captures_exist = tpc
-                            .is_piece_capturable_at(loc, color, Some(tpc.turn), true)
+                            .is_piece_capturable_at(loc, Some(tpc.turn), true)
                             .is_some();
                     }
                 }

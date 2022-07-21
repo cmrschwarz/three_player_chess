@@ -4,7 +4,6 @@ use crate::eval::piece_score;
 use eval::evaluate_position;
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
-use std::borrow::Borrow;
 use std::ops::Sub;
 use std::time::{Duration, Instant};
 use three_player_chess::board::MoveType::*;
@@ -442,6 +441,8 @@ impl Engine {
 
             let rm;
             if let Some(mov) = em.mov {
+                let ed_hash = ed.hash;
+                debug_assert!(hash_board(&self.board) == ed_hash);
                 if let Some(tp) = self.transposition_table.get(&em.hash) {
                     if tp.eval_depth >= self.eval_depth_max {
                         self.transposition_count += 1;
