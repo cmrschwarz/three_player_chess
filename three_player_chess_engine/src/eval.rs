@@ -165,7 +165,7 @@ pub fn evaluate_position(tpc: &mut ThreePlayerChess, perspective: Color) -> (Eva
             } else {
                 match win_reason {
                     // encourage fighting on
-                    WinReason::Checkmate(looser) => {
+                    WinReason::Checkmate(looser) | WinReason::CapturableKing(looser) => {
                         if looser == perspective {
                             EVAL_LOSS + tpc.move_index as i16
                         } else {

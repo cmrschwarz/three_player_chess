@@ -110,6 +110,7 @@ impl Default for Color {
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum WinReason {
     Checkmate(Color),
+    CapturableKing(Color),
     //todo: maybe allow resignation?
 }
 
@@ -993,28 +994,44 @@ impl Move {
             ))?,
         }
         let turn = game.turn;
-        game.apply_move(*self);
-        game.turn = get_next_hb(game.turn, true);
-        if game.is_king_in_checkmate() {
-            if game.is_king_capturable(Some(turn)) {
-                writer.write_char('#')?;
-            } else {
-                writer.write_str("(#)")?;
+        let rm = ReversableMove::new(game, *self);
+
+        game.perform_move(*self);
+        let gs = game.game_status;
+
+        match gs {
+            GameStatus::Ongoing => {
+                if game.is_king_capturable(None) {
+                    if game.is_king_capturable(Some(turn)) {
+                        writer.write_char('+')?;
+                    } else {
+                        writer.write_str("(+)")?;
+                    }
+                } else if game
+                    .is_piece_capturable_at(
+                        game.king_positions[usize::from(get_next_hb(turn, false))],
+                        Some(turn),
+                        false,
+                    )
+                    .is_some()
+                {
+                    writer.write_str("(+)")?;
+                }
             }
-        } else if game.is_king_capturable(None) {
-            if game.is_king_capturable(Some(turn)) {
-                writer.write_char('+')?;
-            } else {
-                writer.write_str("(+)")?;
+            GameStatus::Win(winner, _) => {
+                if winner == game.turn {
+                    writer.write_char('#')?;
+                } else {
+                    writer.write_str("(#)")?;
+                }
             }
-        } else {
-            game.turn = get_next_hb(game.turn, true);
-            if game.is_king_capturable(Some(turn)) {
-                writer.write_str("(+)")?;
+            GameStatus::Draw(_) => {
+                // there is no notation for this in normal chess,
+                // so this is just made up
+                writer.write_str("0/0")?;
             }
         }
-        game.turn = turn;
-        game.unapply_move(*self);
+        game.revert_move(&rm);
         Ok(())
     }
     // regular move has max 11 characters, e.g.: 'exf10 e.p.(#)'

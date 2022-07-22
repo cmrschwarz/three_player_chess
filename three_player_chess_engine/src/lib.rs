@@ -249,7 +249,6 @@ impl Engine {
                 only_one: false,
             },
         );
-        ed.moves.reserve(self.dummy_vec.len() + 1);
         if captures_only {
             ed.moves.push(EngineMove {
                 eval: flip_eval(!is_depth_of_us(depth + 1), parent_eval),

@@ -638,21 +638,9 @@ impl ThreePlayerChess {
                 self.last_capture_or_pawn_move_index = self.move_index;
             }
         }
-        let player_to_move = self.turn;
-        self.turn = self.turn.next();
+        self.turn = get_next_hb(self.turn, true);
         self.zobrist_hash.next_turn(self.turn);
-        //check whether the next player has no move to get out of check
-        // which would mean somebody won
-
-        if self.is_king_in_checkmate() {
-            let next_player = self.turn.next();
-            let winner = if self.is_king_capturable(Some(next_player)) {
-                next_player
-            } else {
-                player_to_move
-            };
-            self.game_status = GameStatus::Win(winner, WinReason::Checkmate(self.turn))
-        }
+        self.game_status = self.game_status();
     }
     pub fn unapply_move(&mut self, m: Move) {
         let src = usize::from(m.source);
@@ -906,33 +894,50 @@ impl ThreePlayerChess {
         self.is_piece_capturable_at(kp, capturing_color, false)
             .is_some()
     }
-    pub fn is_king_in_checkmate(&mut self) -> bool {
-        if !self.is_king_capturable(None) {
-            return false;
+    pub fn game_status(&mut self) -> GameStatus {
+        if self.game_status != GameStatus::Ongoing {
+            return self.game_status;
         }
+        // check whether the current player has a legal move (doesn't disregard check)
+        // that would capture the third player's king
+        // (piece of previous player moved out of the way uncovering the king). in that case the current player wins
+        let next_player = get_next_hb(self.turn, true);
+        if self
+            .is_piece_capturable_at(
+                self.king_positions[usize::from(next_player)],
+                Some(self.turn),
+                true,
+            )
+            .is_some()
+        {
+            return GameStatus::Win(self.turn, WinReason::CapturableKing(next_player));
+        }
+        // check whether the current player has no move to get out of check
+        // which would mean somebody won
         let opts = MovegenOptions {
             captures_only: false,
             only_one: true,
         };
         let mut dv = self.dummy_vec.take().unwrap();
-        self.gen_moves_king(
-            AnnotatedFieldLocation::from(self.king_positions[usize::from(self.turn)]),
-            &mut dv,
-            opts,
-        );
-        if !dv.is_empty() {
-            dv.clear();
-            self.dummy_vec = Some(dv);
-            return false;
-        }
         self.gen_moves_with_options(&mut dv, opts);
-        if !dv.is_empty() {
-            dv.clear();
-            self.dummy_vec = Some(dv);
-            return false;
-        }
+        let no_legal_moves = dv.is_empty();
+        dv.clear();
         self.dummy_vec = Some(dv);
-        true
+
+        if no_legal_moves {
+            if self.is_king_capturable(None) {
+                let winner = if self.is_king_capturable(Some(next_player)) {
+                    next_player
+                } else {
+                    get_next_hb(next_player, true)
+                };
+                GameStatus::Win(winner, WinReason::Checkmate(self.turn))
+            } else {
+                GameStatus::Draw(DrawReason::Stalemate(self.turn))
+            }
+        } else {
+            GameStatus::Ongoing
+        }
     }
 
     fn gen_non_king_slide_move(
@@ -1366,6 +1371,17 @@ impl ThreePlayerChess {
         moves: &mut Vec<Move>,
         opts: MovegenOptions,
     ) {
+        if self.game_status != GameStatus::Ongoing {
+            return;
+        }
+        self.gen_moves_for_field_unchecked(field, moves, opts);
+    }
+    pub fn gen_moves_for_field_unchecked(
+        &mut self,
+        field: FieldLocation,
+        moves: &mut Vec<Move>,
+        opts: MovegenOptions,
+    ) {
         match self.get_field_value(field) {
             FieldValue(Some((color, piece_type))) if color == self.turn => {
                 let field = field;
@@ -1387,7 +1403,7 @@ impl ThreePlayerChess {
             return;
         }
         for i in 0..self.board.len() {
-            self.gen_moves_for_field(FieldLocation::from(i), moves, opts);
+            self.gen_moves_for_field_unchecked(FieldLocation::from(i), moves, opts);
             if !moves.is_empty() && opts.only_one {
                 return;
             }
