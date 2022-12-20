@@ -76,6 +76,7 @@ pub struct Frontend {
     pub go_infinite: bool,
     pub autoplay: bool,
     pub engine_depth: u16,
+    pub engine_time_secs: u16,
 }
 const PROMOTION_QUADRANTS: [(PieceType, f32, f32); 4] = [
     (Queen, 0., 0.),
@@ -387,7 +388,8 @@ impl Frontend {
             engine: Engine::new(),
             autoplay: false,
             go_infinite: false,
-            engine_depth: 3
+            engine_depth: 3,
+            engine_time_secs: 3
         }
     }
     fn get_hb_id(&self, color: board::Color) -> usize {
@@ -1120,7 +1122,11 @@ impl Frontend {
         if let Some((mov, line_str, eval)) = self.engine.search_position(
             &self.board,
             self.engine_depth,
-            if self.go_infinite { 10e6 } else { 3. },
+            if self.go_infinite {
+                10e6
+            } else {
+                self.engine_time_secs as f32
+            },
         ) {
             let end = Instant::now();
             println!(

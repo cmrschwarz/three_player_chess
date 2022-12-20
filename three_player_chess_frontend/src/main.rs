@@ -137,6 +137,7 @@ fn main() {
                         KeyboardInput {
                             virtual_keycode,
                             state: ElementState::Pressed,
+                            modifiers,
                             ..
                         },
                     ..
@@ -167,15 +168,29 @@ fn main() {
                             fe.go_infinite ^= true;
                             println!("set infinite search to {}", fe.go_infinite);
                         }
-                        Some(VirtualKeyCode::Plus) => {
-                            fe.engine_depth += 1;
-                            println!("set infinite search to {}", fe.engine_depth);
+                        Some(VirtualKeyCode::Plus | VirtualKeyCode::Asterisk) => {
+                            if modifiers.shift() {
+                                fe.engine_depth += 1;
+                                println!("set engine depth to {}", fe.engine_depth);
+                            } else {
+                                fe.engine_time_secs += 1;
+                                println!("set engine time to {} s", fe.engine_time_secs);
+                            }
                         }
-                        Some(VirtualKeyCode::Minus) => {
-                            fe.engine_depth -= 1;
-                            println!("set infinite search to {}", fe.engine_depth);
+                        Some(VirtualKeyCode::Minus | VirtualKeyCode::Underline) => {
+                            if modifiers.shift() {
+                                fe.engine_depth -= 1;
+                                println!("set engine depth to {}", fe.engine_depth);
+                            } else {
+                                fe.engine_time_secs -= 1;
+                                println!("set engine time to {} s", fe.engine_time_secs);
+                            }
                         }
                         Some(VirtualKeyCode::E) => {
+                            println!(
+                                "running engine ... (depth: {}, time: {} s)",
+                                fe.engine_depth, fe.engine_time_secs
+                            );
                             fe.do_engine_move();
                         }
                         Some(VirtualKeyCode::T) => {
