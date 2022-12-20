@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 use three_player_chess::board::MoveType::*;
 use three_player_chess::board::*;
 use three_player_chess::movegen::MovegenOptions;
+use three_player_chess::zobrist::*;
 
 type Eval = i16;
 type Score = [i16; HB_COUNT];
@@ -201,7 +202,7 @@ impl Engine {
             let parent = &self.engine_stack[depth as usize - 1];
             parent.moves[parent.index - 1].hash
         } else {
-            self.board.zobrist_hash.value
+            self.board.get_zobrist_hash()
         };
         let ed = if self.engine_stack.len() == depth as usize {
             self.engine_stack.push(Default::default());
@@ -241,7 +242,7 @@ impl Engine {
             }
             let rm = ReversableMove::new(&self.board, *mov);
             self.board.perform_move(rm.mov);
-            let hash = self.board.zobrist_hash.value;
+            let hash = self.board.get_zobrist_hash();
             let eval = self.transposition_table.get(&hash).map_or_else(
                 || get_initial_pos_eval_for_sort(&mut self.board, *mov),
                 |tp| -tp.eval,
@@ -358,7 +359,7 @@ impl Engine {
                 res.push_str(mov.to_string(&mut board).as_str());
                 board.perform_move(mov);
             }
-            if let Some(tp) = self.transposition_table.get(&board.zobrist_hash.value) {
+            if let Some(tp) = self.transposition_table.get(&board.get_zobrist_hash()) {
                 if mov.is_some() {
                     let tp_eval = tp.eval;
                     let (board_eval, _) = evaluate_position(&mut board, self.deciding_player);

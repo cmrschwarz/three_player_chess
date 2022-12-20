@@ -1,6 +1,7 @@
 use crate::board::MoveType::*;
 use crate::board::PieceType::*;
 use crate::board::*;
+use crate::zobrist::ZobristHash;
 use arrayvec::ArrayVec;
 use std::cmp::{max, min};
 use std::option::Option::*;
@@ -509,14 +510,20 @@ impl ThreePlayerChess {
         let field_value = self.get_field_value(m.target);
         self.zobrist_hash.toggle_square(m.source, field_value);
         self.zobrist_hash.toggle_square(m.target, field_value);
-        self.zobrist_hash
-            .fifty_move_rule_move_inc(self.move_index, self.last_capture_or_pawn_move_index);
         let (_, piece) = field_value.unwrap();
         match piece {
             PieceType::King => {
                 self.apply_king_move_sideeffects(m);
+                self.zobrist_hash.fifty_move_rule_move_inc(
+                    self.move_index,
+                    self.last_capture_or_pawn_move_index,
+                );
             }
             PieceType::Pawn => {
+                self.zobrist_hash.fifty_move_rule_move_reset(
+                    self.move_index,
+                    self.last_capture_or_pawn_move_index,
+                );
                 self.last_capture_or_pawn_move_index = self.move_index;
                 let source = AnnotatedFieldLocation::from_with_origin(self.turn, m.source);
                 let target = AnnotatedFieldLocation::from_with_origin(self.turn, m.target);
@@ -527,9 +534,18 @@ impl ThreePlayerChess {
                 }
             }
             PieceType::Rook => {
+                self.zobrist_hash.fifty_move_rule_move_inc(
+                    self.move_index,
+                    self.last_capture_or_pawn_move_index,
+                );
                 self.remove_castling_rights_from_rook(m.source, self.turn);
             }
-            _ => {}
+            _ => {
+                self.zobrist_hash.fifty_move_rule_move_inc(
+                    self.move_index,
+                    self.last_capture_or_pawn_move_index,
+                );
+            }
         }
     }
     fn apply_draw_claiming_sideeffects(&mut self, _m: Move) {
@@ -679,13 +695,12 @@ impl ThreePlayerChess {
     }
     pub fn unapply_move_sideffects(&mut self, rm: &ReversableMove) {
         self.turn = get_next_hb(self.turn, false);
-        self.move_index -= 1;
         self.game_status = GameStatus::Ongoing;
+        self.move_index -= 1;
+        assert!(self.move_index >= rm.last_capture_or_pawn_move_index);
         self.last_capture_or_pawn_move_index = rm.last_capture_or_pawn_move_index;
         self.possible_rooks_for_castling = rm.possible_rooks_for_castling;
         self.possible_en_passant = rm.possible_en_passant;
-        self.zobrist_hash.value = rm.zobrist_hash_value;
-        assert!(self.move_index >= rm.last_capture_or_pawn_move_index);
         if FieldValue::from(self.board[usize::from(rm.mov.target)])
             .piece_type()
             .unwrap()
@@ -693,6 +708,7 @@ impl ThreePlayerChess {
         {
             self.king_positions[usize::from(self.turn)] = rm.mov.source;
         }
+        self.zobrist_hash.value = rm.zobrist_hash_value;
     }
     fn would_king_move_bypass_check(&mut self, mv: Move) -> bool {
         self.apply_move(mv);

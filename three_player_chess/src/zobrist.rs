@@ -49,7 +49,7 @@ impl ZobristHash {
         zh.recalc_zobrist(tpc);
         zh
     }
-    pub fn recalc_zobrist(&mut self, tpc: &ThreePlayerChess) {
+    pub fn recalc_zobrist(&mut self, tpc: &ThreePlayerChess) -> u64 {
         let mut res = 0;
         for i in 0..BOARD_SIZE {
             if let Some((color, piece)) = *FieldValue::from(tpc.board[i]) {
@@ -73,6 +73,7 @@ impl ZobristHash {
         res ^= self.zobrist_data.turn_values[usize::from(tpc.turn)];
         res ^= (tpc.move_index - tpc.last_capture_or_pawn_move_index) as u64;
         self.value = res;
+        self.value
     }
 
     pub fn toggle_square(&mut self, loc: FieldLocation, val: FieldValue) {

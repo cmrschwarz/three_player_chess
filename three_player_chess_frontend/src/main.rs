@@ -169,20 +169,20 @@ fn main() {
                             println!("set infinite search to {}", fe.go_infinite);
                         }
                         Some(VirtualKeyCode::Plus | VirtualKeyCode::Asterisk) => {
-                            if modifiers.shift() {
-                                fe.engine_depth += 1;
+                            if modifiers.ctrl() {
+                                fe.engine_depth = fe.engine_depth.saturating_add(1);
                                 println!("set engine depth to {}", fe.engine_depth);
                             } else {
-                                fe.engine_time_secs += 1;
+                                fe.engine_time_secs = fe.engine_time_secs.saturating_add(1);
                                 println!("set engine time to {} s", fe.engine_time_secs);
                             }
                         }
-                        Some(VirtualKeyCode::Minus | VirtualKeyCode::Underline) => {
-                            if modifiers.shift() {
-                                fe.engine_depth -= 1;
+                        Some(VirtualKeyCode::Minus) => {
+                            if modifiers.ctrl() {
+                                fe.engine_depth = fe.engine_depth.saturating_sub(1);
                                 println!("set engine depth to {}", fe.engine_depth);
                             } else {
-                                fe.engine_time_secs -= 1;
+                                fe.engine_time_secs = fe.engine_time_secs.saturating_sub(1);
                                 println!("set engine time to {} s", fe.engine_time_secs);
                             }
                         }
@@ -209,6 +209,14 @@ fn main() {
                         }
                         Some(VirtualKeyCode::X) => {
                             println!("{}", fe.board.state_string());
+                        }
+                        Some(VirtualKeyCode::Z) => {
+                            let mut zh = fe.board.zobrist_hash;
+                            println!(
+                                "full: {}, incremental: {}",
+                                fe.board.zobrist_hash.value,
+                                zh.recalc_zobrist(&fe.board)
+                            );
                         }
                         Some(VirtualKeyCode::I) => {
                             let mut buffer = String::new();

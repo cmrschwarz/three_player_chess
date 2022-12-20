@@ -219,8 +219,14 @@ impl ThreePlayerChess {
             zobrist_hash: ZobristHash::default(),
             dummy_vec: Some(Vec::new()),
         };
-        tpc.zobrist_hash = ZobristHash::new(&tpc);
+        tpc.recalc_zobrist();
         tpc
+    }
+    pub fn recalc_zobrist(&mut self) -> u64 {
+        let mut zh = self.zobrist_hash;
+        zh.recalc_zobrist(self);
+        self.zobrist_hash = zh;
+        zh.value
     }
     fn player_state_from_str<'a>(
         &mut self,
@@ -342,6 +348,7 @@ impl ThreePlayerChess {
             .parse()
             .or_else(|_| Err("move index is not a valid integer"))?;
         tpc.turn = Color::from((tpc.move_index % HB_COUNT as u16) as u8);
+        tpc.recalc_zobrist();
         Ok(tpc)
     }
     pub fn write_state_str<'a, W: std::fmt::Write>(
@@ -394,6 +401,10 @@ impl ThreePlayerChess {
         let mut string = String::new();
         self.write_state_str(&mut string).unwrap();
         string
+    }
+    pub fn get_zobrist_hash(&mut self) -> u64 {
+        assert!(self.zobrist_hash.value == ZobristHash::new(self).value);
+        self.zobrist_hash.value
     }
 }
 
