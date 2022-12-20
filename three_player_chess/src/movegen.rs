@@ -607,7 +607,14 @@ impl ThreePlayerChess {
             Capture(field_val) | CapturePromotion(field_val, _) => {
                 let capturer = self.get_field_value(m.target);
                 self.zobrist_hash.toggle_square(m.target, field_val.into());
-                self.zobrist_hash.toggle_square(m.source, capturer);
+                self.zobrist_hash.toggle_square(
+                    m.source,
+                    if let CapturePromotion(_, _) = m.move_type {
+                        FieldValue(Some((self.turn, Pawn)))
+                    } else {
+                        capturer
+                    },
+                );
                 self.zobrist_hash.toggle_square(m.target, capturer);
                 self.zobrist_hash.fifty_move_rule_move_reset(
                     self.move_index,
