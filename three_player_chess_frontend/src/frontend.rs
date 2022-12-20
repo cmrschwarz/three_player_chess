@@ -160,6 +160,15 @@ fn sk_paint_img() -> Paint {
     paint
 }
 
+fn sk_sampling_opts() -> skia_safe::SamplingOptions {
+    let mut so = skia_safe::SamplingOptions::new(
+        skia_safe::FilterMode::Linear,
+        skia_safe::MipmapMode::Linear,
+    );
+    so.use_cubic = false;
+    so
+}
+
 fn sk_paint(color: Color, style: PaintStyle) -> Paint {
     let mut paint = Paint::default();
     paint.set_anti_alias(true);
@@ -572,13 +581,14 @@ impl Frontend {
                     canvas.translate(Point::new(-0.5, -0.5));
                 };
                 let img = &self.pieces[usize::from(color)][usize::from(piece_type)];
-                canvas.draw_image_rect(
+                canvas.draw_image_rect_with_sampling_options(
                     img,
                     Some((
                         &Rect::from_xywh(0., 0., img.width() as f32, img.height() as f32),
                         skia_safe::canvas::SrcRectConstraint::Fast,
                     )),
                     &*UNIT_RECT,
+                    sk_sampling_opts(),
                     &sk_paint_img(),
                 );
             } else {
@@ -748,13 +758,14 @@ impl Frontend {
                     canvas.draw_rect(rect, &selection_paint);
                 }
 
-                canvas.draw_image_rect(
+                canvas.draw_image_rect_with_sampling_options(
                     img,
                     Some((
                         &Rect::from_xywh(0., 0., img.width() as f32, img.height() as f32),
                         skia_safe::canvas::SrcRectConstraint::Fast,
                     )),
                     rect,
+                    sk_sampling_opts(),
                     &sk_paint_img(),
                 );
             }
@@ -790,13 +801,15 @@ impl Frontend {
                 canvas.save();
                 self.transform_to_cell(canvas, hb, right, file, rank);
             }
-            canvas.draw_image_rect(
+
+            canvas.draw_image_rect_with_sampling_options(
                 img,
                 Some((
                     &Rect::from_xywh(0., 0., img.width() as f32, img.height() as f32),
                     skia_safe::canvas::SrcRectConstraint::Fast,
                 )),
                 &*UNIT_RECT,
+                sk_sampling_opts(),
                 &sk_paint_img(),
             );
 
