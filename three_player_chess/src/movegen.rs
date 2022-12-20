@@ -483,24 +483,35 @@ impl ThreePlayerChess {
     pub fn apply_king_move_sideeffects(&mut self, m: Move) {
         self.king_positions[usize::from(self.turn)] = m.target;
         for r in self.possible_rooks_for_castling[usize::from(self.turn)].iter_mut() {
-            *r = None;
+            if let Some(loc) = *r {
+                *r = None;
+                self.zobrist_hash.toggle_possible_castling_rook(loc);
+            }
         }
     }
     pub fn remove_castling_rights_from_rook(&mut self, loc: FieldLocation, color: Color) {
         for r in self.possible_rooks_for_castling[usize::from(color)].iter_mut() {
             if *r == Some(loc) {
                 *r = None;
+                self.zobrist_hash.toggle_possible_castling_rook(loc);
             }
         }
     }
     pub fn remove_en_passent_target(&mut self, loc: FieldLocation, color: Color) {
         let ci = usize::from(color);
         if self.possible_en_passant[ci] == Some(loc) {
+            assert!(loc.hb() == color);
             self.possible_en_passant[ci] = None;
+            self.zobrist_hash.toggle_en_passent_square(loc);
         }
     }
     fn apply_slide_sideeffects(&mut self, m: Move) {
-        let (_, piece) = self.get_field_value(m.target).unwrap();
+        let field_value = self.get_field_value(m.target);
+        self.zobrist_hash.toggle_square(m.source, field_value);
+        self.zobrist_hash.toggle_square(m.target, field_value);
+        self.zobrist_hash
+            .fifty_move_rule_move_inc(self.move_index, self.last_capture_or_pawn_move_index);
+        let (_, piece) = field_value.unwrap();
         match piece {
             PieceType::King => {
                 self.apply_king_move_sideeffects(m);
@@ -510,8 +521,9 @@ impl ThreePlayerChess {
                 let source = AnnotatedFieldLocation::from_with_origin(self.turn, m.source);
                 let target = AnnotatedFieldLocation::from_with_origin(self.turn, m.target);
                 if source.rank == 2 && target.rank == 4 {
-                    self.possible_en_passant[usize::from(self.turn)] =
-                        Some(move_rank(source, true).unwrap().loc);
+                    let loc = move_rank(source, true).unwrap().loc;
+                    self.possible_en_passant[usize::from(self.turn)] = Some(loc);
+                    self.zobrist_hash.toggle_en_passent_square(loc);
                 }
             }
             PieceType::Rook => {
@@ -529,7 +541,12 @@ impl ThreePlayerChess {
     }
     pub fn apply_move_sideeffects(&mut self, m: Move) {
         self.move_index += 1;
-        self.possible_en_passant[usize::from(self.turn)] = None;
+        let ep = &mut self.possible_en_passant[usize::from(self.turn)];
+        if let Some(loc) = *ep {
+            self.zobrist_hash.toggle_en_passent_square(loc);
+            *ep = None;
+        }
+
         let (_, piece) = self.get_field_value(m.target).unwrap();
         match m.move_type {
             Slide => self.apply_slide_sideeffects(m),
@@ -537,16 +554,49 @@ impl ThreePlayerChess {
                 self.apply_slide_sideeffects(m);
                 self.apply_draw_claiming_sideeffects(m);
             }
-            Castle(_) => {
+            Castle(short) => {
+                let king = FieldValue(Some((self.turn, King)));
+                self.zobrist_hash.toggle_square(m.source, king);
+                self.zobrist_hash.toggle_square(m.target, king);
+
+                let rook = FieldValue(Some((self.turn, Rook)));
+                let rook_source = self.possible_rooks_for_castling[usize::from(self.turn)]
+                    [usize::from(short)]
+                .unwrap();
+                let rook_target = get_castling_target(self.turn, false, short);
+                self.zobrist_hash.toggle_square(rook_source, rook);
+                self.zobrist_hash.toggle_square(rook_target, rook);
+
+                self.zobrist_hash.fifty_move_rule_move_inc(
+                    self.move_index,
+                    self.last_capture_or_pawn_move_index,
+                );
                 self.apply_king_move_sideeffects(m);
             }
-            EnPassant(_, _) => {
+            EnPassant(captured_pawn, capture_loc) => {
+                let capturer = self.get_field_value(m.target);
+                self.zobrist_hash.toggle_square(m.source, capturer);
+                self.zobrist_hash.toggle_square(m.target, capturer);
+                self.zobrist_hash
+                    .toggle_square(capture_loc, captured_pawn.into());
+                self.zobrist_hash.fifty_move_rule_move_reset(
+                    self.move_index,
+                    self.last_capture_or_pawn_move_index,
+                );
                 self.last_capture_or_pawn_move_index = self.move_index;
             }
             ClaimDraw => {
                 self.apply_draw_claiming_sideeffects(m);
             }
             Capture(field_val) | CapturePromotion(field_val, _) => {
+                let capturer = self.get_field_value(m.target);
+                self.zobrist_hash.toggle_square(m.target, field_val.into());
+                self.zobrist_hash.toggle_square(m.source, capturer);
+                self.zobrist_hash.toggle_square(m.target, capturer);
+                self.zobrist_hash.fifty_move_rule_move_reset(
+                    self.move_index,
+                    self.last_capture_or_pawn_move_index,
+                );
                 self.last_capture_or_pawn_move_index = self.move_index;
                 if piece == PieceType::King {
                     self.apply_king_move_sideeffects(m);
@@ -560,15 +610,25 @@ impl ThreePlayerChess {
                     self.remove_en_passent_target(m.target, color);
                 }
             }
-            Promotion(_) => (),
+            Promotion(piece_type) => {
+                self.zobrist_hash
+                    .toggle_square(m.source, FieldValue(Some((self.turn, Pawn))));
+                self.zobrist_hash
+                    .toggle_square(m.target, FieldValue(Some((self.turn, piece_type))));
+                self.zobrist_hash.fifty_move_rule_move_reset(
+                    self.move_index,
+                    self.last_capture_or_pawn_move_index,
+                );
+            }
         }
         let player_to_move = self.turn;
-        self.turn = get_next_hb(self.turn, true);
+        self.turn = self.turn.next();
+        self.zobrist_hash.next_turn(self.turn);
         //check whether the next player has no move to get out of check
         // which would mean somebody won
 
         if self.is_king_in_checkmate() {
-            let next_player = get_next_hb(self.turn, true);
+            let next_player = self.turn.next();
             let winner = if self.is_king_capturable(Some(next_player)) {
                 next_player
             } else {
@@ -624,6 +684,7 @@ impl ThreePlayerChess {
         self.last_capture_or_pawn_move_index = rm.last_capture_or_pawn_move_index;
         self.possible_rooks_for_castling = rm.possible_rooks_for_castling;
         self.possible_en_passant = rm.possible_en_passant;
+        self.zobrist_hash.value = rm.zobrist_hash_value;
         assert!(self.move_index >= rm.last_capture_or_pawn_move_index);
         if FieldValue::from(self.board[usize::from(rm.mov.target)])
             .piece_type()

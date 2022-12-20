@@ -1486,6 +1486,7 @@ dependencies = [
  "lazy_static",
  "num-derive",
  "num-traits",
+ "rand",
 ]
 
 [[package]]
@@ -1494,7 +1495,6 @@ version = "0.1.0"
 dependencies = [
  "lazy_static",
  "num-traits",
- "rand",
  "three_player_chess",
 ]
 

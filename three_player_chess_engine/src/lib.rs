@@ -1,13 +1,9 @@
-#[macro_use]
-extern crate lazy_static;
-
 mod eval;
 
 use crate::eval::piece_score;
 use eval::evaluate_position;
 use std::time::{Duration, Instant};
 use three_player_chess::board::MoveType::*;
-use three_player_chess::board::PieceType::*;
 use three_player_chess::board::*;
 use three_player_chess::movegen::MovegenOptions;
 
@@ -20,8 +16,6 @@ const EVAL_NEUTRAL: Eval = -5000;
 const EVAL_LOSS: Eval = -10000;
 const EVAL_MAX: Eval = Eval::MAX;
 
-const PIECE_TYPE_CASTLABLE_ROOK: usize = PIECE_COUNT;
-const PIECE_TYPE_EN_PASSENT_SQUARE: usize = PIECE_COUNT + 1;
 const MAX_CAPTURE_LINE_LENGTH: u16 = 6;
 
 #[derive(Copy, Clone, Eq, PartialEq)]
@@ -67,25 +61,6 @@ enum PropagationResult {
     Ok,
 }
 
-lazy_static! {
-    static ref ZOBRIST_VALS: [[u64; (PIECE_COUNT + 2) * HB_COUNT]; BOARD_SIZE] = {
-        let mut zobrist_vals = [[0u64; (PIECE_COUNT + 2) * HB_COUNT]; BOARD_SIZE];
-        for field in zobrist_vals.iter_mut() {
-            for col in field.iter_mut() {
-                *col = rand::random::<u64>();
-            }
-        }
-        zobrist_vals
-    };
-    static ref ZOBRIST_TURNS: [u64; HB_COUNT] = {
-        let mut zobrist_turns = [0; HB_COUNT];
-        for t in zobrist_turns.iter_mut() {
-            *t = rand::random::<u64>();
-        }
-        zobrist_turns
-    };
-}
-
 impl Transposition {
     fn new(mov: Option<Move>, eval: Eval, eval_depth: u16) -> Transposition {
         Transposition {
@@ -109,34 +84,6 @@ impl Default for Transposition {
     fn default() -> Self {
         Transposition::new(None, EVAL_LOSS, 0)
     }
-}
-
-fn hash_board(tpc: &ThreePlayerChess) -> u64 {
-    let zvs = &*ZOBRIST_VALS;
-    let mut res = 0;
-    for i in 0..BOARD_SIZE {
-        if let Some((color, piece)) = *FieldValue::from(tpc.board[i]) {
-            let mut piece_idx = usize::from(piece);
-            if piece == Rook {
-                for pr in tpc.possible_rooks_for_castling[usize::from(color)] {
-                    if pr == Some(FieldLocation::from(i)) {
-                        piece_idx = PIECE_TYPE_CASTLABLE_ROOK;
-                        break;
-                    }
-                }
-            }
-            piece_idx *= 1 + usize::from(color);
-            res ^= zvs[i][piece_idx];
-        }
-    }
-    for c in Color::iter() {
-        if let Some(pos) = tpc.possible_en_passant[usize::from(*c)] {
-            res ^= zvs[usize::from(pos)][PIECE_TYPE_EN_PASSENT_SQUARE * (1 + usize::from(*c))];
-        }
-    }
-    res ^= ZOBRIST_TURNS[usize::from(tpc.turn)];
-    res ^= (tpc.move_index - tpc.last_capture_or_pawn_move_index) as u64;
-    res
 }
 
 fn get_initial_pos_eval_for_sort(tpc: &mut ThreePlayerChess, mov: Move) -> i16 {
@@ -254,7 +201,7 @@ impl Engine {
             let parent = &self.engine_stack[depth as usize - 1];
             parent.moves[parent.index - 1].hash
         } else {
-            hash_board(&mut self.board)
+            self.board.zobrist_hash.value
         };
         let ed = if self.engine_stack.len() == depth as usize {
             self.engine_stack.push(Default::default());
@@ -294,7 +241,7 @@ impl Engine {
             }
             let rm = ReversableMove::new(&self.board, *mov);
             self.board.perform_move(rm.mov);
-            let hash = hash_board(&self.board);
+            let hash = self.board.zobrist_hash.value;
             let eval = self.transposition_table.get(&hash).map_or_else(
                 || get_initial_pos_eval_for_sort(&mut self.board, *mov),
                 |tp| -tp.eval,
@@ -411,7 +358,7 @@ impl Engine {
                 res.push_str(mov.to_string(&mut board).as_str());
                 board.perform_move(mov);
             }
-            if let Some(tp) = self.transposition_table.get(&hash_board(&board)) {
+            if let Some(tp) = self.transposition_table.get(&board.zobrist_hash.value) {
                 if mov.is_some() {
                     let tp_eval = tp.eval;
                     let (board_eval, _) = evaluate_position(&mut board, self.deciding_player);

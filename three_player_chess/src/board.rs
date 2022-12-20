@@ -2,6 +2,7 @@ use num_derive::{FromPrimitive, ToPrimitive};
 use num_traits::{FromPrimitive, ToPrimitive};
 
 use crate::movegen::*;
+use crate::zobrist::*;
 use arrayvec::ArrayString;
 use std::char;
 use std::collections::HashMap;
@@ -89,6 +90,12 @@ impl Color {
         static COLORS: [Color; 3] = [Color::C0, Color::C1, Color::C2];
         COLORS.iter()
     }
+    pub fn next(self) -> Color {
+        Color::from_u8((u8::from(self) + 1) % HB_COUNT as u8).unwrap()
+    }
+    pub fn prev(self) -> Color {
+        Color::from_u8((u8::from(self) + HB_COUNT as u8 - 1) % HB_COUNT as u8).unwrap()
+    }
 }
 
 impl Default for Color {
@@ -122,11 +129,11 @@ pub enum GameStatus {
 pub enum MoveType {
     Slide,
     SlideClaimDraw,
-    Capture(PackedFieldValue),
-    EnPassant(PackedFieldValue, FieldLocation),
-    Castle(bool),
+    Capture(PackedFieldValue),                  // (captured piece)
+    EnPassant(PackedFieldValue, FieldLocation), // (captured piece, captured piece square)
+    Castle(bool), // long castle(left) is false, short castle (right) is true
     Promotion(PieceType),
-    CapturePromotion(PackedFieldValue, PieceType),
+    CapturePromotion(PackedFieldValue, PieceType), // (captured piece, promotion piece type)
     ClaimDraw,
 }
 
@@ -141,8 +148,10 @@ pub struct Move {
 pub struct ReversableMove {
     pub mov: Move,
     pub possible_en_passant: [Option<FieldLocation>; HB_COUNT],
+    // like in ThreePlayerChess, long is first slot, short is second
     pub possible_rooks_for_castling: [[Option<FieldLocation>; 2]; HB_COUNT],
     pub last_capture_or_pawn_move_index: u16,
+    pub zobrist_hash_value: u64,
 }
 
 impl ReversableMove {
@@ -152,6 +161,7 @@ impl ReversableMove {
             possible_en_passant: board.possible_en_passant,
             possible_rooks_for_castling: board.possible_rooks_for_castling,
             last_capture_or_pawn_move_index: board.last_capture_or_pawn_move_index,
+            zobrist_hash_value: board.zobrist_hash.value,
         }
     }
 }
@@ -182,6 +192,7 @@ pub struct FieldLocation(std::num::NonZeroU8);
 pub struct ThreePlayerChess {
     pub turn: Color,
     pub possible_en_passant: [Option<FieldLocation>; HB_COUNT],
+    // castling long(left) is in the first slot, short(right) in the second one
     pub possible_rooks_for_castling: [[Option<FieldLocation>; 2]; HB_COUNT],
     pub king_positions: [FieldLocation; HB_COUNT],
     pub move_index: u16,
@@ -189,12 +200,13 @@ pub struct ThreePlayerChess {
     pub game_status: GameStatus,
     pub resigned_player: Option<Color>,
     pub board: [PackedFieldValue; BOARD_SIZE],
+    pub zobrist_hash: ZobristHash,
     pub dummy_vec: Option<Vec<Move>>, //used in movegen to avoid uneccessary allocations
 }
 
 impl ThreePlayerChess {
     pub fn new() -> ThreePlayerChess {
-        ThreePlayerChess {
+        let mut tpc = ThreePlayerChess {
             turn: Color::C1,
             possible_en_passant: [None; HB_COUNT],
             possible_rooks_for_castling: Default::default(),
@@ -204,8 +216,11 @@ impl ThreePlayerChess {
             game_status: GameStatus::Ongoing,
             resigned_player: None,
             board: [FieldValue(None).into(); BOARD_SIZE],
+            zobrist_hash: ZobristHash::default(),
             dummy_vec: Some(Vec::new()),
-        }
+        };
+        tpc.zobrist_hash = ZobristHash::new(&tpc);
+        tpc
     }
     fn player_state_from_str<'a>(
         &mut self,

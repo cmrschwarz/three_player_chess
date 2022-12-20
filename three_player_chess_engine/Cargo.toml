@@ -5,9 +5,8 @@ edition = "2021"
 
 [dependencies]
 lazy_static = "1.4"
-rand = "0.8.4"
 num-traits = "0.2"
-three_player_chess = {path = "../three_player_chess"}
+three_player_chess = { path = "../three_player_chess" }
 
 [lib]
 name = "three_player_chess_engine"
