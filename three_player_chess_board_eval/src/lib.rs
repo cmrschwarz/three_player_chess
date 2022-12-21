@@ -198,7 +198,10 @@ pub fn calculate_position_score(tpc: &mut ThreePlayerChess) -> (Score, bool) {
     let (bs, caps_exist) = calculate_raw_board_score(tpc);
     let mut score: Score = [Default::default(); HB_COUNT];
     for i in 0..HB_COUNT {
-        score[i] = 2 * bs[i] - bs[(i + 1) % HB_COUNT] - bs[(i + 2) % HB_COUNT];
+        score[i] = bs[i]
+            .saturating_add(bs[i])
+            .saturating_sub(bs[(i + 1) % HB_COUNT])
+            .saturating_sub(bs[(i + 2) % HB_COUNT]);
     }
     (score, caps_exist)
 }

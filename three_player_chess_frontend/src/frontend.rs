@@ -370,13 +370,17 @@ impl Frontend {
     pub fn new() -> Frontend {
         Frontend {
             prev_second: -1.0,
-
-            board: ThreePlayerChess::from_str("ABCEFGH2D4/BG1/CF1/AH1/D3/E1/AH/:LKJICBA7D5/KB8/JC8/LA8/B5/D8/LA/:GFEIJKbHLa/GKc/FJc/HLc/Ec/Ic/HL/:6:6").unwrap(),
+            //board: ThreePlayerChess::from_str("ABCFGH2DE4/B1H3/CF1/AH1/B5/E1/AH/:LKJICBA7D5/J6I5/JC8/LA8//D8/LA/:GFEJKbHLaI9/GcJa/FcEa/HLc/Ec/Ic/HL/:10:15").unwrap(),
             //board: ThreePlayerChess::from_str("ABCEFGH2D3/B5G9/CF1/AH1/D1/E1/AH/:LKJDCBA7I9/JC6/JC8/KA8/I8/D8/A/:GFEJKLbIaH9/FLa/FJc/GLc/Ec/Ic/L/:15:15").unwrap(),
             // board: ThreePlayerChess::from_str("CEFGH2A5E4D5H4C5/BG1/CF1/AH1/D4/E1/AH/:LKIDCBA7J6/KB8/JC8/LA8/L5/D8/LA/:HGFEILbJaK9B2/GKc/FJc/HLc/Ec/Ic/HL/Ka:0:0").unwrap(),//Default::default(),
-            // board: ThreePlayerChess::from_str("ABEG2G3D7///D1Ib//C1//:CBA7LK5///K8J7//B8//K6:G4GLbLaE9/////L9//:68:68").unwrap(),
+            board: ThreePlayerChess::from_str("///D1D2//C1//:CBA7///L8Jc//B8//://///K5//:75:81")
+                .unwrap(),
             // board: ThreePlayerChess::from_str("ABCEFGH2D3/B5G9/F1D2/AH1/D1/E1/AH/:LKJDCBA7I9/JC6/JC8/LA8/I8/D8/A/:GFEJKLbH9/FLa/FJc/GLc/Ec/Ic/L/:15:17").unwrap(),
-            font:  Font::from_typeface(Typeface::from_data(Data::new_copy(&FONT), None).expect("Failed to load font 'Roboto-Regular.ttf'"), None),
+            font: Font::from_typeface(
+                Typeface::from_data(Data::new_copy(&FONT), None)
+                    .expect("Failed to load font 'Roboto-Regular.ttf'"),
+                None,
+            ),
             black: Color::from_rgb(161, 119, 67),
             white: Color::from_rgb(240, 217, 181),
             selection_color: Color::from_argb(128, 56, 173, 105),
@@ -410,7 +414,7 @@ impl Frontend {
             autoplay: false,
             go_infinite: false,
             engine_depth: 3,
-            engine_time_secs: 3
+            engine_time_secs: 3,
         }
     }
     fn get_hb_id(&self, color: board::Color) -> usize {

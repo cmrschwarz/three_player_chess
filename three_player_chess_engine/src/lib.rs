@@ -5,7 +5,7 @@ use three_player_chess::board::*;
 use three_player_chess::movegen::MovegenOptions;
 use three_player_chess_board_eval::*;
 
-const MAX_CAPTURE_LINE_LENGTH: u16 = 0;
+const MAX_CAPTURE_LINE_LENGTH: u16 = 6;
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 struct Transposition {
@@ -76,7 +76,7 @@ fn is_depth_of_us(depth: u16) -> bool {
     depth % 3 == 0
 }
 
-fn score_str(score: Score) -> String {
+pub fn score_str(score: Score) -> String {
     return format!(
         "{:.2}/{:.2}/{:.2}",
         score[0] as f32 / 100.,
@@ -269,11 +269,7 @@ impl Engine {
             ed.score = score;
             ed.best_move = mov;
 
-            let us = is_depth_of_us(depth);
-            let prev1_us = is_depth_of_us(depth + 2);
-            let prev2_us = is_depth_of_us(depth + 1);
-
-            if depth >= 1 && (prev1_us || us) {
+            if depth >= 1 {
                 let ed_move_ref = ed.move_rev.as_ref().map(|mr| mr.mov);
                 let prev_mover = usize::from(self.board.turn.prev());
                 let ed1 = &self.engine_stack[depth as usize - 1];
@@ -281,7 +277,7 @@ impl Engine {
                     self.prune_count += 1;
                     result = PropagationResult::Pruned(1);
                 }
-            } else if depth >= 2 && (prev2_us || us) {
+            } else if depth >= 2 {
                 let ed_move_ref = ed.move_rev.as_ref().map(|mr| mr.mov);
                 let ed1 = &self.engine_stack[depth as usize - 1];
                 let ed1_best_move = ed1.best_move;
@@ -409,7 +405,6 @@ impl Engine {
                 }
                 ed = &mut self.engine_stack[depth as usize];
             }
-            let only_move = ed.moves.len() == 1;
             let em = &mut ed.moves[ed.index];
             ed.index += 1;
 
@@ -433,8 +428,7 @@ impl Engine {
             // 'overrulable' by actual moves
             depth += 1;
             let game_over = self.board.game_status != GameStatus::Ongoing;
-            let force_eval =
-                rm.is_none() || depth > self.depth_max + MAX_CAPTURE_LINE_LENGTH || only_move;
+            let force_eval = rm.is_none() || depth > self.depth_max + MAX_CAPTURE_LINE_LENGTH;
             if depth >= self.depth_max || force_eval || game_over {
                 self.pos_count += 1;
                 let score = em.score;

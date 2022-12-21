@@ -16,6 +16,8 @@ use skia_safe::{
 mod frontend;
 use frontend::*;
 use three_player_chess::board::ThreePlayerChess;
+use three_player_chess_board_eval::calculate_position_score;
+use three_player_chess_engine::score_str;
 fn main() {
     type WindowedContext = glutin::ContextWrapper<glutin::PossiblyCurrent, glutin::window::Window>;
 
@@ -155,6 +157,12 @@ fn main() {
                         }
                         Some(VirtualKeyCode::S) => {
                             fe.reset();
+                        }
+                        Some(VirtualKeyCode::W) => {
+                            println!(
+                                "eval: {}",
+                                score_str(calculate_position_score(&mut fe.board).0)
+                            );
                         }
                         Some(VirtualKeyCode::R) => {
                             fe.rotate();
