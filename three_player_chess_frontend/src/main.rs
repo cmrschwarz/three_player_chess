@@ -217,11 +217,10 @@ fn main() {
                         }
                         Some(VirtualKeyCode::Z) => {
                             let mut zh = fe.board.zobrist_hash;
-                            println!(
-                                "full: {}, incremental: {}",
-                                fe.board.zobrist_hash.value,
-                                zh.recalc_zobrist(&fe.board)
+                            debug_assert!(
+                                fe.board.zobrist_hash.value == zh.recalc_zobrist(&fe.board)
                             );
+                            println!("zobrist hash: {:#018x}", fe.board.zobrist_hash.value);
                         }
                         Some(VirtualKeyCode::I) => {
                             let mut buffer = String::new();
