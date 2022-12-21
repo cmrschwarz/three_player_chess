@@ -373,6 +373,7 @@ impl Frontend {
     pub fn new() -> Frontend {
         Frontend {
             prev_second: -1.0,
+            // BCFH2AH3/E9/D3Ia/A1La//B1//://///D4//:L7/////Ea//:189:336
             // BFGH2E3D5//F1/H1/C8/E1/H/:D4LKJ7/B4K9/I7J5/L8//B6//:GFIKLbHaEI9/C3/Jc/HKc/Ec/Ic/H/:59:59
             // BFGH2E3D5/F3/F1/H1/I8/E1/H/:LKJ7C5/B4K9/I7J5/L8//C7//:GFIKLbHEaI9/C3C8/Jc/HKc/Ec/Ic/H/:54:54
             // ABEG2G3D7///D1Ib//C1//:CBA7LK5///K8J7//B8//K6:G4GLbLaE9/////L9//:68:68
@@ -382,10 +383,8 @@ impl Frontend {
             // CEFGH2A5E4D5H4C5/BG1/CF1/AH1/D4/E1/AH/:LKIDCBA7J6/KB8/JC8/LA8/L5/D8/LA/:HGFEILbJaK9B2/GKc/FJc/HLc/Ec/Ic/HL/Ka:0:0
             // D1D2//C1//:CBA7///L8Jc//B8//://///K5//:75:81
             // ABCEFGH2D3/B5G9/F1D2/AH1/D1/E1/AH/:LKJDCBA7I9/JC6/JC8/LA8/I8/D8/A/:GFEJKLbH9/FLa/FJc/GLc/Ec/Ic/L/:15:17
-            board: ThreePlayerChess::from_str(
-                "BFGH2E3D5//F1/H1/C8/E1/H/:D4LKJ7/B4K9/I7J5/L8//B6//:GFIKLbHaEI9/C3/Jc/HKc/Ec/Ic/H/:59:59",
-            )
-            .unwrap(),
+            board: ThreePlayerChess::from_str("BCFH2AH3//I9/K7//E9//://///I6//://///Jb//:366:516")
+                .unwrap(),
             font: Font::from_typeface(
                 Typeface::from_data(Data::new_copy(&FONT), None)
                     .expect("Failed to load font 'Roboto-Regular.ttf'"),
@@ -395,11 +394,11 @@ impl Frontend {
             white: Color::from_rgb(240, 217, 181),
             selection_color: Color::from_argb(128, 56, 173, 105),
             move_hint_color: Color::from_argb(128, 56, 173, 105),
-            last_move_color: Color::from_argb(180, 75,104,198),
+            last_move_color: Color::from_argb(180, 75, 104, 198),
             move_before_last_color: Color::from_argb(150, 153, 186, 241),
             background: Color::from_rgb(201, 144, 73),
             danger: Color::from_rgb(232, 15, 13),
-            danger_light: Color::from_rgb(255,114,118),
+            danger_light: Color::from_rgb(255, 114, 118),
             transformed_pieces: false,
             selected_square: None,
             history: Default::default(),
@@ -1063,8 +1062,9 @@ impl Frontend {
         let rm = ReversableMove::new(&self.board, mov);
         self.history.push(rm.clone());
         self.board.perform_reversable_move(&rm);
+        println!("state: {}", self.board.state_string());
         self.reset_effects();
-        if self.autoplay && self.board.turn != self.origin {
+        if self.autoplay {
             self.make_engine_move_after_next_render = true;
         }
     }
@@ -1188,8 +1188,13 @@ impl Frontend {
             self.paranoid_engine
                 .search_position(&self.board, self.engine_depth, search_time, true)
         } else {
-            self.engine
-                .search_position(&self.board, self.engine_depth, search_time, true)
+            self.engine.search_position(
+                &self.board,
+                self.engine_depth,
+                self.engine_depth,
+                search_time,
+                true,
+            )
         };
         if let Some(mov) = result {
             self.apply_move_with_history(mov);
@@ -1203,10 +1208,12 @@ impl Frontend {
             println!("undid move: {}", rm.mov.to_string(&mut self.board));
         }
     }
-    pub fn post_render_event(&mut self) {
+    pub fn post_render_event(&mut self) -> bool {
         if self.make_engine_move_after_next_render {
             self.make_engine_move_after_next_render = false;
             self.do_engine_move();
+            return true;
         }
+        false
     }
 }

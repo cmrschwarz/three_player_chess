@@ -588,8 +588,6 @@ impl ThreePlayerChess {
             self.zobrist_hash.toggle_en_passent_square(loc);
             *ep = None;
         }
-
-        let (_, piece) = self.get_field_value(m.target).unwrap();
         match m.move_type {
             Slide => self.apply_slide_sideeffects(m),
             SlideClaimDraw(draw_claim_basis) => {
@@ -635,6 +633,7 @@ impl ThreePlayerChess {
                 self.game_status = GameStatus::Draw(DrawReason::DrawClaimed(draw_claim_basis));
             }
             Capture(field_val) | CapturePromotion(field_val, _) => {
+                let (_, piece) = self.get_field_value(m.target).unwrap();
                 let capturer = self.get_field_value(m.target);
                 let capturer_origininal = if let CapturePromotion(_, _) = m.move_type {
                     FieldValue(Some((self.turn, Pawn)))
@@ -736,6 +735,11 @@ impl ThreePlayerChess {
 
         self.possible_rooks_for_castling = rm.possible_rooks_for_castling;
         self.possible_en_passant = rm.possible_en_passant;
+        self.zobrist_hash.value = rm.zobrist_hash_value;
+
+        if let ClaimDraw(_) = rm.mov.move_type {
+            return;
+        }
         if FieldValue::from(self.board[usize::from(rm.mov.target)])
             .piece_type()
             .unwrap()
@@ -743,7 +747,6 @@ impl ThreePlayerChess {
         {
             self.king_positions[usize::from(self.turn)] = rm.mov.source;
         }
-        self.zobrist_hash.value = rm.zobrist_hash_value;
     }
     fn would_king_move_bypass_check(&mut self, mv: Move) -> bool {
         self.apply_move(mv);

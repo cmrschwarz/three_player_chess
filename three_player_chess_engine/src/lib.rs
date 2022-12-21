@@ -1,16 +1,14 @@
 use std::ops::Sub;
 use std::time::{Duration, Instant};
-use three_player_chess::board::MoveType::*;
 use three_player_chess::board::*;
 use three_player_chess::movegen::MovegenOptions;
 use three_player_chess_board_eval::*;
-
-const MAX_CAPTURE_LINE_LENGTH: u16 = 6;
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 struct Transposition {
     score: Score,
     eval_depth: u16,
+    eval_cap_line_len: u16,
     best_move: Option<Move>,
 }
 
@@ -18,8 +16,8 @@ pub struct Engine {
     transposition_table: std::collections::HashMap<u64, Transposition>,
     engine_stack: Vec<EngineDepth>,
     pub board: ThreePlayerChess,
-    pub depth_max: u16,
-    pub eval_depth_max: u16,
+    pub eval_depth: u16,
+    pub eval_cap_line_len: u16,
     pub transposition_count: usize,
     pub prune_count: usize,
     pub pos_count: usize,
@@ -54,10 +52,16 @@ enum PropagationResult {
 }
 
 impl Transposition {
-    fn new(mov: Option<Move>, score: Score, eval_depth: u16) -> Transposition {
+    fn new(
+        mov: Option<Move>,
+        score: Score,
+        eval_depth: u16,
+        eval_cap_line_len: u16,
+    ) -> Transposition {
         Transposition {
             score,
             eval_depth,
+            eval_cap_line_len,
             best_move: mov,
         }
     }
@@ -87,8 +91,8 @@ impl Engine {
             transposition_table: Default::default(),
             board: Default::default(),
             engine_stack: Default::default(),
-            depth_max: 0,
-            eval_depth_max: 0,
+            eval_depth: 0,
+            eval_cap_line_len: 0,
             prune_count: 0,
             transposition_count: 0,
             pos_count: 0,
@@ -97,7 +101,7 @@ impl Engine {
             dummy_vec: Vec::new(),
         }
     }
-    pub fn report_search_depth_results(&mut self, start: Instant) {
+    pub fn report_search_depth_results(&mut self, search_start: Instant, depth_start: Instant) {
         let mut eval_str = "".to_owned();
 
         if let Some(bm) = self.engine_stack[0].best_move {
@@ -137,12 +141,15 @@ impl Engine {
                 .to_string();
             }
         }
-        let time = Instant::now().sub(start).as_secs_f32();
+        let now = Instant::now();
+        let depth_elapsed = now.sub(depth_start).as_secs_f32();
         println!(
-            "depth {:2} ({:.1}s, {:.2} kN/s): {}",
-            self.depth_max,
-            time,
-            (self.pos_count as f32 / time) / 1000.,
+            "depth {}+{} ({:.1}s [{:.1} s], {:.2} kN/s): {}",
+            self.eval_depth,
+            self.eval_cap_line_len,
+            depth_elapsed,
+            now.sub(search_start).as_secs_f32(),
+            (self.pos_count as f32 / depth_elapsed) / 1000.,
             eval_str
         );
     }
@@ -150,17 +157,18 @@ impl Engine {
         &mut self,
         tpc: &ThreePlayerChess,
         depth: u16,
+        cap_line_len: u16,
         max_time_seconds: f32,
         report_results_per_depth: bool,
     ) -> Option<Move> {
         self.board = tpc.clone();
-        self.eval_depth_max = self.board.move_index;
-        self.depth_max = 0;
+        self.eval_depth = 0;
+        self.eval_cap_line_len = 0;
         //self.transposition_table.retain(|_, tp| tp.eval_depth > self.eval_depth_max);
         self.transposition_table.clear(); // since we use
         self.deciding_player = self.board.turn;
-        let mut start = Instant::now();
-        let end = Instant::now()
+        let search_start = Instant::now();
+        let end = search_start
             .checked_add(Duration::from_secs_f32(max_time_seconds))
             .unwrap();
         let mut start_mov = Vec::new();
@@ -172,32 +180,35 @@ impl Engine {
             },
         );
         let mut best_move = start_mov.pop();
-
+        let mut timeout = false;
         for _ in 0..depth {
-            let (transp_count, prune_count, pos_count) =
-                (self.transposition_count, self.prune_count, self.pos_count);
-            self.transposition_count = 0;
-            self.prune_count = 0;
-            self.pos_count = 0;
-            self.depth_max += 1;
-            self.eval_depth_max += 1;
-            if self.search_iterate(end).is_ok() {
-                best_move = self.engine_stack[0].best_move;
-                if report_results_per_depth || self.debug_log {
-                    self.report_search_depth_results(start);
+            self.eval_depth += 1;
+            for cll in 1..cap_line_len + 1 {
+                if self.eval_depth != depth && cll > self.eval_depth {
+                    break;
                 }
-                start = Instant::now();
-            } else {
-                self.transposition_count = transp_count;
-                self.prune_count = prune_count;
-                self.pos_count = pos_count;
-                if self.debug_log {
-                    println!(
-                        "aborted depth {} (after {} positions)",
-                        self.depth_max, self.pos_count
-                    );
+                self.eval_cap_line_len = cll;
+                let start = Instant::now();
+                self.transposition_count = 0;
+                self.prune_count = 0;
+                self.pos_count = 0;
+                if self.search_iterate(end).is_ok() {
+                    best_move = self.engine_stack[0].best_move;
+                    if report_results_per_depth || self.debug_log {
+                        self.report_search_depth_results(search_start, start);
+                    }
+                } else {
+                    if report_results_per_depth || self.debug_log {
+                        println!(
+                            "aborted depth {}(+{}) (after {} positions)",
+                            self.eval_depth, self.eval_cap_line_len, self.pos_count
+                        );
+                    }
+                    timeout = true;
+                    break;
                 }
-                self.depth_max -= 1;
+            }
+            if timeout {
                 break;
             }
         }
@@ -402,7 +413,12 @@ impl Engine {
                 if ed.index > 0 {
                     self.transposition_table.insert(
                         ed.hash,
-                        Transposition::new(ed.best_move, ed.score, self.eval_depth_max),
+                        Transposition::new(
+                            ed.best_move,
+                            ed.score,
+                            self.eval_depth.saturating_sub(depth),
+                            self.eval_cap_line_len,
+                        ),
                     );
                 }
                 if depth == 0 {
@@ -429,7 +445,9 @@ impl Engine {
             let rm;
             if let Some(mov) = em.mov {
                 if let Some(tp) = self.transposition_table.get(&em.hash) {
-                    if tp.eval_depth >= self.eval_depth_max {
+                    if tp.eval_depth >= self.eval_depth.saturating_sub(depth)
+                        && tp.eval_cap_line_len >= self.eval_cap_line_len
+                    {
                         self.transposition_count += 1;
                         self.pos_count += 1;
                         let tp_score = tp.score;
@@ -446,8 +464,8 @@ impl Engine {
             // 'overrulable' by actual moves
             depth += 1;
             let game_over = self.board.game_status != GameStatus::Ongoing;
-            let force_eval = rm.is_none() || depth > self.depth_max + MAX_CAPTURE_LINE_LENGTH;
-            if depth >= self.depth_max || force_eval || game_over {
+            let force_eval = rm.is_none() || depth > self.eval_depth + self.eval_cap_line_len;
+            if depth >= self.eval_depth || force_eval || game_over {
                 self.pos_count += 1;
                 let score = em.score;
                 let score_now = if game_over || force_eval {
@@ -470,8 +488,15 @@ impl Engine {
                 }
 
                 if score_now {
-                    self.transposition_table
-                        .insert(hash, Transposition::new(None, score, self.eval_depth_max));
+                    self.transposition_table.insert(
+                        hash,
+                        Transposition::new(
+                            None,
+                            score,
+                            self.eval_depth.saturating_sub(depth),
+                            self.eval_cap_line_len,
+                        ),
+                    );
                     if let Some(ref rm) = rm {
                         self.board.revert_move(rm);
                     }
@@ -494,7 +519,7 @@ impl Engine {
             if Instant::now().gt(&end) {
                 return Err(());
             }
-            self.gen_engine_depth(depth, rm, depth >= self.depth_max);
+            self.gen_engine_depth(depth, rm, depth >= self.eval_depth);
         }
     }
 }
