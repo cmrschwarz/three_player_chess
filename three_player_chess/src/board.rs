@@ -986,13 +986,14 @@ impl Move {
                 self.target.to_str_fancy().as_str()
             ))?,
             Promotion(piece_type) => writer.write_fmt(format_args!(
-                "{}={}",
-                self.get_source_string(game),
+                "{}{}={}",
+                self.target.file_char_fancy() as char,
+                self.target.rank_char() as char,
                 piece_type.to_ascii() as char,
             ))?,
             CapturePromotion(_, piece_type) => writer.write_fmt(format_args!(
                 "{}x{}={}",
-                self.get_source_string(game),
+                self.source.file_char_fancy() as char,
                 self.target.to_str_fancy().as_str(),
                 piece_type.to_ascii() as char,
             ))?,
