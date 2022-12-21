@@ -1,5 +1,5 @@
 [package]
-name = "three_player_chess_engine"
+name = "three_player_chess_paranoid_engine"
 version = "0.1.0"
 edition = "2021"
 
@@ -8,4 +8,4 @@ three_player_chess = { path = "../three_player_chess" }
 three_player_chess_board_eval = { path = "../three_player_chess_board_eval" }
 
 [lib]
-name = "three_player_chess_engine"
+name = "three_player_chess_paranoid_engine"

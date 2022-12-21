@@ -13,6 +13,7 @@ use three_player_chess::board::PieceType::*;
 use three_player_chess::board::*;
 use three_player_chess::movegen::*;
 use three_player_chess_engine::Engine;
+use three_player_chess_paranoid_engine::ParanoidEngine;
 pub const FONT: &'static [u8] = include_bytes!("../res/Roboto-Regular.ttf");
 const BORDER_WIDTH: f32 = 0.02;
 
@@ -72,7 +73,9 @@ pub struct Frontend {
     pub pieces: [[Image; PIECE_COUNT]; HB_COUNT],
     pub piece_scale_non_transformed: f32,
     pub engine: Engine,
+    pub paranoid_engine: ParanoidEngine,
     pub go_infinite: bool,
+    pub use_paranoid_engine: bool,
     pub autoplay: bool,
     pub engine_depth: u16,
     pub engine_time_secs: u16,
@@ -402,6 +405,8 @@ impl Frontend {
             transform_dragged_pieces: true,
             piece_scale_non_transformed: 1.2,
             engine: Engine::new(),
+            paranoid_engine: ParanoidEngine::new(),
+            use_paranoid_engine: false,
             autoplay: false,
             go_infinite: false,
             engine_depth: 3,
@@ -1146,16 +1151,19 @@ impl Frontend {
         self.origin = board::Color::from((HB_COUNT + usize::from(self.origin) - 1) as u8 % 3);
     }
     pub fn do_engine_move(&mut self) {
-        if let Some(mov) = self.engine.search_position(
-            &self.board,
-            self.engine_depth,
-            if self.go_infinite {
-                10e6
-            } else {
-                self.engine_time_secs as f32
-            },
-            true,
-        ) {
+        let search_time = if self.go_infinite {
+            10e6
+        } else {
+            self.engine_time_secs as f32
+        };
+        let result = if self.use_paranoid_engine {
+            self.engine
+                .search_position(&self.board, self.engine_depth, search_time, true)
+        } else {
+            self.paranoid_engine
+                .search_position(&self.board, self.engine_depth, search_time, true)
+        };
+        if let Some(mov) = result {
             self.apply_move_with_history(mov);
         }
     }

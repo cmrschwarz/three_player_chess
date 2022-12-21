@@ -1500,8 +1500,6 @@ dependencies = [
 name = "three_player_chess_engine"
 version = "0.1.0"
 dependencies = [
- "lazy_static",
- "num-traits",
  "three_player_chess",
  "three_player_chess_board_eval",
 ]
@@ -1521,6 +1519,7 @@ dependencies = [
  "skia-safe",
  "three_player_chess",
  "three_player_chess_engine",
+ "three_player_chess_paranoid_engine",
  "vecmath",
 ]
 
@@ -1531,6 +1530,14 @@ dependencies = [
  "num-traits",
  "surena_game",
  "three_player_chess",
+]
+
+[[package]]
+name = "three_player_chess_paranoid_engine"
+version = "0.1.0"
+dependencies = [
+ "three_player_chess",
+ "three_player_chess_board_eval",
 ]
 
 [[package]]

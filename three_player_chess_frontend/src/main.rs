@@ -188,7 +188,12 @@ fn main() {
                         }
                         Some(VirtualKeyCode::E) => {
                             println!(
-                                "running engine ... (depth: {}, time: {})",
+                                "running {} engine ... (depth: {}, time: {})",
+                                if fe.use_paranoid_engine {
+                                    "paranoid"
+                                } else {
+                                    "sane"
+                                },
                                 fe.engine_depth,
                                 if fe.go_infinite {
                                     format!("infinite")
@@ -197,6 +202,17 @@ fn main() {
                                 }
                             );
                             fe.do_engine_move();
+                        }
+                        Some(VirtualKeyCode::P) => {
+                            fe.use_paranoid_engine ^= true;
+                            println!(
+                                "switching to {} engine",
+                                if fe.use_paranoid_engine {
+                                    "paranoid"
+                                } else {
+                                    "sane"
+                                }
+                            );
                         }
                         Some(VirtualKeyCode::T) => {
                             fe.transform_dragged_pieces ^= true;
