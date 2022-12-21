@@ -188,8 +188,13 @@ fn main() {
                         }
                         Some(VirtualKeyCode::E) => {
                             println!(
-                                "running engine ... (depth: {}, time: {} s)",
-                                fe.engine_depth, fe.engine_time_secs
+                                "running engine ... (depth: {}, time: {})",
+                                fe.engine_depth,
+                                if fe.go_infinite {
+                                    format!("infinite")
+                                } else {
+                                    format!("{} s", fe.engine_time_secs)
+                                }
                             );
                             fe.do_engine_move();
                         }

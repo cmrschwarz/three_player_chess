@@ -161,7 +161,9 @@ pub struct ReversableMove {
     pub possible_rooks_for_castling: [[Option<FieldLocation>; 2]; HB_COUNT],
     pub last_capture_or_pawn_move_index: u16,
     pub zobrist_hash_value: u64,
-    pub state_before: String, //nocheckin
+    #[cfg(feature = "debug_movegen")]
+    pub state_before: String,
+    #[cfg(feature = "debug_movegen")]
     pub state_after: String,
 }
 
@@ -173,7 +175,9 @@ impl ReversableMove {
             possible_rooks_for_castling: board.possible_rooks_for_castling,
             last_capture_or_pawn_move_index: board.last_capture_or_pawn_move_index,
             zobrist_hash_value: board.zobrist_hash.value,
+            #[cfg(feature = "debug_movegen")]
             state_before: board.state_string(),
+            #[cfg(feature = "debug_movegen")]
             state_after: {
                 let mut b = board.clone();
                 b.apply_move(mov);
@@ -431,7 +435,6 @@ impl ThreePlayerChess {
     }
     pub fn get_zobrist_hash(&mut self) -> u64 {
         //assert!(self.zobrist_hash.value == ZobristHash::new(self).value);
-        //self.recalc_zobrist()
         self.zobrist_hash.value
     }
 }
@@ -1005,7 +1008,7 @@ impl Move {
         let turn = game.turn;
         let rm = ReversableMove::new(game, *self);
 
-        game.perform_move(*self);
+        game.perform_reversable_move(&rm);
         let gs = game.game_status;
 
         match gs {

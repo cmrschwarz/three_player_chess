@@ -1,7 +1,6 @@
 use crate::board::MoveType::*;
 use crate::board::PieceType::*;
 use crate::board::*;
-use crate::zobrist::ZobristHash;
 use arrayvec::ArrayVec;
 use std::cmp::{max, min};
 use std::option::Option::*;
@@ -432,42 +431,56 @@ fn move_diagonal(
 }
 
 impl ThreePlayerChess {
-    pub fn perform_reversable_move(&mut self, rm: &ReversableMove) {
-        let ststr = self.state_string();
-        if ststr != rm.state_before {
-            println!("expected: {}\ngot     : {}", rm.state_after, ststr);
+    #[cfg(not(feature = "debug_movegen"))]
+    fn movegen_sanity_check(&self, _rm: &ReversableMove, _before: bool, _revert: bool) {}
+
+    #[cfg(feature = "debug_movegen")]
+    fn movegen_sanity_check(&self, rm: &ReversableMove, before: bool, revert: bool) {
+        let state_str = self.state_string();
+        let expected_state = if before {
+            &rm.state_before
+        } else {
+            &rm.state_after
+        };
+        let constex_str_before = ["after", "before"][usize::from(before)];
+        let constex_str_revert = ["move", "move reversal"][usize::from(revert)];
+        if state_str != *expected_state {
+            println!(
+                "state missmatch {} {}!:\nexpected: {}\ngot     : {}",
+                constex_str_before, constex_str_revert, expected_state, state_str
+            );
             println!("move: {:?}", rm.mov);
             assert!(false);
         }
+        if self.zobrist_hash.value != crate::zobrist::ZobristHash::new(self).value {
+            println!(
+                "zobrist missmatch {} {}!: expected: {}\ngot     : {}",
+                constex_str_before,
+                constex_str_revert,
+                crate::zobrist::ZobristHash::new(self).value,
+                self.zobrist_hash.value
+            );
+            println!("state bef: {}", rm.state_before);
+            println!("state aft: {}", rm.state_after);
+            println!("move: {:?}", rm.mov);
+            assert!(false);
+        }
+    }
+    pub fn perform_reversable_move(&mut self, rm: &ReversableMove) {
+        self.movegen_sanity_check(rm, true, false);
         self.apply_move(rm.mov);
         self.apply_move_sideeffects(rm.mov);
-        let ststr = self.state_string();
-        if ststr != rm.state_after {
-            println!("expected: {}\ngot     : {}", rm.state_before, ststr);
-            println!("move: {:?}", rm.mov);
-            assert!(false);
-        }
+        self.movegen_sanity_check(rm, false, false);
     }
     pub fn perform_move(&mut self, m: Move) {
         self.apply_move(m);
         self.apply_move_sideeffects(m);
     }
     pub fn revert_move(&mut self, rm: &ReversableMove) {
-        let ststr = self.state_string();
-        if ststr != rm.state_after {
-            println!("expected: {}\ngot     : {}", rm.state_after, ststr);
-            println!("move: {:?}", rm.mov);
-            println!("state before: {}", rm.state_before);
-            assert!(false);
-        }
+        self.movegen_sanity_check(rm, true, true);
         self.unapply_move_sideffects(rm);
         self.unapply_move(rm.mov);
-        let ststr = self.state_string();
-        if ststr != rm.state_before {
-            println!("expected: {}\ngot     : {}", rm.state_before, ststr);
-            println!("move: {:?}", rm.mov);
-            assert!(false);
-        }
+        self.movegen_sanity_check(rm, false, true);
     }
     pub fn apply_move(&mut self, m: Move) {
         let src = usize::from(m.source);
@@ -521,7 +534,7 @@ impl ThreePlayerChess {
     pub fn remove_en_passent_target(&mut self, loc: FieldLocation, color: Color) {
         let ci = usize::from(color);
         if self.possible_en_passant[ci] == Some(loc) {
-            assert!(loc.hb() == color);
+            debug_assert!(loc.hb() == color);
             self.possible_en_passant[ci] = None;
             self.zobrist_hash.toggle_en_passent_square(loc);
         }
@@ -623,16 +636,15 @@ impl ThreePlayerChess {
             }
             Capture(field_val) | CapturePromotion(field_val, _) => {
                 let capturer = self.get_field_value(m.target);
-                self.zobrist_hash.toggle_square(m.target, field_val.into());
-                self.zobrist_hash.toggle_square(
-                    m.source,
-                    if let CapturePromotion(_, _) = m.move_type {
-                        FieldValue(Some((self.turn, Pawn)))
-                    } else {
-                        capturer
-                    },
-                );
+                let capturer_origininal = if let CapturePromotion(_, _) = m.move_type {
+                    FieldValue(Some((self.turn, Pawn)))
+                } else {
+                    capturer
+                };
+                self.zobrist_hash
+                    .toggle_square(m.source, capturer_origininal);
                 self.zobrist_hash.toggle_square(m.target, capturer);
+                self.zobrist_hash.toggle_square(m.target, field_val.into());
                 self.zobrist_hash.fifty_move_rule_move_reset(
                     self.move_index,
                     self.last_capture_or_pawn_move_index,
@@ -649,10 +661,10 @@ impl ThreePlayerChess {
                 } else if captured_piece == PieceType::Pawn {
                     let ci = usize::from(color);
                     let loc = AnnotatedFieldLocation::from_with_origin(color, m.target);
-                    if loc.rank == 4
-                        && self.possible_en_passant[ci] == Some(move_rank(loc, false).unwrap().loc)
-                    {
+                    let ep_target = move_rank(loc, false).unwrap().loc;
+                    if loc.rank == 4 && self.possible_en_passant[ci] == Some(ep_target) {
                         self.possible_en_passant[ci] = None;
+                        self.zobrist_hash.toggle_en_passent_square(ep_target);
                     }
                 }
             }
@@ -717,11 +729,11 @@ impl ThreePlayerChess {
         self.turn = get_next_hb(self.turn, false);
         self.game_status = GameStatus::Ongoing;
         self.move_index -= 1;
-        assert!(self.move_index >= rm.last_capture_or_pawn_move_index);
         self.last_capture_or_pawn_move_index = rm.last_capture_or_pawn_move_index;
+        debug_assert!(self.move_index >= rm.last_capture_or_pawn_move_index);
+
         self.possible_rooks_for_castling = rm.possible_rooks_for_castling;
         self.possible_en_passant = rm.possible_en_passant;
-        debug_assert!(self.move_index >= rm.last_capture_or_pawn_move_index);
         if FieldValue::from(self.board[usize::from(rm.mov.target)])
             .piece_type()
             .unwrap()
@@ -730,7 +742,6 @@ impl ThreePlayerChess {
             self.king_positions[usize::from(self.turn)] = rm.mov.source;
         }
         self.zobrist_hash.value = rm.zobrist_hash_value;
-        self.recalc_zobrist(); //nocheckin
     }
     fn would_king_move_bypass_check(&mut self, mv: Move) -> bool {
         self.apply_move(mv);

@@ -367,7 +367,9 @@ impl Frontend {
     pub fn new() -> Frontend {
         Frontend {
             prev_second: -1.0,
-            board: ThreePlayerChess::from_str("ABCEFGH2D3/B5G9/CF1/AH1/D1/E1/AH/:LKJDCBA7I9/JC6/JC8/KA8/I8/D8/A/:GFEJKLbIaH9/FLa/FJc/GLc/Ec/Ic/L/:15:15").unwrap(),
+
+            board: ThreePlayerChess::from_str("ACEFGH2D3B4/B5G9/CF1/AH1/D1/E1/AH/B3:LKJDCBA7I9/JC6/JC8/KA8/I8/D8/A/:GFEJKLbIaH9/FLa/FJc/GLc/Ec/Ic/L/:16:16").unwrap(),
+            //board: ThreePlayerChess::from_str("ABCEFGH2D3/B5G9/CF1/AH1/D1/E1/AH/:LKJDCBA7I9/JC6/JC8/KA8/I8/D8/A/:GFEJKLbIaH9/FLa/FJc/GLc/Ec/Ic/L/:15:15").unwrap(),
             // board: ThreePlayerChess::from_str("CEFGH2A5E4D5H4C5/BG1/CF1/AH1/D4/E1/AH/:LKIDCBA7J6/KB8/JC8/LA8/L5/D8/LA/:HGFEILbJaK9B2/GKc/FJc/HLc/Ec/Ic/HL/Ka:0:0").unwrap(),//Default::default(),
             // board: ThreePlayerChess::from_str("ABEG2G3D7///D1Ib//C1//:CBA7LK5///K8J7//B8//K6:G4GLbLaE9/////L9//:68:68").unwrap(),
             // board: ThreePlayerChess::from_str("ABCEFGH2D3/B5G9/F1D2/AH1/D1/E1/AH/:LKJDCBA7I9/JC6/JC8/LA8/I8/D8/A/:GFEJKLbH9/FLa/FJc/GLc/Ec/Ic/L/:15:17").unwrap(),
@@ -1027,11 +1029,11 @@ impl Frontend {
             self.possible_moves.fill(false);
         }
     }
-    pub fn perform_move(&mut self, mov: Move) {
+    pub fn apply_move_with_history(&mut self, mov: Move) {
         println!("making move: {}", mov.to_string(&mut self.board));
         let rm = ReversableMove::new(&self.board, mov);
         self.history.push(rm.clone());
-        self.board.perform_move(mov);
+        self.board.perform_reversable_move(&rm);
         self.reset_effects();
         if self.autoplay && self.board.turn != self.origin {
             self.do_engine_move();
@@ -1103,7 +1105,7 @@ impl Frontend {
         }
 
         if self.board.is_valid_move(mov) {
-            self.perform_move(mov);
+            self.apply_move_with_history(mov);
             return true;
         }
         false
@@ -1154,7 +1156,7 @@ impl Frontend {
             },
             true,
         ) {
-            self.perform_move(mov);
+            self.apply_move_with_history(mov);
         }
     }
     pub fn undo_move(&mut self) {

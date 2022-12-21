@@ -12,3 +12,7 @@ arrayvec = "0.7.2"
 
 [lib]
 name = "three_player_chess"
+
+[features]
+default = []
+debug_movegen = []

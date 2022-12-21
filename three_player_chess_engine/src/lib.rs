@@ -86,22 +86,6 @@ impl Default for Transposition {
         Transposition::new(None, EVAL_LOSS, 0)
     }
 }
-fn get_initial_pos_eval_for_sort(tpc: &mut ThreePlayerChess, mov: Move) -> i16 {
-    let mut sc = 0;
-    if tpc.is_king_capturable(None) {
-        sc += 500;
-    }
-    sc += match mov.move_type {
-        ClaimDraw(_) | SlideClaimDraw(_) => 2000,
-        CapturePromotion(..) => 1000,
-        Promotion(_) => 900,
-        Capture(piece_value) => piece_score(FieldValue::from(piece_value).piece_type().unwrap()),
-        EnPassant(..) => 100,
-        Castle(..) => 100,
-        Slide => EVAL_DRAW,
-    };
-    sc
-}
 
 fn flip_eval(flip: bool, eval: Eval) -> Eval {
     if flip {
@@ -262,10 +246,8 @@ impl Engine {
                 }
             }
             let rm = ReversableMove::new(&self.board, *mov);
-            self.board.perform_move(rm.mov);
+            self.board.perform_reversable_move(&rm);
             let hash = self.board.get_zobrist_hash();
-            //get_initial_pos_eval_for_sort(&mut self.board, *mov), tp)
-
             let (eval, has_caps) = self.transposition_table.get(&hash).map_or_else(
                 || {
                     let (ev, caps) = evaluate_position(&mut self.board, self.deciding_player);
@@ -457,8 +439,6 @@ impl Engine {
 
             let rm;
             if let Some(mov) = em.mov {
-                //let ed_hash = ed.hash;
-                //assert!(hash_board(&self.board) == ed_hash);
                 if let Some(tp) = self.transposition_table.get(&em.hash) {
                     if tp.eval_depth >= self.eval_depth_max {
                         self.transposition_count += 1;
