@@ -50,6 +50,7 @@ pub struct Frontend {
     pub black: Color,
     pub white: Color,
     pub selection_color: Color,
+    pub move_hint_color: Color,
     pub danger: Color,
     pub danger_light: Color,
     pub background: Color,
@@ -372,6 +373,7 @@ impl Frontend {
     pub fn new() -> Frontend {
         Frontend {
             prev_second: -1.0,
+            // BFGH2E3D5//F1/H1/C8/E1/H/:D4LKJ7/B4K9/I7J5/L8//B6//:GFIKLbHaEI9/C3/Jc/HKc/Ec/Ic/H/:59:59
             // BFGH2E3D5/F3/F1/H1/I8/E1/H/:LKJ7C5/B4K9/I7J5/L8//C7//:GFIKLbHEaI9/C3C8/Jc/HKc/Ec/Ic/H/:54:54
             // ABEG2G3D7///D1Ib//C1//:CBA7LK5///K8J7//B8//K6:G4GLbLaE9/////L9//:68:68
             // ABEG2G3D7///D2Ib//C1//:CBA7K5///J8J7//B8//:G4L7GLbE9/////K9//:84:84
@@ -381,7 +383,7 @@ impl Frontend {
             // D1D2//C1//:CBA7///L8Jc//B8//://///K5//:75:81
             // ABCEFGH2D3/B5G9/F1D2/AH1/D1/E1/AH/:LKJDCBA7I9/JC6/JC8/LA8/I8/D8/A/:GFEJKLbH9/FLa/FJc/GLc/Ec/Ic/L/:15:17
             board: ThreePlayerChess::from_str(
-                "BFGH2E3D5/F3/F1/H1/I8/E1/H/:LKJ7C5/B4K9/I7J5/L8//C7//:GFIKLbHEaI9/C3C8/Jc/HKc/Ec/Ic/H/:54:54",
+                "BFGH2E3D5//F1/H1/C8/E1/H/:D4LKJ7/B4K9/I7J5/L8//B6//:GFIKLbHaEI9/C3/Jc/HKc/Ec/Ic/H/:59:59",
             )
             .unwrap(),
             font: Font::from_typeface(
@@ -392,8 +394,9 @@ impl Frontend {
             black: Color::from_rgb(161, 119, 67),
             white: Color::from_rgb(240, 217, 181),
             selection_color: Color::from_argb(128, 56, 173, 105),
-            last_move_color: Color::from_argb(170, 120, 230, 130),
-            move_before_last_color: Color::from_argb(190, 160, 200, 255),
+            move_hint_color: Color::from_argb(128, 56, 173, 105),
+            last_move_color: Color::from_argb(180, 75,104,198),
+            move_before_last_color: Color::from_argb(150, 153, 186, 241),
             background: Color::from_rgb(201, 144, 73),
             danger: Color::from_rgb(232, 15, 13),
             danger_light: Color::from_rgb(255,114,118),
