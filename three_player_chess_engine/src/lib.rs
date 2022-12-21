@@ -1,14 +1,11 @@
 mod eval;
 
 use eval::*;
-use rand::prelude::StdRng;
-use rand::{Rng, SeedableRng};
 use std::ops::Sub;
 use std::time::{Duration, Instant};
 use three_player_chess::board::MoveType::*;
 use three_player_chess::board::*;
 use three_player_chess::movegen::MovegenOptions;
-use three_player_chess::zobrist::*;
 
 type Eval = i16;
 type Score = [i16; HB_COUNT];
@@ -267,7 +264,7 @@ impl Engine {
             let rm = ReversableMove::new(&self.board, *mov);
             self.board.perform_move(rm.mov);
 
-            let hash = self.board.get_zobrist_hash()
+            let hash = self.board.get_zobrist_hash();
             //get_initial_pos_eval_for_sort(&mut self.board, *mov), tp)
 
             let (eval, has_caps) = self.transposition_table.get(&hash).map_or_else(
