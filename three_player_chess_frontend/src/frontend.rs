@@ -1157,10 +1157,10 @@ impl Frontend {
             self.engine_time_secs as f32
         };
         let result = if self.use_paranoid_engine {
-            self.engine
+            self.paranoid_engine
                 .search_position(&self.board, self.engine_depth, search_time, true)
         } else {
-            self.paranoid_engine
+            self.engine
                 .search_position(&self.board, self.engine_depth, search_time, true)
         };
         if let Some(mov) = result {

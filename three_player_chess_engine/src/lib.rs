@@ -11,7 +11,7 @@ const MAX_CAPTURE_LINE_LENGTH: u16 = 6;
 struct Transposition {
     eval: Eval,
     eval_depth: u16,
-    best_move_code: u64,
+    best_move: Option<Move>,
 }
 
 pub struct Engine {
@@ -58,7 +58,7 @@ impl Transposition {
         Transposition {
             eval,
             eval_depth,
-            best_move_code: mov.map_or(0, &u64::from),
+            best_move: mov,
         }
     }
 }
@@ -378,11 +378,8 @@ impl Engine {
                     )
                     .to_string();
                 }
-                mov = Move::try_from(tp.best_move_code).ok();
+                mov = tp.best_move;
                 if mov.is_none() {
-                    break;
-                }
-                if tp.best_move_code == 0 {
                     break;
                 }
             } else {
