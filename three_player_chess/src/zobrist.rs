@@ -73,7 +73,7 @@ impl ZobristHash {
         res ^= self.zobrist_data.turn_values[usize::from(tpc.turn)];
         res ^= (tpc.move_index - tpc.last_capture_or_pawn_move_index) as u64;
         self.value = res;
-        self.value
+        res
     }
 
     pub fn toggle_square(&mut self, loc: FieldLocation, val: FieldValue) {

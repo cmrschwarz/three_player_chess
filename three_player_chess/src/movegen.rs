@@ -1,7 +1,6 @@
 use crate::board::MoveType::*;
 use crate::board::PieceType::*;
 use crate::board::*;
-use crate::zobrist::ZobristHash;
 use arrayvec::ArrayVec;
 use std::cmp::{max, min};
 use std::option::Option::*;
@@ -590,20 +589,19 @@ impl ThreePlayerChess {
                 self.apply_king_move_sideeffects(m);
             }
             EnPassant(captured_pawn, capture_loc) => {
+                let pawn = FieldValue::from(captured_pawn);
                 let capturer = self.get_field_value(m.target);
                 self.zobrist_hash.toggle_square(m.source, capturer);
                 self.zobrist_hash.toggle_square(m.target, capturer);
-                self.zobrist_hash
-                    .toggle_square(capture_loc, captured_pawn.into());
+                self.zobrist_hash.toggle_square(capture_loc, pawn);
                 self.zobrist_hash.fifty_move_rule_move_reset(
                     self.move_index,
                     self.last_capture_or_pawn_move_index,
                 );
                 self.last_capture_or_pawn_move_index = self.move_index;
-                let ep_square = self.possible_en_passant
-                    [usize::from(FieldValue::from(captured_pawn).color().unwrap())]
-                .take()
-                .unwrap();
+                let ep_square = self.possible_en_passant[usize::from(pawn.color().unwrap())]
+                    .take()
+                    .unwrap();
                 self.zobrist_hash.toggle_en_passent_square(ep_square);
             }
             ClaimDraw => {
@@ -647,6 +645,7 @@ impl ThreePlayerChess {
                     self.move_index,
                     self.last_capture_or_pawn_move_index,
                 );
+                self.last_capture_or_pawn_move_index = self.move_index;
             }
         }
         let player_to_move = self.turn;

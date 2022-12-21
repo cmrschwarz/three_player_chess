@@ -403,7 +403,8 @@ impl ThreePlayerChess {
         string
     }
     pub fn get_zobrist_hash(&mut self) -> u64 {
-        assert!(self.zobrist_hash.value == ZobristHash::new(self).value);
+        //assert!(self.zobrist_hash.value == ZobristHash::new(self).value);
+        //self.recalc_zobrist()
         self.zobrist_hash.value
     }
 }

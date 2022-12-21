@@ -227,6 +227,7 @@ fn main() {
                             if let Ok(board) = board {
                                 fe.reset();
                                 fe.board = board;
+                                println!("input string accepted");
                             } else {
                                 println!("failed to parse: {}", board.err().unwrap());
                             }
