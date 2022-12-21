@@ -841,7 +841,7 @@ impl ThreePlayerChess {
         }
         let mut line_start = 0;
         for line_end in cp.diagonal_line_ends {
-            for f in &cp.diagonal_lines[line_start..line_end] {
+            for (i, f) in cp.diagonal_lines[line_start..line_end].iter().enumerate() {
                 let board_val = self.board[usize::from(*f)];
                 match *FieldValue::from(board_val) {
                     None => continue,
@@ -872,7 +872,7 @@ impl ThreePlayerChess {
                         {
                             let kp_r = AnnotatedFieldLocation::from_with_origin(color, kp.loc);
                             let pos = AnnotatedFieldLocation::from_with_origin(color, *f);
-                            if pos.rank + 1 == kp_r.rank {
+                            if i == 0 && pos.rank + 1 == kp_r.rank {
                                 let m = Move::new(*f, loc, Capture(field_value));
                                 if !check_for_checks || !self.would_non_king_move_bypass_check(m) {
                                     return Some(m);
