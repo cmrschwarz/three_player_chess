@@ -660,11 +660,13 @@ impl ThreePlayerChess {
                     self.remove_castling_rights_from_rook(m.target, color);
                 } else if captured_piece == PieceType::Pawn {
                     let ci = usize::from(color);
-                    let loc = AnnotatedFieldLocation::from_with_origin(color, m.target);
-                    let ep_target = move_rank(loc, false).unwrap().loc;
-                    if loc.rank == 4 && self.possible_en_passant[ci] == Some(ep_target) {
-                        self.possible_en_passant[ci] = None;
-                        self.zobrist_hash.toggle_en_passent_square(ep_target);
+                    let tgt_loc = AnnotatedFieldLocation::from_with_origin(color, m.target);
+                    if tgt_loc.rank == 4 {
+                        let ep_target = move_rank(tgt_loc, false).unwrap().loc;
+                        if self.possible_en_passant[ci] == Some(ep_target) {
+                            self.possible_en_passant[ci] = None;
+                            self.zobrist_hash.toggle_en_passent_square(ep_target);
+                        }
                     }
                 }
             }
