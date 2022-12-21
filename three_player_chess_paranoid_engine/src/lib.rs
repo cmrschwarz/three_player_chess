@@ -298,7 +298,7 @@ impl ParanoidEngine {
                     self.prune_count += 1;
                     result = PropagationResult::Pruned(2);
                 }
-            } else if eval >= EVAL_WIN - self.board.move_index as i16 - 1 {
+            } else if eval >= EVAL_WIN - self.board.move_index as Eval - 1 {
                 self.prune_count += 1;
                 result = PropagationResult::Pruned(1);
             }

@@ -1,8 +1,8 @@
 use three_player_chess::board::PieceType::*;
 use three_player_chess::board::*;
 
-pub type Eval = i16;
-pub type Score = [i16; HB_COUNT];
+pub type Eval = i32;
+pub type Score = [Eval; HB_COUNT];
 pub const EVAL_WIN: Eval = 15000;
 pub const EVAL_DRAW: Eval = 0;
 pub const EVAL_NEUTRAL: Eval = -5000;
@@ -10,9 +10,9 @@ pub const EVAL_LOSS: Eval = -10000;
 pub const EVAL_MAX: Eval = Eval::MAX;
 
 // e.g. two rooks and three pawns per side, just a heuristic
-const ENDGAME_MATERIAL_THRESHOLD: i16 = 1300 * HB_COUNT as i16;
+const ENDGAME_MATERIAL_THRESHOLD: Eval = 1300 * HB_COUNT as Eval;
 
-const FIELD_BONUS_PAWN: [[i16; ROW_SIZE]; ROW_SIZE] = [
+const FIELD_BONUS_PAWN: [[Eval; ROW_SIZE]; ROW_SIZE] = [
     [0, 0, 0, 0, 0, 0, 0, 0],
     [50, 50, 50, 50, 50, 50, 50, 50],
     [10, 10, 20, 30, 30, 20, 10, 10],
@@ -23,7 +23,7 @@ const FIELD_BONUS_PAWN: [[i16; ROW_SIZE]; ROW_SIZE] = [
     [0, 0, 0, 0, 0, 0, 0, 0],
 ];
 
-const FIELD_BONUS_KNIGHT: [[i16; ROW_SIZE]; ROW_SIZE] = [
+const FIELD_BONUS_KNIGHT: [[Eval; ROW_SIZE]; ROW_SIZE] = [
     [-50, -40, -30, -30, -30, -30, -40, -50],
     [-40, -20, 0, 0, 0, 0, -20, -40],
     [-30, 0, 10, 15, 15, 10, 0, -30],
@@ -34,7 +34,7 @@ const FIELD_BONUS_KNIGHT: [[i16; ROW_SIZE]; ROW_SIZE] = [
     [-50, -40, -30, -30, -30, -30, -40, -50],
 ];
 
-const FIELD_BONUS_BISHOP: [[i16; ROW_SIZE]; ROW_SIZE] = [
+const FIELD_BONUS_BISHOP: [[Eval; ROW_SIZE]; ROW_SIZE] = [
     [-20, -10, -10, -10, -10, -10, -10, -20],
     [-10, 0, 0, 0, 0, 0, 0, -10],
     [-10, 0, 5, 10, 10, 5, 0, -10],
@@ -45,7 +45,7 @@ const FIELD_BONUS_BISHOP: [[i16; ROW_SIZE]; ROW_SIZE] = [
     [-20, -10, -10, -10, -10, -10, -10, -20],
 ];
 
-const FIELD_BONUS_ROOK: [[i16; ROW_SIZE]; ROW_SIZE] = [
+const FIELD_BONUS_ROOK: [[Eval; ROW_SIZE]; ROW_SIZE] = [
     [0, 0, 0, 0, 0, 0, 0, 0],
     [5, 10, 10, 10, 10, 10, 10, 5],
     [-5, 0, 0, 0, 0, 0, 0, -5],
@@ -56,7 +56,7 @@ const FIELD_BONUS_ROOK: [[i16; ROW_SIZE]; ROW_SIZE] = [
     [0, 0, 0, 5, 5, 0, 0, 0],
 ];
 
-const FIELD_BONUS_QUEEN: [[i16; ROW_SIZE]; ROW_SIZE] = [
+const FIELD_BONUS_QUEEN: [[Eval; ROW_SIZE]; ROW_SIZE] = [
     [-20, -10, -10, -5, -5, -10, -10, -20],
     [-10, 0, 0, 0, 0, 0, 0, -10],
     [-10, 0, 5, 5, 5, 5, 0, -10],
@@ -67,8 +67,8 @@ const FIELD_BONUS_QUEEN: [[i16; ROW_SIZE]; ROW_SIZE] = [
     [-20, -10, -10, -5, -5, -10, -10, -20],
 ];
 
-const CASTLING_AVAILABLE_BONUS: i16 = 5;
-const FIELD_BONUS_KING_MIDDLEGAME: [[i16; ROW_SIZE]; ROW_SIZE] = [
+const CASTLING_AVAILABLE_BONUS: Eval = 5;
+const FIELD_BONUS_KING_MIDDLEGAME: [[Eval; ROW_SIZE]; ROW_SIZE] = [
     [-30, -40, -40, -50, -50, -40, -40, -30],
     [30, -40, -40, -50, -50, -40, -40, -30],
     [30, -40, -40, -50, -50, -40, -40, -30],
@@ -79,7 +79,7 @@ const FIELD_BONUS_KING_MIDDLEGAME: [[i16; ROW_SIZE]; ROW_SIZE] = [
     [20, 30, 10, 0, 0, 10, 30, 20],
 ];
 
-const FIELD_BONUS_KING_ENDGAME: [[i16; ROW_SIZE]; ROW_SIZE] = [
+const FIELD_BONUS_KING_ENDGAME: [[Eval; ROW_SIZE]; ROW_SIZE] = [
     [-50, -40, -30, -20, -20, -30, -40, -50],
     [-30, -20, -10, 0, 0, -10, -20, -30],
     [-30, -10, 20, 30, 30, 20, -10, -30],
@@ -135,7 +135,7 @@ fn add_castling_scores(score: &mut Score, tpc: &mut ThreePlayerChess) {
 }
 
 fn add_king_location_scores(score: &mut Score, tpc: &mut ThreePlayerChess) {
-    let endgame = score.iter().sum::<i16>() <= ENDGAME_MATERIAL_THRESHOLD;
+    let endgame = score.iter().sum::<Eval>() <= ENDGAME_MATERIAL_THRESHOLD;
     for c in Color::iter() {
         let (f, r) = get_indices_for_field_bonus(*c, tpc.king_positions[usize::from(*c)]);
         score[usize::from(*c)] += if endgame {
@@ -170,10 +170,10 @@ pub fn calculate_raw_board_score(tpc: &mut ThreePlayerChess) -> (Score, bool) {
         GameStatus::Win(winner, win_reason) => {
             // we encourage winning earlier and loosing later
             // by adding / subtracting the move index from the score
-            score = [EVAL_NEUTRAL + tpc.move_index as i16; HB_COUNT];
-            score[usize::from(winner)] = EVAL_WIN - tpc.move_index as i16;
+            score = [EVAL_NEUTRAL + tpc.move_index as Eval; HB_COUNT];
+            score[usize::from(winner)] = EVAL_WIN - tpc.move_index as Eval;
             let (WinReason::Checkmate(looser) | WinReason::CapturableKing(looser)) = win_reason;
-            score[usize::from(looser)] = EVAL_LOSS + tpc.move_index as i16;
+            score[usize::from(looser)] = EVAL_LOSS + tpc.move_index as Eval;
         }
         GameStatus::Ongoing => {
             score = [0; HB_COUNT];
@@ -181,10 +181,8 @@ pub fn calculate_raw_board_score(tpc: &mut ThreePlayerChess) -> (Score, bool) {
                 if let Some((color, piece_type)) = *FieldValue::from(tpc.board[i]) {
                     let loc = FieldLocation::from(i);
                     add_location_score(&mut score, loc, piece_type, color);
-                    if color != tpc.turn && !captures_exist {
-                        captures_exist = tpc
-                            .is_piece_capturable_at(loc, Some(tpc.turn), true)
-                            .is_some();
+                    if !captures_exist {
+                        captures_exist = tpc.is_piece_capturable_at(loc, None, false).is_some();
                     }
                 }
             }

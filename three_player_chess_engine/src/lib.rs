@@ -72,10 +72,6 @@ impl PropagationResult {
     }
 }
 
-fn is_depth_of_us(depth: u16) -> bool {
-    depth % 3 == 0
-}
-
 pub fn score_str(score: Score) -> String {
     return format!(
         "{:.2}/{:.2}/{:.2}",
@@ -291,9 +287,6 @@ impl Engine {
                     self.prune_count += 1;
                     result = PropagationResult::Pruned(2);
                 }
-            } else if score[mover] >= EVAL_WIN - self.board.move_index as i16 - 1 {
-                self.prune_count += 1;
-                result = PropagationResult::Pruned(1);
             }
             if self.debug_log && mov.is_some() {
                 // we really like this as debug break point, so we keep separate lines
@@ -359,8 +352,8 @@ impl Engine {
             }
             if let Some(tp) = self.transposition_table.get(&board.get_zobrist_hash()) {
                 if mov.is_some() {
-                    let tp_score = tp.score;
-                    res += &format_args!(" ({})", score_str(tp_score),).to_string();
+                    //let tp_score = tp.score;
+                    //res += &format_args!(" ({})", score_str(tp_score),).to_string();
                 }
                 mov = tp.best_move;
                 if mov.is_none() {
