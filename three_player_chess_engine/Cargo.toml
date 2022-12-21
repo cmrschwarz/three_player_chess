@@ -7,6 +7,7 @@ edition = "2021"
 lazy_static = "1.4"
 num-traits = "0.2"
 three_player_chess = { path = "../three_player_chess" }
+three_player_chess_board_eval = { path = "../three_player_chess_board_eval" }
 
 [lib]
 name = "three_player_chess_engine"

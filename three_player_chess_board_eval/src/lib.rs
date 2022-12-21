@@ -1,5 +1,13 @@
-use crate::*;
 use three_player_chess::board::PieceType::*;
+use three_player_chess::board::*;
+
+pub type Eval = i16;
+pub type Score = [i16; HB_COUNT];
+pub const EVAL_WIN: Eval = 15000;
+pub const EVAL_DRAW: Eval = 0;
+pub const EVAL_NEUTRAL: Eval = -5000;
+pub const EVAL_LOSS: Eval = -10000;
+pub const EVAL_MAX: Eval = Eval::MAX;
 
 // e.g. two rooks and three pawns per side, just a heuristic
 const ENDGAME_MATERIAL_THRESHOLD: i16 = 1300 * 3;

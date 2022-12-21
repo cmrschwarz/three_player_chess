@@ -1,20 +1,9 @@
-mod eval;
-
-use eval::*;
 use std::ops::Sub;
 use std::time::{Duration, Instant};
 use three_player_chess::board::MoveType::*;
 use three_player_chess::board::*;
 use three_player_chess::movegen::MovegenOptions;
-
-type Eval = i16;
-type Score = [i16; HB_COUNT];
-
-const EVAL_WIN: Eval = 15000;
-const EVAL_DRAW: Eval = 0;
-const EVAL_NEUTRAL: Eval = -5000;
-const EVAL_LOSS: Eval = -10000;
-const EVAL_MAX: Eval = Eval::MAX;
+use three_player_chess_board_eval::*;
 
 const MAX_CAPTURE_LINE_LENGTH: u16 = 6;
 

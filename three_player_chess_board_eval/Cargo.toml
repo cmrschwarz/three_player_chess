@@ -1,0 +1,10 @@
+[package]
+name = "three_player_chess_board_eval"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+three_player_chess = { path = "../three_player_chess" }
+
+[lib]
+name = "three_player_chess_board_eval"
