@@ -79,6 +79,7 @@ pub struct Frontend {
     pub autoplay: bool,
     pub engine_depth: u16,
     pub engine_time_secs: u16,
+    make_engine_move_after_next_render: bool,
 }
 const PROMOTION_QUADRANTS: [(PieceType, f32, f32); 4] = [
     (Queen, 0., 0.),
@@ -370,6 +371,7 @@ impl Frontend {
     pub fn new() -> Frontend {
         Frontend {
             prev_second: -1.0,
+            // BFGH2E3D5/F3/F1/H1/I8/E1/H/:LKJ7C5/B4K9/I7J5/L8//C7//:GFIKLbHEaI9/C3C8/Jc/HKc/Ec/Ic/H/:54:54
             // ABEG2G3D7///D1Ib//C1//:CBA7LK5///K8J7//B8//K6:G4GLbLaE9/////L9//:68:68
             // ABEG2G3D7///D2Ib//C1//:CBA7K5///J8J7//B8//:G4L7GLbE9/////K9//:84:84
             // ABCFGH2DE4/B1H3/CF1/AH1/B5/E1/AH/:LKJICBA7D5/J6I5/JC8/LA8//D8/LA/:GFEJKbHLaI9/GcJa/FcEa/HLc/Ec/Ic/HL/:10:15
@@ -378,7 +380,7 @@ impl Frontend {
             // D1D2//C1//:CBA7///L8Jc//B8//://///K5//:75:81
             // ABCEFGH2D3/B5G9/F1D2/AH1/D1/E1/AH/:LKJDCBA7I9/JC6/JC8/LA8/I8/D8/A/:GFEJKLbH9/FLa/FJc/GLc/Ec/Ic/L/:15:17
             board: ThreePlayerChess::from_str(
-                "ABEG2G3D7///D2Ib//C1//:CBA7K5///J8J7//B8//:G4L7GLbE9/////K9//:84:84",
+                "BFGH2E3D5/F3/F1/H1/I8/E1/H/:LKJ7C5/B4K9/I7J5/L8//C7//:GFIKLbHEaI9/C3C8/Jc/HKc/Ec/Ic/H/:54:54",
             )
             .unwrap(),
             font: Font::from_typeface(
@@ -420,6 +422,7 @@ impl Frontend {
             go_infinite: false,
             engine_depth: 3,
             engine_time_secs: 3,
+            make_engine_move_after_next_render: false,
         }
     }
     fn get_hb_id(&self, color: board::Color) -> usize {
@@ -1050,7 +1053,7 @@ impl Frontend {
         self.board.perform_reversable_move(&rm);
         self.reset_effects();
         if self.autoplay && self.board.turn != self.origin {
-            self.do_engine_move();
+            self.make_engine_move_after_next_render = true;
         }
     }
     pub fn apply_move(
@@ -1182,6 +1185,12 @@ impl Frontend {
             self.board.revert_move(&rm);
             self.reset_effects();
             println!("undid move: {}", rm.mov.to_string(&mut self.board));
+        }
+    }
+    pub fn post_render_event(&mut self) {
+        if self.make_engine_move_after_next_render {
+            self.make_engine_move_after_next_render = false;
+            self.do_engine_move();
         }
     }
 }

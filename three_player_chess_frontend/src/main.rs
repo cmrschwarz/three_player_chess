@@ -275,6 +275,7 @@ fn main() {
                 }
                 env.surface.canvas().flush();
                 env.windowed_context.swap_buffers().unwrap();
+                fe.post_render_event();
             }
             _ => (),
         }

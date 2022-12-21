@@ -212,6 +212,7 @@ impl Engine {
             },
         );
         if captures_only {
+            //null move
             ed.moves.push(EngineMove {
                 score: parent_score,
                 captures_available: parent_has_caps,
@@ -220,12 +221,6 @@ impl Engine {
             });
         }
         for mov in self.dummy_vec.iter() {
-            if captures_only {
-                match mov.move_type {
-                    Capture(..) | CapturePromotion(..) => (),
-                    _ => continue,
-                }
-            }
             let rm = ReversableMove::new(&self.board, *mov);
             self.board.perform_reversable_move(&rm);
             let hash = self.board.get_zobrist_hash();
