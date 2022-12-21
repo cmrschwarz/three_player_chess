@@ -371,7 +371,7 @@ impl Frontend {
         Frontend {
             prev_second: -1.0,
 
-            board: ThreePlayerChess::from_str("ACEFGH2D3B4/B5G9/CF1/AH1/D1/E1/AH/B3:LKJDCBA7I9/JC6/JC8/KA8/I8/D8/A/:GFEJKLbIaH9/FLa/FJc/GLc/Ec/Ic/L/:16:16").unwrap(),
+            board: ThreePlayerChess::from_str("ABCEFGH2D4/BG1/CF1/AH1/D3/E1/AH/:LKJICBA7D5/KB8/JC8/LA8/B5/D8/LA/:GFEIJKbHLa/GKc/FJc/HLc/Ec/Ic/HL/:6:6").unwrap(),
             //board: ThreePlayerChess::from_str("ABCEFGH2D3/B5G9/CF1/AH1/D1/E1/AH/:LKJDCBA7I9/JC6/JC8/KA8/I8/D8/A/:GFEJKLbIaH9/FLa/FJc/GLc/Ec/Ic/L/:15:15").unwrap(),
             // board: ThreePlayerChess::from_str("CEFGH2A5E4D5H4C5/BG1/CF1/AH1/D4/E1/AH/:LKIDCBA7J6/KB8/JC8/LA8/L5/D8/LA/:HGFEILbJaK9B2/GKc/FJc/HLc/Ec/Ic/HL/Ka:0:0").unwrap(),//Default::default(),
             // board: ThreePlayerChess::from_str("ABEG2G3D7///D1Ib//C1//:CBA7LK5///K8J7//B8//K6:G4GLbLaE9/////L9//:68:68").unwrap(),

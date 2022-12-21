@@ -10,7 +10,7 @@ pub const EVAL_LOSS: Eval = -10000;
 pub const EVAL_MAX: Eval = Eval::MAX;
 
 // e.g. two rooks and three pawns per side, just a heuristic
-const ENDGAME_MATERIAL_THRESHOLD: i16 = 1300 * 3;
+const ENDGAME_MATERIAL_THRESHOLD: i16 = 1300 * HB_COUNT as i16;
 
 const FIELD_BONUS_PAWN: [[i16; ROW_SIZE]; ROW_SIZE] = [
     [0, 0, 0, 0, 0, 0, 0, 0],
@@ -162,15 +162,15 @@ pub fn board_has_captures(tpc: &mut ThreePlayerChess) -> bool {
     false
 }
 
-pub fn calculate_position_score(tpc: &mut ThreePlayerChess) -> (Score, bool) {
+pub fn calculate_raw_board_score(tpc: &mut ThreePlayerChess) -> (Score, bool) {
     let mut captures_exist = false;
     let mut score: Score;
     match tpc.game_status {
-        GameStatus::Draw(_) => score = [EVAL_DRAW, EVAL_DRAW, EVAL_DRAW],
+        GameStatus::Draw(_) => score = [EVAL_DRAW; HB_COUNT],
         GameStatus::Win(winner, win_reason) => {
             // we encourage winning earlier and loosing later
             // by adding / subtracting the move index from the score
-            score = [EVAL_NEUTRAL + tpc.move_index as i16; 3];
+            score = [EVAL_NEUTRAL + tpc.move_index as i16; HB_COUNT];
             score[usize::from(winner)] = EVAL_WIN - tpc.move_index as i16;
             let (WinReason::Checkmate(looser) | WinReason::CapturableKing(looser)) = win_reason;
             score[usize::from(looser)] = EVAL_LOSS + tpc.move_index as i16;
@@ -194,11 +194,19 @@ pub fn calculate_position_score(tpc: &mut ThreePlayerChess) -> (Score, bool) {
     };
     (score, captures_exist)
 }
+pub fn calculate_position_score(tpc: &mut ThreePlayerChess) -> (Score, bool) {
+    let (bs, caps_exist) = calculate_raw_board_score(tpc);
+    let mut score: Score = [Default::default(); HB_COUNT];
+    for i in 0..HB_COUNT {
+        score[i] = 2 * bs[i] - bs[(i + 1) % HB_COUNT] - bs[(i + 2) % HB_COUNT];
+    }
+    (score, caps_exist)
+}
 pub fn calculate_position_eval(tpc: &mut ThreePlayerChess, perspective: Color) -> (Eval, bool) {
-    let (score, caps_exist) = calculate_position_score(tpc);
+    let (score, caps_exist) = calculate_raw_board_score(tpc);
     let p = usize::from(perspective);
     (
-        2 * score[p] - score[(p + 1) % 3] - score[(p + 2) % 3],
+        2 * score[p] - score[(p + 1) % HB_COUNT] - score[(p + 2) % HB_COUNT],
         caps_exist,
     )
 }
