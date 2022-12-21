@@ -50,6 +50,8 @@ struct EngineDepth {
 }
 
 struct EngineMove {
+    // we store this in here so we can check the transposition table
+    // without actually applying (and then reverting) the move
     hash: u64,
     mov: Option<Move>, // we allow null moves
     eval: Eval,
