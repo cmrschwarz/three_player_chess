@@ -263,7 +263,6 @@ impl Engine {
             }
             let rm = ReversableMove::new(&self.board, *mov);
             self.board.perform_move(rm.mov);
-
             let hash = self.board.get_zobrist_hash();
             //get_initial_pos_eval_for_sort(&mut self.board, *mov), tp)
 
@@ -378,10 +377,10 @@ impl Engine {
         }
         for i in 1..depth + 1 {
             let rm = self.engine_stack[i].move_rev.clone().unwrap();
-            self.board.perform_move(rm.mov);
+            self.board.perform_reversable_move(&rm);
         }
         if let Some(ref rm) = last_move {
-            self.board.perform_move(rm.mov);
+            self.board.perform_reversable_move(&rm);
         }
         res
     }
@@ -470,7 +469,7 @@ impl Engine {
                     }
                 }
                 rm = Some(ReversableMove::new(&self.board, mov));
-                self.board.perform_move(mov);
+                self.board.perform_reversable_move(rm.as_ref().unwrap());
             } else {
                 rm = None;
             }

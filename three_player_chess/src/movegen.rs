@@ -1,6 +1,7 @@
 use crate::board::MoveType::*;
 use crate::board::PieceType::*;
 use crate::board::*;
+use crate::zobrist::ZobristHash;
 use arrayvec::ArrayVec;
 use std::cmp::{max, min};
 use std::option::Option::*;
@@ -431,13 +432,42 @@ fn move_diagonal(
 }
 
 impl ThreePlayerChess {
+    pub fn perform_reversable_move(&mut self, rm: &ReversableMove) {
+        let ststr = self.state_string();
+        if ststr != rm.state_before {
+            println!("expected: {}\ngot     : {}", rm.state_after, ststr);
+            println!("move: {:?}", rm.mov);
+            assert!(false);
+        }
+        self.apply_move(rm.mov);
+        self.apply_move_sideeffects(rm.mov);
+        let ststr = self.state_string();
+        if ststr != rm.state_after {
+            println!("expected: {}\ngot     : {}", rm.state_before, ststr);
+            println!("move: {:?}", rm.mov);
+            assert!(false);
+        }
+    }
     pub fn perform_move(&mut self, m: Move) {
         self.apply_move(m);
         self.apply_move_sideeffects(m);
     }
     pub fn revert_move(&mut self, rm: &ReversableMove) {
+        let ststr = self.state_string();
+        if ststr != rm.state_after {
+            println!("expected: {}\ngot     : {}", rm.state_after, ststr);
+            println!("move: {:?}", rm.mov);
+            println!("state before: {}", rm.state_before);
+            assert!(false);
+        }
         self.unapply_move_sideffects(rm);
         self.unapply_move(rm.mov);
+        let ststr = self.state_string();
+        if ststr != rm.state_before {
+            println!("expected: {}\ngot     : {}", rm.state_before, ststr);
+            println!("move: {:?}", rm.mov);
+            assert!(false);
+        }
     }
     pub fn apply_move(&mut self, m: Move) {
         let src = usize::from(m.source);
@@ -659,6 +689,7 @@ impl ThreePlayerChess {
                 self.board[tgt] = captured_piece;
             }
             EnPassant(captured_pawn, captured_pawn_loc) => {
+                assert!(FieldValue::from(captured_pawn).is_some());
                 self.board[usize::from(captured_pawn_loc)] = captured_pawn;
                 self.board[src] = self.board[tgt];
                 self.board[tgt] = Default::default();
@@ -699,6 +730,7 @@ impl ThreePlayerChess {
             self.king_positions[usize::from(self.turn)] = rm.mov.source;
         }
         self.zobrist_hash.value = rm.zobrist_hash_value;
+        self.recalc_zobrist(); //nocheckin
     }
     fn would_king_move_bypass_check(&mut self, mv: Move) -> bool {
         self.apply_move(mv);
