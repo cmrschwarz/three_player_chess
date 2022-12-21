@@ -98,22 +98,52 @@ impl Engine {
         }
     }
     pub fn report_search_depth_results(&mut self, start: Instant) {
-        let score = self.engine_stack[0].score;
-        let mut line_str = "".to_owned();
+        let mut eval_str = "".to_owned();
+
         if let Some(bm) = self.engine_stack[0].best_move {
-            line_str = self.transposition_line_str(Some(bm));
+            eval_str = format!(
+                "({}): {}",
+                score_str(self.engine_stack[0].score),
+                self.transposition_line_str(Some(bm))
+            );
+            let mut moves: Vec<_> = self
+                .board
+                .gen_moves()
+                .iter()
+                .map(|m| {
+                    (
+                        {
+                            let rm = ReversableMove::new(&self.board, *m);
+                            self.board.perform_reversable_move(&rm);
+                            let te = self.transposition_table.get(&self.board.get_zobrist_hash());
+                            self.board.revert_move(&rm);
+                            te.map_or([EVAL_LOSS; HB_COUNT], |te| te.score)
+                        },
+                        *m,
+                    )
+                })
+                .collect();
+            let turn = usize::from(self.board.turn);
+            moves.sort_by(|l, r| r.0[turn].cmp(&l.0[turn]));
+            for i in 0..moves.len().min(3) {
+                let em = &moves[i];
+                eval_str = format!(
+                    "{}\n   {}({}): {}",
+                    eval_str,
+                    if i == 0 { "*" } else { " " },
+                    score_str(em.0),
+                    self.transposition_line_str(Some(em.1))
+                )
+                .to_string();
+            }
         }
         let time = Instant::now().sub(start).as_secs_f32();
         println!(
-            "(depth {} took {:.1}s, {:.2} kN/s, {} positions, {} pruned branches, {} transpositions): eval ({}) with {}",
-            self.depth_max ,
+            "depth {:2} ({:.1}s, {:.2} kN/s): {}",
+            self.depth_max,
             time,
             (self.pos_count as f32 / time) / 1000.,
-            self.pos_count,
-            self.prune_count,
-            self.transposition_count,
-            score_str(score),
-            line_str
+            eval_str
         );
     }
     pub fn search_position(
