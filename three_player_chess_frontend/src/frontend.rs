@@ -51,6 +51,7 @@ pub struct Frontend {
     pub white: Color,
     pub selection_color: Color,
     pub danger: Color,
+    pub danger_light: Color,
     pub background: Color,
     pub last_move_color: Color,
     pub move_before_last_color: Color,
@@ -64,7 +65,7 @@ pub struct Frontend {
     pub dragged_square: Option<AnnotatedFieldLocation>,
     pub promotion_preview: Option<AnnotatedFieldLocation>,
     pub possible_moves: bitvec::BitArr!(for (32 * HB_COUNT), in u32), //  BitArray<bitvec::order::LocalBits, [u32; HB_COUNT]>,
-    pub king_in_check: bool,
+    pub king_in_check: [bool; HB_COUNT],
     pub cursor_pos: Vector2<i32>,
     pub board_radius: f32,
     pub board_origin: Vector2<i32>,
@@ -395,6 +396,7 @@ impl Frontend {
             move_before_last_color: Color::from_argb(190, 160, 200, 255),
             background: Color::from_rgb(201, 144, 73),
             danger: Color::from_rgb(232, 15, 13),
+            danger_light: Color::from_rgb(255,114,118),
             transformed_pieces: false,
             selected_square: None,
             history: Default::default(),
@@ -411,7 +413,7 @@ impl Frontend {
                 Color::from_rgb(41, 41, 41),
                 Color::from_rgb(36, 36, 128),
             ],
-            king_in_check: false,
+            king_in_check: [false; HB_COUNT],
             pieces: PIECE_IMAGES.clone(),
             transform_dragged_pieces: true,
             piece_scale_non_transformed: 1.2,
@@ -802,7 +804,7 @@ impl Frontend {
                 );
             }
         } else if let Some((color, piece_value)) = *self.board.get_field_value(field.loc) {
-            let king_check = self.king_in_check && piece_value == King && color == self.board.turn;
+            let king_check = self.king_in_check[usize::from(color)] && piece_value == King;
             let img = &self.pieces[usize::from(color)][usize::from(piece_value)];
 
             if selected {
@@ -821,7 +823,14 @@ impl Frontend {
                     path.line_to(Point::new(p.x, p.y));
                 }
                 if king_check {
-                    let danger_paint = sk_paint(self.danger, PaintStyle::Fill);
+                    let danger_paint = sk_paint(
+                        if self.board.turn == color {
+                            self.danger
+                        } else {
+                            self.danger_light
+                        },
+                        PaintStyle::Fill,
+                    );
                     canvas.draw_path(&path, &danger_paint);
                 } else {
                     canvas.draw_path(&path, &selection_paint);
@@ -1152,7 +1161,11 @@ impl Frontend {
         self.promotion_preview = None;
         self.dragged_square = None;
         self.possible_moves.fill(false);
-        self.king_in_check = self.board.is_king_capturable(None);
+        for c in board::Color::iter() {
+            let kp = self.board.king_positions[usize::from(*c)];
+            self.king_in_check[usize::from(*c)] =
+                self.board.is_piece_capturable_at(kp, None, false).is_some();
+        }
     }
     pub fn reset(&mut self) {
         self.board = ThreePlayerChess::default();
