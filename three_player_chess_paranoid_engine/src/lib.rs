@@ -193,7 +193,7 @@ impl ParanoidEngine {
             let p_mov = &parent.moves[parent.index - 1];
             (p_mov.hash, p_mov.eval, p_mov.captures_available)
         } else {
-            let (eval, has_caps) = evaluate_position(&mut self.board, self.deciding_player);
+            let (eval, has_caps) = calculate_position_eval(&mut self.board, self.deciding_player);
             (
                 self.board.get_zobrist_hash(),
                 flip_eval(!is_depth_of_us(depth + 2), eval),
@@ -241,7 +241,7 @@ impl ParanoidEngine {
             let hash = self.board.get_zobrist_hash();
             let (eval, has_caps) = self.transposition_table.get(&hash).map_or_else(
                 || {
-                    let (ev, caps) = evaluate_position(&mut self.board, self.deciding_player);
+                    let (ev, caps) = calculate_position_eval(&mut self.board, self.deciding_player);
                     (
                         flip_eval(self.board.turn != self.deciding_player, ev),
                         Some(caps),
@@ -369,7 +369,7 @@ impl ParanoidEngine {
             if let Some(tp) = self.transposition_table.get(&board.get_zobrist_hash()) {
                 if mov.is_some() {
                     let tp_eval = tp.eval;
-                    let (board_eval, _) = evaluate_position(&mut board, self.deciding_player);
+                    let (board_eval, _) = calculate_position_eval(&mut board, self.deciding_player);
                     res += &format_args!(
                         " ({} ({}) / {})",
                         tp_eval,

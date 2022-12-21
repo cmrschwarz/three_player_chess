@@ -162,33 +162,25 @@ pub fn board_has_captures(tpc: &mut ThreePlayerChess) -> bool {
     false
 }
 
-pub fn evaluate_position(tpc: &mut ThreePlayerChess, perspective: Color) -> (Eval, bool) {
+pub fn calculate_position_score(tpc: &mut ThreePlayerChess) -> (Score, bool) {
     let mut captures_exist = false;
-    let eval = match tpc.game_status {
-        GameStatus::Draw(_) => EVAL_DRAW,
+    let mut score: Score;
+    match tpc.game_status {
+        GameStatus::Draw(_) => score = [EVAL_DRAW, EVAL_DRAW, EVAL_DRAW],
         GameStatus::Win(winner, win_reason) => {
-            if winner == perspective {
-                // reward faster mates
-                EVAL_WIN - tpc.move_index as i16
-            } else {
-                match win_reason {
-                    // encourage fighting on
-                    WinReason::Checkmate(looser) | WinReason::CapturableKing(looser) => {
-                        if looser == perspective {
-                            EVAL_LOSS + tpc.move_index as i16
-                        } else {
-                            EVAL_NEUTRAL + tpc.move_index as i16
-                        }
-                    }
-                }
-            }
+            // we encourage winning earlier and loosing later
+            // by adding / subtracting the move index from the score
+            score = [EVAL_NEUTRAL + tpc.move_index as i16; 3];
+            score[usize::from(winner)] = EVAL_WIN - tpc.move_index as i16;
+            let (WinReason::Checkmate(looser) | WinReason::CapturableKing(looser)) = win_reason;
+            score[usize::from(looser)] = EVAL_LOSS + tpc.move_index as i16;
         }
         GameStatus::Ongoing => {
-            let mut board_score = [0; HB_COUNT];
+            score = [0; HB_COUNT];
             for i in 0..BOARD_SIZE {
                 if let Some((color, piece_type)) = *FieldValue::from(tpc.board[i]) {
                     let loc = FieldLocation::from(i);
-                    add_location_score(&mut board_score, loc, piece_type, color);
+                    add_location_score(&mut score, loc, piece_type, color);
                     if color != tpc.turn && !captures_exist {
                         captures_exist = tpc
                             .is_piece_capturable_at(loc, Some(tpc.turn), true)
@@ -196,11 +188,17 @@ pub fn evaluate_position(tpc: &mut ThreePlayerChess, perspective: Color) -> (Eva
                     }
                 }
             }
-            add_castling_scores(&mut board_score, tpc);
-            add_king_location_scores(&mut board_score, tpc);
-            let p = usize::from(perspective);
-            2 * board_score[p] - board_score[(p + 1) % 3] - board_score[(p + 2) % 3]
+            add_castling_scores(&mut score, tpc);
+            add_king_location_scores(&mut score, tpc);
         }
     };
-    (eval, captures_exist)
+    (score, captures_exist)
+}
+pub fn calculate_position_eval(tpc: &mut ThreePlayerChess, perspective: Color) -> (Eval, bool) {
+    let (score, caps_exist) = calculate_position_score(tpc);
+    let p = usize::from(perspective);
+    (
+        2 * score[p] - score[(p + 1) % 3] - score[(p + 2) % 3],
+        caps_exist,
+    )
 }
