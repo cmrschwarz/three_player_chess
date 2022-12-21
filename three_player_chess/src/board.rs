@@ -6,6 +6,7 @@ use crate::zobrist::*;
 use arrayvec::ArrayString;
 use std::char;
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::io::Write;
 use MoveType::*;
 use PieceType::*;
@@ -185,8 +186,16 @@ pub struct FieldValue(pub Option<(Color, PieceType)>);
 pub struct PackedFieldValue(u8);
 
 #[repr(transparent)]
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct FieldLocation(std::num::NonZeroU8);
+
+impl Debug for FieldLocation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("FieldLocation")
+            .field(&self.to_str_fancy())
+            .finish()
+    }
+}
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct ThreePlayerChess {
@@ -347,6 +356,9 @@ impl ThreePlayerChess {
         tpc.move_index = mi[1..]
             .parse()
             .or_else(|_| Err("move index is not a valid integer"))?;
+        if tpc.last_capture_or_pawn_move_index > tpc.move_index {
+            return Err("capture/pawn move index can't be larger than move index");
+        }
         tpc.turn = Color::from((tpc.move_index % HB_COUNT as u16) as u8);
         tpc.recalc_zobrist();
         Ok(tpc)
