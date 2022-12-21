@@ -600,6 +600,11 @@ impl ThreePlayerChess {
                     self.last_capture_or_pawn_move_index,
                 );
                 self.last_capture_or_pawn_move_index = self.move_index;
+                let ep_square = self.possible_en_passant
+                    [usize::from(FieldValue::from(captured_pawn).color().unwrap())]
+                .take()
+                .unwrap();
+                self.zobrist_hash.toggle_en_passent_square(ep_square);
             }
             ClaimDraw => {
                 self.apply_draw_claiming_sideeffects(m);
