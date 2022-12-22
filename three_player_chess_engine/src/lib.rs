@@ -280,6 +280,11 @@ impl Engine {
             // reversed l and r because we want the highest scoreing move for the deciding player to be checked first
             m_r.score[usize::from(self.board.turn)].cmp(&m_l.score[usize::from(self.board.turn)])
         });
+        if let Some(em) = ed.moves.first().as_deref() {
+            // so that we apply the first move as 'better than nothing'
+            // but don't prune
+            ed.best_move = em.mov;
+        }
         ed
     }
     fn propagate_move_score(

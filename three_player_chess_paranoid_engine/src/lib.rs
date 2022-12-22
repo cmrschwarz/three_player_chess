@@ -300,6 +300,8 @@ impl ParanoidEngine {
         ed.moves
             .sort_by(|m_l, m_r| flip_eval(!us, m_r.eval).cmp(&flip_eval(!us, m_l.eval)));
         if let Some(em) = ed.moves.first().as_deref() {
+            // so that we apply the first move as 'better than nothing'
+            // but don't prune
             ed.best_move = em.mov;
         }
         ed
