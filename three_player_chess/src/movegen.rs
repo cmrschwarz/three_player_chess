@@ -127,11 +127,9 @@ impl CheckPossibilities {
                         let line_end = lines_idx;
                         self.diagonal_line_ends[lines_count] = line_end;
                         lines_count += 1;
-                        if line_begin != line_split_point {
-                            for i in line_begin..line_split_point + 1 {
-                                self.diagonal_lines[lines_idx] = self.diagonal_lines[i];
-                                lines_idx += 1;
-                            }
+                        for i in line_begin..line_split_point {
+                            self.diagonal_lines[lines_idx] = self.diagonal_lines[i];
+                            lines_idx += 1;
                         }
                         line_begin = line_end;
                         self.diagonal_lines[lines_idx] = one.loc;
