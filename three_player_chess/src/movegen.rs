@@ -826,8 +826,7 @@ impl ThreePlayerChess {
                         PieceType::King
                             if color_may_capture(color, piece_color, capturing_color) =>
                         {
-                            let k = AnnotatedFieldLocation::from_with_origin(kp.origin, f);
-                            if k.rank.abs_diff(kp.rank) == 1 || k.file.abs_diff(kp.file) == 1 {
+                            if i == start {
                                 let m = Move::new(f, loc, Capture(field_value));
                                 if !check_for_checks || !self.would_king_move_bypass_check(m) {
                                     return Some(m);
@@ -861,8 +860,7 @@ impl ThreePlayerChess {
                         PieceType::King
                             if color_may_capture(color, piece_color, capturing_color) =>
                         {
-                            let k = AnnotatedFieldLocation::from_with_origin(kp.origin, *f);
-                            if k.rank.abs_diff(kp.rank) == 1 && k.file.abs_diff(kp.file) == 1 {
+                            if i == 0 {
                                 let m = Move::new(*f, loc, Capture(field_value));
                                 if !check_for_checks || !self.would_king_move_bypass_check(m) {
                                     return Some(m);
@@ -873,9 +871,9 @@ impl ThreePlayerChess {
                         PieceType::Pawn
                             if color_may_capture(color, piece_color, capturing_color) =>
                         {
-                            let kp_r = AnnotatedFieldLocation::from_with_origin(color, kp.loc);
-                            let pos = AnnotatedFieldLocation::from_with_origin(color, *f);
-                            if i == 0 && pos.rank + 1 == kp_r.rank {
+                            let field_pos = AnnotatedFieldLocation::from_with_origin(color, kp.loc);
+                            let pawn_pos = AnnotatedFieldLocation::from_with_origin(color, *f);
+                            if i == 0 && pawn_pos.rank + 1 == field_pos.rank {
                                 let m = Move::new(*f, loc, Capture(field_value));
                                 if !check_for_checks || !self.would_non_king_move_bypass_check(m) {
                                     return Some(m);
