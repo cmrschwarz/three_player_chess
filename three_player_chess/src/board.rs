@@ -380,6 +380,7 @@ impl ThreePlayerChess {
         }
         tpc.turn = Color::from((tpc.move_index % HB_COUNT as u16) as u8);
         tpc.recalc_zobrist();
+        tpc.game_status = tpc.game_status();
         Ok(tpc)
     }
     pub fn write_state_str<'a, W: std::fmt::Write>(
