@@ -437,7 +437,7 @@ impl ThreePlayerChess {
     #[cfg(feature = "debug_movegen")]
     fn movegen_sanity_check(&self, rm: &ReversableMove, before: bool, revert: bool) {
         let state_str = self.state_string();
-        let expected_state = if before {
+        let expected_state = if before != revert {
             &rm.state_before
         } else {
             &rm.state_after
