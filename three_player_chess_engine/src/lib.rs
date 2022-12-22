@@ -2,13 +2,14 @@ use std::ops::Sub;
 use std::time::{Duration, Instant};
 use three_player_chess::board::*;
 use three_player_chess::movegen::MovegenOptions;
+use three_player_chess::zobrist::ZOBRIST_NULL_MOVE_HASH;
 use three_player_chess_board_eval::*;
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 struct Transposition {
     score: Score,
-    eval_depth: u16,
-    eval_cap_line_len: u16,
+    eval_max_move_index: u16,
+    eval_cap_line_max_move_index: u16,
     best_move: Option<Move>,
 }
 
@@ -18,6 +19,8 @@ pub struct Engine {
     pub board: ThreePlayerChess,
     pub eval_depth: u16,
     pub eval_cap_line_len: u16,
+    pub eval_max_move_index: u16, // the deepest move index that we evaluate to
+    pub eval_cap_line_max_move_index: u16,
     pub transposition_count: usize,
     pub prune_count: usize,
     pub pos_count: usize,
@@ -29,7 +32,7 @@ pub struct Engine {
 #[derive(Default)]
 struct EngineDepth {
     moves: Vec<EngineMove>,
-    hash: u64,
+    hash: u64, // hash of position before any of the moves
     index: usize,
     score: Score,
     best_move: Option<Move>,
@@ -39,7 +42,7 @@ struct EngineDepth {
 struct EngineMove {
     // we store this in here so we can check the transposition table
     // without actually applying (and then reverting) the move
-    hash: u64,
+    hash: u64,         // hash of position after the move
     mov: Option<Move>, // we allow null moves
     score: Score,
     captures_available: Option<bool>,
@@ -55,13 +58,13 @@ impl Transposition {
     fn new(
         mov: Option<Move>,
         score: Score,
-        eval_depth: u16,
-        eval_cap_line_len: u16,
+        eval_max_move_index: u16,
+        eval_cap_line_max_move_index: u16,
     ) -> Transposition {
         Transposition {
             score,
-            eval_depth,
-            eval_cap_line_len,
+            eval_max_move_index,
+            eval_cap_line_max_move_index,
             best_move: mov,
         }
     }
@@ -93,6 +96,8 @@ impl Engine {
             engine_stack: Default::default(),
             eval_depth: 0,
             eval_cap_line_len: 0,
+            eval_max_move_index: 0,
+            eval_cap_line_max_move_index: 0,
             prune_count: 0,
             transposition_count: 0,
             pos_count: 0,
@@ -164,8 +169,8 @@ impl Engine {
         self.board = tpc.clone();
         self.eval_depth = 0;
         self.eval_cap_line_len = 0;
-        //self.transposition_table.retain(|_, tp| tp.eval_depth > self.eval_depth_max);
-        self.transposition_table.clear(); // since we use
+        self.transposition_table
+            .retain(|_, tp| tp.eval_max_move_index > self.board.move_index);
         self.deciding_player = self.board.turn;
         let search_start = Instant::now();
         let end = search_start
@@ -257,7 +262,7 @@ impl Engine {
             ed.moves.push(EngineMove {
                 score: parent_score,
                 captures_available: parent_has_caps,
-                hash: parent_hash,
+                hash: parent_hash ^ ZOBRIST_NULL_MOVE_HASH,
                 mov: None,
             });
         }
@@ -403,6 +408,8 @@ impl Engine {
         res
     }
     fn search_iterate(&mut self, end: Instant) -> Result<(), ()> {
+        self.eval_max_move_index = self.board.move_index + self.eval_depth;
+        self.eval_cap_line_max_move_index = self.eval_max_move_index + self.eval_depth;
         self.gen_engine_depth(0, None, false);
         let mut depth: u16 = 0;
         let mut propagation_result = PropagationResult::Ok;
@@ -445,8 +452,8 @@ impl Engine {
             let rm;
             if let Some(mov) = em.mov {
                 if let Some(tp) = self.transposition_table.get(&em.hash) {
-                    if tp.eval_depth >= self.eval_depth.saturating_sub(depth)
-                        && tp.eval_cap_line_len >= self.eval_cap_line_len
+                    if tp.eval_max_move_index >= self.eval_max_move_index
+                        && tp.eval_cap_line_max_move_index >= self.eval_cap_line_max_move_index
                     {
                         self.transposition_count += 1;
                         self.pos_count += 1;
@@ -464,18 +471,19 @@ impl Engine {
             // 'overrulable' by actual moves
             depth += 1;
             let game_over = self.board.game_status != GameStatus::Ongoing;
-            let force_eval = rm.is_none() || depth > self.eval_depth + self.eval_cap_line_len;
+            let force_eval = rm.is_none() || depth >= self.eval_depth + self.eval_cap_line_len;
             if depth >= self.eval_depth || force_eval || game_over {
                 self.pos_count += 1;
                 let score = em.score;
-                let mut caps_available = em.captures_available == Some(true);
+                let mut caps_available = em.captures_available;
                 let score_now = if game_over || force_eval {
                     true
                 } else {
-                    caps_available = em
+                    let ca = em
                         .captures_available
                         .unwrap_or_else(|| board_has_captures(&mut self.board));
-                    !caps_available
+                    caps_available = Some(ca);
+                    !ca
                 };
                 let hash = em.hash;
 
@@ -496,11 +504,11 @@ impl Engine {
                         Transposition::new(
                             None,
                             score,
-                            self.eval_depth.saturating_sub(depth),
-                            if !caps_available {
+                            self.eval_max_move_index,
+                            if caps_available == Some(false) {
                                 u16::MAX
                             } else {
-                                self.eval_cap_line_len
+                                self.eval_cap_line_max_move_index
                             },
                         ),
                     );
