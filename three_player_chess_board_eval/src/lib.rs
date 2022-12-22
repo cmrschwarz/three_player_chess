@@ -5,8 +5,8 @@ pub type Eval = i32;
 pub type Score = [Eval; HB_COUNT];
 pub const EVAL_WIN: Eval = 15000;
 pub const EVAL_DRAW: Eval = 0;
-pub const EVAL_NEUTRAL: Eval = -5000;
-pub const EVAL_LOSS: Eval = -10000;
+pub const EVAL_NEUTRAL: Eval = 0;
+pub const EVAL_LOSS: Eval = -15000;
 pub const EVAL_MAX: Eval = Eval::MAX;
 
 // e.g. two rooks and three pawns per side, just a heuristic
