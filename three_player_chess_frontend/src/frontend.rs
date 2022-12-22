@@ -373,6 +373,7 @@ impl Frontend {
     pub fn new() -> Frontend {
         Frontend {
             prev_second: -1.0,
+            // AF2H3I5Ea//H4//B4/G3//:LB7IC6A5K9//C8Gb/KA8/H1/I8//:HbKa///J7Fc/D6/Kc//:93:95 blue self destructs
             // ABCF2GH3D4Ea/G1B5/CF1/AH1/C4/E1/AH/:LJDCBA7I6K5/C6I9/C8I7/LA8/I8/D8/LA/:I5HGJLbKa/GcJa/H4Kb/HLc/Ec/Ic/HL/:28:28  Nxi5 !!
             // BCFH2A3E4F9/B5/D2/DE1/H4/G1//:LCA7C6J5//D7E9/I8//B7//:HGFKbKLa/Fa/L6/HcJb/Ja/Kc//:76:76   movegen bug repro
             // BCFH2AH3/E9/D3Ia/A1La//B1//://///D4//:L7/////Ea//:189:336
@@ -385,8 +386,10 @@ impl Frontend {
             // CEFGH2A5E4D5H4C5/BG1/CF1/AH1/D4/E1/AH/:LKIDCBA7J6/KB8/JC8/LA8/L5/D8/LA/:HGFEILbJaK9B2/GKc/FJc/HLc/Ec/Ic/HL/Ka:0:0
             // D1D2//C1//:CBA7///L8Jc//B8//://///K5//:75:81
             // ABCEFGH2D3/B5G9/F1D2/AH1/D1/E1/AH/:LKJDCBA7I9/JC6/JC8/LA8/I8/D8/A/:GFEJKLbH9/FLa/FJc/GLc/Ec/Ic/L/:15:17
-            board: ThreePlayerChess::from_str("ABCF2GH3D4Ea/G1B5/CF1/AH1/C4/E1/AH/:LJDCBA7I6K5/C6I9/C8I7/LA8/I8/D8/LA/:I5HGJLbKa/GcJa/H4Kb/HLc/Ec/Ic/HL/:28:28")
-                .unwrap(),
+            board: ThreePlayerChess::from_str(
+                "AF2H3I5Ea//H4//B4/G3//:LB7IC6A5K9//C8Gb/KA8/H1/I8//:HbKa///J7Fc/D6/Kc//:93:95",
+            )
+            .unwrap(),
             font: Font::from_typeface(
                 Typeface::from_data(Data::new_copy(&FONT), None)
                     .expect("Failed to load font 'Roboto-Regular.ttf'"),

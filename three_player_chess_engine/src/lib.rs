@@ -185,35 +185,25 @@ impl Engine {
             },
         );
         let mut best_move = start_mov.pop();
-        let mut timeout = false;
         for _ in 0..depth {
             self.eval_depth += 1;
-            for cll in 1..cap_line_len + 1 {
-                if self.eval_depth != depth && cll > self.eval_depth {
-                    break;
+            self.eval_cap_line_len = self.eval_depth;
+            let start = Instant::now();
+            self.transposition_count = 0;
+            self.prune_count = 0;
+            self.pos_count = 0;
+            if self.search_iterate(end).is_ok() {
+                best_move = self.engine_stack[0].best_move;
+                if report_results_per_depth || self.debug_log {
+                    self.report_search_depth_results(search_start, start);
                 }
-                self.eval_cap_line_len = cll;
-                let start = Instant::now();
-                self.transposition_count = 0;
-                self.prune_count = 0;
-                self.pos_count = 0;
-                if self.search_iterate(end).is_ok() {
-                    best_move = self.engine_stack[0].best_move;
-                    if report_results_per_depth || self.debug_log {
-                        self.report_search_depth_results(search_start, start);
-                    }
-                } else {
-                    if report_results_per_depth || self.debug_log {
-                        println!(
-                            "aborted depth {}(+{}) (after {} positions)",
-                            self.eval_depth, self.eval_cap_line_len, self.pos_count
-                        );
-                    }
-                    timeout = true;
-                    break;
+            } else {
+                if report_results_per_depth || self.debug_log {
+                    println!(
+                        "aborted depth {}(+{}) (after {} positions)",
+                        self.eval_depth, self.eval_cap_line_len, self.pos_count
+                    );
                 }
-            }
-            if timeout {
                 break;
             }
         }
@@ -306,15 +296,7 @@ impl Engine {
             ed.score = score;
             ed.best_move = mov;
 
-            if depth >= 1 {
-                let ed_move_ref = ed.move_rev.as_ref().map(|mr| mr.mov);
-                let prev_mover = usize::from(self.board.turn.prev());
-                let ed1 = &self.engine_stack[depth as usize - 1];
-                if score[prev_mover] <= ed1.score[prev_mover] && ed1.best_move != ed_move_ref {
-                    self.prune_count += 1;
-                    result = PropagationResult::Pruned(1);
-                }
-            } else if depth >= 2 {
+            if depth >= 2 {
                 let ed_move_ref = ed.move_rev.as_ref().map(|mr| mr.mov);
                 let ed1 = &self.engine_stack[depth as usize - 1];
                 let ed1_best_move = ed1.best_move;
@@ -328,6 +310,19 @@ impl Engine {
                     self.prune_count += 1;
                     result = PropagationResult::Pruned(2);
                 }
+            } else if depth >= 1 {
+                let ed_move_ref = ed.move_rev.as_ref().map(|mr| mr.mov);
+                let prev_mover = usize::from(self.board.turn.prev());
+                let ed1 = &self.engine_stack[depth as usize - 1];
+                if score[prev_mover] <= ed1.score[prev_mover] && ed1.best_move != ed_move_ref {
+                    self.prune_count += 1;
+                    result = PropagationResult::Pruned(1);
+                }
+            } else if ed.score[mover] >= EVAL_WIN - self.board.move_index as Eval - 1 {
+                // if we have a checkmate in depth 0, we want to stop eval and not
+                // do a depth N check for no reason
+                self.prune_count += 1;
+                result = PropagationResult::Pruned(1);
             }
             if self.debug_log && mov.is_some() {
                 // we really like this as debug break point, so we keep separate lines
@@ -423,8 +418,8 @@ impl Engine {
                         Transposition::new(
                             ed.best_move,
                             ed.score,
-                            self.eval_depth.saturating_sub(depth),
-                            self.eval_cap_line_len,
+                            self.eval_max_move_index,
+                            self.eval_cap_line_max_move_index,
                         ),
                     );
                 }
