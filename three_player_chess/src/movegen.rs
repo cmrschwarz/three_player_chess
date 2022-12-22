@@ -1264,11 +1264,13 @@ impl ThreePlayerChess {
                 }
             }
         }
-        for castle in [self.gen_move_castling(false), self.gen_move_castling(true)] {
-            if let Some(m) = castle {
-                moves.push(m);
-                if opts.only_one {
-                    return;
+        if !opts.captures_only {
+            for castle in [self.gen_move_castling(false), self.gen_move_castling(true)] {
+                if let Some(m) = castle {
+                    moves.push(m);
+                    if opts.only_one {
+                        return;
+                    }
                 }
             }
         }
