@@ -238,7 +238,7 @@ impl Engine {
         };
         ed.hash = parent_hash;
         ed.move_rev = rm;
-        ed.score = [-EVAL_MAX; HB_COUNT];
+        ed.score = [Eval::MIN; HB_COUNT];
         self.dummy_vec.clear();
         self.board.gen_moves_with_options(
             &mut self.dummy_vec,

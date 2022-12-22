@@ -168,11 +168,16 @@ fn main() {
                             fe.rotate();
                         }
                         Some(VirtualKeyCode::A) => {
-                            fe.autoplay ^= true;
-                            if fe.autoplay == false {
-                                fe.make_engine_move_after_next_render = false;
+                            if modifiers.shift() {
+                                fe.autoplay_count = fe.autoplay_count.wrapping_sub(1);
+                                println!("set autoplay count to {}", fe.autoplay_count);
+                            } else if modifiers.ctrl() {
+                                fe.autoplay_count = fe.autoplay_count.wrapping_add(1);
+                                println!("set autoplay count to {}", fe.autoplay_count);
+                            } else {
+                                fe.autoplay ^= true;
+                                println!("set autoplay to {}", fe.autoplay);
                             }
-                            println!("set autoplay to {}", fe.autoplay);
                         }
                         Some(VirtualKeyCode::D) => {
                             // #deep
@@ -213,6 +218,9 @@ fn main() {
                                 }
                             );
                             fe.do_engine_move();
+                            if fe.autoplay {
+                                fe.autoplay_remaining = fe.autoplay_count.saturating_sub(1);
+                            }
                         }
                         Some(VirtualKeyCode::P) => {
                             fe.use_paranoid_engine ^= true;
@@ -237,6 +245,7 @@ fn main() {
                         }
                         Some(VirtualKeyCode::L) => {
                             fe.engine.debug_log ^= true;
+                            fe.paranoid_engine.debug_log ^= true;
                             println!("set debug log to {}", fe.engine.debug_log);
                         }
                         Some(VirtualKeyCode::X) => {

@@ -78,10 +78,11 @@ pub struct Frontend {
     pub paranoid_engine: ParanoidEngine,
     pub go_infinite: bool,
     pub use_paranoid_engine: bool,
-    pub autoplay: bool,
     pub engine_depth: u16,
     pub engine_time_secs: u16,
-    pub make_engine_move_after_next_render: bool,
+    pub autoplay: bool,
+    pub autoplay_count: u16,
+    pub autoplay_remaining: u16,
 }
 const PROMOTION_QUADRANTS: [(PieceType, f32, f32); 4] = [
     (Queen, 0., 0.),
@@ -373,6 +374,8 @@ impl Frontend {
     pub fn new() -> Frontend {
         Frontend {
             prev_second: -1.0,
+            // BCFG2ADH3/E9/G9/DE1/E2/G1//:A4KD7CB5L9/I5/B7D6/LB8//K8//:HGJKbLa/Fa/K5Ea/JLc/Eb/Gc//:75:82 weird knight trade
+            // ABCDFGH2E9/BG1/C1J7/AH1/D1/E1/AH/:LKDCBA7Ea/B8I7/JC8/LA8/I8/D8/LA/:HGFIJKLb/KcJa/K5Jc/HLc/Ec/Ic/HL/:11:12 white refuses to take queen
             // BDFGH2ACE3/B1H4/CF1/AH1/F3/E1/AH/:LJDCA7K6IB5/C6L5/JC8/LA8/I8/D8/LA/:GIJKLbFaHE9/KcEb/JcIa/HLc/Fb/Ic/HL/:14:18 white self destructs
             // AF2H3I5Ea//H4//B4/G3//:LB7IC6A5K9//C8Gb/KA8/H1/I8//:HbKa///J7Fc/D6/Kc//:93:95 blue self destructs
             // ABCF2GH3D4Ea/G1B5/CF1/AH1/C4/E1/AH/:LJDCBA7I6K5/C6I9/C8I7/LA8/I8/D8/LA/:I5HGJLbKa/GcJa/H4Kb/HLc/Ec/Ic/HL/:28:28  Nxi5 !!
@@ -388,7 +391,7 @@ impl Frontend {
             // D1D2//C1//:CBA7///L8Jc//B8//://///K5//:75:81
             // ABCEFGH2D3/B5G9/F1D2/AH1/D1/E1/AH/:LKJDCBA7I9/JC6/JC8/LA8/I8/D8/A/:GFEJKLbH9/FLa/FJc/GLc/Ec/Ic/L/:15:17
             board: ThreePlayerChess::from_str(
-                "BDFGH2ACE3/B1H4/CF1/AH1/F3/E1/AH/:LJDCA7K6IB5/C6L5/JC8/LA8/I8/D8/LA/:GIJKLbFaHE9/KcEb/JcIa/HLc/Fb/Ic/HL/:14:18",
+                "BCFG2ADH3/E9/G9/DE1/E2/G1//:A4KD7CB5L9/I5/B7D6/LB8//K8//:HGJKbLa/Fa/K5Ea/JLc/Eb/Gc//:75:82",
             )
             .unwrap(),
             font: Font::from_typeface(
@@ -429,10 +432,11 @@ impl Frontend {
             paranoid_engine: ParanoidEngine::new(),
             use_paranoid_engine: false,
             autoplay: false,
+            autoplay_count: u16::MAX,
+            autoplay_remaining:0,
             go_infinite: false,
             engine_depth: 3,
             engine_time_secs: 3,
-            make_engine_move_after_next_render: false,
         }
     }
     fn get_hb_id(&self, color: board::Color) -> usize {
@@ -1070,9 +1074,6 @@ impl Frontend {
         self.board.perform_reversable_move(&rm);
         println!("state: {}", self.board.state_string());
         self.reset_effects();
-        if self.autoplay {
-            self.make_engine_move_after_next_render = true;
-        }
     }
     pub fn apply_move(
         &mut self,
@@ -1207,13 +1208,14 @@ impl Frontend {
             self.board.revert_move(&rm);
             self.reset_effects();
             println!("undid move: {}", rm.mov.to_string(&mut self.board));
+            println!("state: {}", self.board.state_string());
         }
     }
     pub fn post_render_event(&mut self) -> bool {
-        if self.make_engine_move_after_next_render {
-            self.make_engine_move_after_next_render = false;
+        if self.autoplay_remaining > 0 {
+            self.autoplay_remaining -= 1;
             self.do_engine_move();
-            return true;
+            return self.autoplay_remaining > 0;
         }
         false
     }

@@ -8,7 +8,7 @@ use three_player_chess_board_eval::*;
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub struct Transposition {
-    eval: Eval,
+    eval: Eval, // always from perspective of the deciding player
     eval_cap_line_max_move_index: u16,
     best_move_code: u64,
 }
@@ -21,7 +21,6 @@ pub struct ParanoidEngine {
     pub cap_line_len: u16,
     pub eval_max_move_index: u16,
     pub eval_cap_line_max_move_index: u16,
-    pub eval_cap_line_len: u16,
     pub transposition_count: usize,
     pub prune_count: usize,
     pub pos_count: usize,
@@ -92,6 +91,10 @@ fn is_depth_of_us(depth: u16) -> bool {
     depth % 3 == 0
 }
 
+pub fn eval_str(eval: Eval) -> String {
+    return format!("{:+.2}", eval as f32 / 100.,);
+}
+
 impl ParanoidEngine {
     pub fn new() -> ParanoidEngine {
         ParanoidEngine {
@@ -101,7 +104,6 @@ impl ParanoidEngine {
             depth_max: 0,
             cap_line_len: 0,
             eval_max_move_index: 0,
-            eval_cap_line_len: 0,
             eval_cap_line_max_move_index: 0,
             prune_count: 0,
             transposition_count: 0,
@@ -112,11 +114,15 @@ impl ParanoidEngine {
         }
     }
     pub fn report_search_depth_results(&mut self, search_start: Instant, depth_start: Instant) {
-        let mut eval_str = "".to_owned();
+        let mut lines_str = "".to_owned();
 
         if let Some(bm) = self.engine_stack[0].best_move {
             let eval = self.engine_stack[0].eval;
-            eval_str = format!("({}): {}", eval, self.transposition_line_str(Some(bm)));
+            lines_str = format!(
+                "({}): {}",
+                eval_str(eval),
+                self.transposition_line_str(Some(bm))
+            );
             let mut moves: Vec<_> = self
                 .board
                 .gen_moves()
@@ -134,14 +140,14 @@ impl ParanoidEngine {
                     )
                 })
                 .collect();
-            moves.sort_by(|l, r| l.0.cmp(&r.0));
+            moves.sort_by(|l, r| r.0.cmp(&l.0));
             for i in 0..moves.len().min(3) {
                 let em = &moves[i];
-                eval_str = format!(
+                lines_str = format!(
                     "{}\n   {}({}): {}",
-                    eval_str,
+                    lines_str,
                     if i == 0 { "*" } else { " " },
-                    em.0,
+                    eval_str(em.0),
                     self.transposition_line_str(Some(em.1))
                 )
                 .to_string();
@@ -156,7 +162,7 @@ impl ParanoidEngine {
             depth_elapsed,
             now.sub(search_start).as_secs_f32(),
             (self.pos_count as f32 / depth_elapsed) / 1000.,
-            eval_str
+            lines_str
         );
     }
     pub fn search_position(
@@ -185,32 +191,33 @@ impl ParanoidEngine {
             },
         );
         let mut best_move = start_mov.pop();
-
+        let mut timeout = false;
         for _ in 0..depth {
-            let depth_start = Instant::now();
-            let (transp_count, prune_count, pos_count) =
-                (self.transposition_count, self.prune_count, self.pos_count);
-            self.transposition_count = 0;
-            self.prune_count = 0;
-            self.pos_count = 0;
             self.depth_max += 1;
-            self.cap_line_len = self.depth_max;
-            if self.search_iterate(end).is_ok() {
-                best_move = self.engine_stack[0].best_move;
-                if report_results_per_depth || self.debug_log {
-                    self.report_search_depth_results(search_start, depth_start);
+            for cll in 0..2 {
+                let depth_start = Instant::now();
+                self.transposition_count = 0;
+                self.prune_count = 0;
+                self.pos_count = 0;
+                self.cap_line_len = self.depth_max + cll;
+                if self.search_iterate(end).is_ok() {
+                    best_move = self.engine_stack[0].best_move;
+                    if report_results_per_depth || self.debug_log {
+                        self.report_search_depth_results(search_start, depth_start);
+                    }
+                } else {
+                    if self.debug_log || report_results_per_depth {
+                        println!(
+                            "aborted depth {}+{} (after {} positions)",
+                            self.depth_max, self.cap_line_len, self.pos_count
+                        );
+                    }
+                    self.depth_max -= 1;
+                    timeout = true;
+                    break;
                 }
-            } else {
-                self.transposition_count = transp_count;
-                self.prune_count = prune_count;
-                self.pos_count = pos_count;
-                if self.debug_log {
-                    println!(
-                        "aborted depth {} (after {} positions)",
-                        self.depth_max, self.pos_count
-                    );
-                }
-                self.depth_max -= 1;
+            }
+            if timeout {
                 break;
             }
         }
@@ -231,11 +238,7 @@ impl ParanoidEngine {
             (p_mov.hash, p_mov.eval, p_mov.captures_available)
         } else {
             let (eval, has_caps) = calculate_position_eval(&mut self.board, self.deciding_player);
-            (
-                self.board.get_zobrist_hash(),
-                flip_eval(!is_depth_of_us(depth + 2), eval),
-                Some(has_caps),
-            )
+            (self.board.get_zobrist_hash(), eval, Some(has_caps))
         };
         let ed = if self.engine_stack.len() == depth as usize {
             self.engine_stack.push(Default::default());
@@ -249,7 +252,8 @@ impl ParanoidEngine {
         };
         ed.hash = parent_hash;
         ed.move_rev = rm;
-        ed.eval = -EVAL_MAX;
+        let us = is_depth_of_us(depth);
+        ed.eval = flip_eval(!us, -Eval::MAX);
         self.dummy_vec.clear();
         self.board.gen_moves_with_options(
             &mut self.dummy_vec,
@@ -261,7 +265,7 @@ impl ParanoidEngine {
         if captures_only {
             // null move
             ed.moves.push(EngineMove {
-                eval: flip_eval(!is_depth_of_us(depth + 1), parent_eval),
+                eval: parent_eval,
                 captures_available: parent_has_caps,
                 hash: parent_hash ^ ZOBRIST_NULL_MOVE_HASH,
                 mov: None,
@@ -280,12 +284,9 @@ impl ParanoidEngine {
             let (eval, has_caps) = self.transposition_table.get(&hash).map_or_else(
                 || {
                     let (ev, caps) = calculate_position_eval(&mut self.board, self.deciding_player);
-                    (
-                        flip_eval(self.board.turn != self.deciding_player, ev),
-                        Some(caps),
-                    )
+                    (ev, Some(caps))
                 },
-                |tp| (-tp.eval, None),
+                |tp| (tp.eval, None),
             );
             self.board.revert_move(&rm);
             ed.moves.push(EngineMove {
@@ -296,7 +297,11 @@ impl ParanoidEngine {
             });
         }
         self.dummy_vec.clear();
-        ed.moves.sort_by(|m_l, m_r| m_l.eval.cmp(&m_r.eval));
+        ed.moves
+            .sort_by(|m_l, m_r| flip_eval(!us, m_r.eval).cmp(&flip_eval(!us, m_l.eval)));
+        if let Some(em) = ed.moves.first().as_deref() {
+            ed.best_move = em.mov;
+        }
         ed
     }
     fn propagate_move_eval(
@@ -305,21 +310,21 @@ impl ParanoidEngine {
         mov: Option<Move>,
         eval: Eval,
     ) -> PropagationResult {
-        let eval = flip_eval(!is_depth_of_us(depth + 2), eval);
+        let us = is_depth_of_us(depth);
         let mut result = PropagationResult::Ok;
         let mut ed = &mut self.engine_stack[depth as usize];
-        if eval > ed.eval {
+        if flip_eval(!us, eval) > flip_eval(!us, ed.eval) {
             ed.eval = eval;
             ed.best_move = mov;
 
-            let us = is_depth_of_us(depth);
             let prev1_us = is_depth_of_us(depth + 2);
             let prev2_us = is_depth_of_us(depth + 1);
 
             if depth >= 1 && (prev1_us || us) {
                 let ed_move_ref = ed.move_rev.as_ref().map(|mr| mr.mov);
                 let ed1 = &self.engine_stack[depth as usize - 1];
-                if eval >= -ed1.eval && ed1.best_move != ed_move_ref {
+                if flip_eval(!us, eval) >= flip_eval(!us, ed1.eval) && ed1.best_move != ed_move_ref
+                {
                     self.prune_count += 1;
                     result = PropagationResult::Pruned(1);
                 }
@@ -329,14 +334,14 @@ impl ParanoidEngine {
                 let ed1_best_move = ed1.best_move;
                 let ed1_move_ref = ed1.move_rev.as_ref().map(|mr| mr.mov);
                 let ed2 = &self.engine_stack[depth as usize - 2];
-                if eval >= -ed2.eval
+                if flip_eval(!us, eval) >= flip_eval(!us, ed2.eval)
                     && ed2.best_move != ed1_move_ref
                     && ed1_best_move != ed_move_ref
                 {
                     self.prune_count += 1;
                     result = PropagationResult::Pruned(2);
                 }
-            } else if eval >= EVAL_WIN - self.board.move_index as Eval - 1 {
+            } else if flip_eval(!us, eval) >= EVAL_WIN - self.board.move_index as Eval - 1 {
                 self.prune_count += 1;
                 result = PropagationResult::Pruned(1);
             }
@@ -354,11 +359,10 @@ impl ParanoidEngine {
                     ("", "".to_string(), "")
                 };
                 println!(
-                    "{} (@depth {}): [{}({})]: {} --> {} {}{}{}",
+                    "{} @depth {} ({}): {} --> {} {}{}{}",
                     flavor_text,
                     depth,
-                    eval,
-                    flip_eval(!is_depth_of_us(depth), eval),
+                    eval_str(eval),
                     self.engine_line_str(depth, None),
                     self.transposition_line_str(mov),
                     p1,
@@ -493,7 +497,7 @@ impl ParanoidEngine {
             depth += 1;
             let game_over = self.board.game_status != GameStatus::Ongoing;
             let force_eval =
-                rm.is_none() || depth >= self.depth_max + self.eval_cap_line_len || only_move;
+                rm.is_none() || depth >= self.depth_max + self.cap_line_len || only_move;
             if depth >= self.depth_max || force_eval || game_over {
                 self.pos_count += 1;
                 let eval = em.eval;
@@ -505,19 +509,17 @@ impl ParanoidEngine {
                 };
                 let hash = em.hash;
 
-                if self.debug_log {
-                    let line_depth = depth - rm.as_ref().map_or(1, |_| 0);
-                    println!(
-                        "eval@ {}{}: {} ({}) (eval_now: {})",
-                        self.engine_line_str(line_depth, rm.as_ref()),
-                        rm.as_ref().map_or(" NULL", |_| ""),
-                        eval,
-                        flip_eval(!is_depth_of_us(depth), eval),
-                        eval_now
-                    );
-                }
-
                 if eval_now {
+                    if self.debug_log {
+                        let line_depth = depth - rm.as_ref().map_or(1, |_| 0);
+                        println!(
+                            "eval: ({}): {}{} (eval_now: {})",
+                            eval_str(eval),
+                            self.engine_line_str(line_depth, rm.as_ref()),
+                            rm.as_ref().map_or("NULL", |_| ""),
+                            eval_now
+                        );
+                    }
                     self.transposition_table.insert(
                         hash,
                         Transposition::new(None, eval, self.eval_cap_line_max_move_index),
@@ -533,7 +535,7 @@ impl ParanoidEngine {
                 if self.debug_log {
                     if self.debug_log {
                         println!(
-                            "expanding unstable position: (@depth {}): {}",
+                            "expanding unstable position @depth {}: {}",
                             depth,
                             self.engine_line_str(depth, rm.as_ref()),
                         );

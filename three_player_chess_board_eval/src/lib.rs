@@ -7,8 +7,6 @@ pub const EVAL_WIN: Eval = 15000;
 pub const EVAL_DRAW: Eval = 0;
 pub const EVAL_NEUTRAL: Eval = -5000;
 pub const EVAL_LOSS: Eval = -10000;
-pub const EVAL_MAX: Eval = Eval::MAX;
-
 // e.g. two rooks and three pawns per side, just a heuristic
 const ENDGAME_MATERIAL_THRESHOLD: Eval = 1300 * HB_COUNT as Eval;
 
