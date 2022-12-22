@@ -1033,7 +1033,7 @@ impl Move {
                 }
             }
             GameStatus::Win(winner, _) => {
-                if winner == game.turn {
+                if winner == game.turn.prev() {
                     writer.write_char('#')?;
                 } else {
                     writer.write_str("(#)")?;
