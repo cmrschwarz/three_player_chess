@@ -468,11 +468,14 @@ impl Engine {
             if depth >= self.eval_depth || force_eval || game_over {
                 self.pos_count += 1;
                 let score = em.score;
+                let mut caps_available = em.captures_available == Some(true);
                 let score_now = if game_over || force_eval {
                     true
                 } else {
-                    !em.captures_available
-                        .unwrap_or_else(|| board_has_captures(&mut self.board))
+                    caps_available = em
+                        .captures_available
+                        .unwrap_or_else(|| board_has_captures(&mut self.board));
+                    !caps_available
                 };
                 let hash = em.hash;
 
@@ -494,7 +497,11 @@ impl Engine {
                             None,
                             score,
                             self.eval_depth.saturating_sub(depth),
-                            self.eval_cap_line_len,
+                            if !caps_available {
+                                u16::MAX
+                            } else {
+                                self.eval_cap_line_len
+                            },
                         ),
                     );
                     if let Some(ref rm) = rm {
