@@ -3,23 +3,25 @@ use std::time::{Duration, Instant};
 use three_player_chess::board::MoveType::*;
 use three_player_chess::board::*;
 use three_player_chess::movegen::MovegenOptions;
+use three_player_chess::zobrist::ZOBRIST_NULL_MOVE_HASH;
 use three_player_chess_board_eval::*;
 
-const MAX_CAPTURE_LINE_LENGTH: u16 = 6;
-
 #[derive(Copy, Clone, Eq, PartialEq)]
-struct Transposition {
+pub struct Transposition {
     eval: Eval,
-    eval_depth: u16,
+    eval_cap_line_max_move_index: u16,
     best_move_code: u64,
 }
 
 pub struct ParanoidEngine {
-    transposition_table: std::collections::HashMap<u64, Transposition>,
+    pub transposition_table: std::collections::HashMap<u64, Transposition>,
     engine_stack: Vec<EngineDepth>,
     pub board: ThreePlayerChess,
     pub depth_max: u16,
-    pub eval_depth_max: u16,
+    pub cap_line_len: u16,
+    pub eval_max_move_index: u16,
+    pub eval_cap_line_max_move_index: u16,
+    pub eval_cap_line_len: u16,
     pub transposition_count: usize,
     pub prune_count: usize,
     pub pos_count: usize,
@@ -54,10 +56,10 @@ enum PropagationResult {
 }
 
 impl Transposition {
-    fn new(mov: Option<Move>, eval: Eval, eval_depth: u16) -> Transposition {
+    fn new(mov: Option<Move>, eval: Eval, eval_cap_line_max_move_index: u16) -> Transposition {
         Transposition {
             eval,
-            eval_depth,
+            eval_cap_line_max_move_index,
             best_move_code: mov.map_or(0, &u64::from),
         }
     }
@@ -97,7 +99,10 @@ impl ParanoidEngine {
             board: Default::default(),
             engine_stack: Default::default(),
             depth_max: 0,
-            eval_depth_max: 0,
+            cap_line_len: 0,
+            eval_max_move_index: 0,
+            eval_cap_line_len: 0,
+            eval_cap_line_max_move_index: 0,
             prune_count: 0,
             transposition_count: 0,
             pos_count: 0,
@@ -106,20 +111,52 @@ impl ParanoidEngine {
             dummy_vec: Vec::new(),
         }
     }
-    pub fn report_search_depth_results(&mut self, start: Instant) {
-        let eval = self.engine_stack[0].eval;
-        let mut line_str = "".to_owned();
+    pub fn report_search_depth_results(&mut self, search_start: Instant, depth_start: Instant) {
+        let mut eval_str = "".to_owned();
+
         if let Some(bm) = self.engine_stack[0].best_move {
-            line_str = self.transposition_line_str(Some(bm));
+            let eval = self.engine_stack[0].eval;
+            eval_str = format!("({}): {}", eval, self.transposition_line_str(Some(bm)));
+            let mut moves: Vec<_> = self
+                .board
+                .gen_moves()
+                .iter()
+                .map(|m| {
+                    (
+                        {
+                            let rm = ReversableMove::new(&self.board, *m);
+                            self.board.perform_reversable_move(&rm);
+                            let te = self.transposition_table.get(&self.board.get_zobrist_hash());
+                            self.board.revert_move(&rm);
+                            te.map_or(EVAL_LOSS, |te| te.eval)
+                        },
+                        *m,
+                    )
+                })
+                .collect();
+            moves.sort_by(|l, r| l.0.cmp(&r.0));
+            for i in 0..moves.len().min(3) {
+                let em = &moves[i];
+                eval_str = format!(
+                    "{}\n   {}({}): {}",
+                    eval_str,
+                    if i == 0 { "*" } else { " " },
+                    em.0,
+                    self.transposition_line_str(Some(em.1))
+                )
+                .to_string();
+            }
         }
-        let time = Instant::now().sub(start).as_secs_f32();
+        let now = Instant::now();
+        let depth_elapsed = now.sub(depth_start).as_secs_f32();
         println!(
-            "(depth {} took {:.1}s, {:.2} kN/s, {} positions, {} pruned branches, {} transpositions): eval {} with {}",
-            self.depth_max ,
-            time,
-            (self.pos_count as f32 / time) / 1000.,
-            self.pos_count,
-            self.prune_count, self.transposition_count, eval, line_str
+            "depth {}+{} ({:.1}s [{:.1} s], {:.2} kN/s): {}",
+            self.depth_max,
+            self.cap_line_len,
+            depth_elapsed,
+            now.sub(search_start).as_secs_f32(),
+            (self.pos_count as f32 / depth_elapsed) / 1000.,
+            eval_str
         );
     }
     pub fn search_position(
@@ -130,12 +167,12 @@ impl ParanoidEngine {
         report_results_per_depth: bool,
     ) -> Option<Move> {
         self.board = tpc.clone();
-        self.eval_depth_max = self.board.move_index;
+        self.eval_max_move_index = self.board.move_index;
         self.depth_max = 0;
         //self.transposition_table.retain(|_, tp| tp.eval_depth > self.eval_depth_max);
         self.transposition_table.clear(); // since we use
         self.deciding_player = self.board.turn;
-        let mut start = Instant::now();
+        let search_start = Instant::now();
         let end = Instant::now()
             .checked_add(Duration::from_secs_f32(max_time_seconds))
             .unwrap();
@@ -150,19 +187,19 @@ impl ParanoidEngine {
         let mut best_move = start_mov.pop();
 
         for _ in 0..depth {
+            let depth_start = Instant::now();
             let (transp_count, prune_count, pos_count) =
                 (self.transposition_count, self.prune_count, self.pos_count);
             self.transposition_count = 0;
             self.prune_count = 0;
             self.pos_count = 0;
             self.depth_max += 1;
-            self.eval_depth_max += 1;
+            self.cap_line_len = self.depth_max;
             if self.search_iterate(end).is_ok() {
                 best_move = self.engine_stack[0].best_move;
                 if report_results_per_depth || self.debug_log {
-                    self.report_search_depth_results(start);
+                    self.report_search_depth_results(search_start, depth_start);
                 }
-                start = Instant::now();
             } else {
                 self.transposition_count = transp_count;
                 self.prune_count = prune_count;
@@ -222,10 +259,11 @@ impl ParanoidEngine {
             },
         );
         if captures_only {
+            // null move
             ed.moves.push(EngineMove {
                 eval: flip_eval(!is_depth_of_us(depth + 1), parent_eval),
                 captures_available: parent_has_caps,
-                hash: parent_hash,
+                hash: parent_hash ^ ZOBRIST_NULL_MOVE_HASH,
                 mov: None,
             });
         }
@@ -367,7 +405,7 @@ impl ParanoidEngine {
                 board.perform_move(mov);
             }
             if let Some(tp) = self.transposition_table.get(&board.get_zobrist_hash()) {
-                if mov.is_some() {
+                /*if mov.is_some() {
                     let tp_eval = tp.eval;
                     let (board_eval, _) = calculate_position_eval(&mut board, self.deciding_player);
                     res += &format_args!(
@@ -377,7 +415,7 @@ impl ParanoidEngine {
                         board_eval
                     )
                     .to_string();
-                }
+                }*/
                 mov = Move::try_from(tp.best_move_code).ok();
                 if mov.is_none() {
                     break;
@@ -393,6 +431,8 @@ impl ParanoidEngine {
         res
     }
     fn search_iterate(&mut self, end: Instant) -> Result<(), ()> {
+        self.eval_max_move_index = self.board.move_index + self.depth_max;
+        self.eval_cap_line_max_move_index = self.eval_max_move_index + self.cap_line_len;
         self.gen_engine_depth(0, None, false);
         let mut depth: u16 = 0;
         let mut propagation_result = PropagationResult::Ok;
@@ -403,7 +443,11 @@ impl ParanoidEngine {
                 if ed.index > 0 {
                     self.transposition_table.insert(
                         ed.hash,
-                        Transposition::new(ed.best_move, ed.eval, self.eval_depth_max),
+                        Transposition::new(
+                            ed.best_move,
+                            ed.eval,
+                            self.eval_cap_line_max_move_index,
+                        ),
                     );
                 }
                 if depth == 0 {
@@ -431,7 +475,7 @@ impl ParanoidEngine {
             let rm;
             if let Some(mov) = em.mov {
                 if let Some(tp) = self.transposition_table.get(&em.hash) {
-                    if tp.eval_depth >= self.eval_depth_max {
+                    if tp.eval_cap_line_max_move_index >= self.eval_cap_line_max_move_index {
                         self.transposition_count += 1;
                         self.pos_count += 1;
                         let tp_eval = tp.eval;
@@ -449,7 +493,7 @@ impl ParanoidEngine {
             depth += 1;
             let game_over = self.board.game_status != GameStatus::Ongoing;
             let force_eval =
-                rm.is_none() || depth > self.depth_max + MAX_CAPTURE_LINE_LENGTH || only_move;
+                rm.is_none() || depth >= self.depth_max + self.eval_cap_line_len || only_move;
             if depth >= self.depth_max || force_eval || game_over {
                 self.pos_count += 1;
                 let eval = em.eval;
@@ -474,8 +518,10 @@ impl ParanoidEngine {
                 }
 
                 if eval_now {
-                    self.transposition_table
-                        .insert(hash, Transposition::new(None, eval, self.eval_depth_max));
+                    self.transposition_table.insert(
+                        hash,
+                        Transposition::new(None, eval, self.eval_cap_line_max_move_index),
+                    );
                     if let Some(ref rm) = rm {
                         self.board.revert_move(rm);
                     }

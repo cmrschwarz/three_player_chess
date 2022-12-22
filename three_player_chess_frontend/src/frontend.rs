@@ -81,7 +81,7 @@ pub struct Frontend {
     pub autoplay: bool,
     pub engine_depth: u16,
     pub engine_time_secs: u16,
-    make_engine_move_after_next_render: bool,
+    pub make_engine_move_after_next_render: bool,
 }
 const PROMOTION_QUADRANTS: [(PieceType, f32, f32); 4] = [
     (Queen, 0., 0.),
@@ -373,6 +373,7 @@ impl Frontend {
     pub fn new() -> Frontend {
         Frontend {
             prev_second: -1.0,
+            // BDFGH2ACE3/B1H4/CF1/AH1/F3/E1/AH/:LJDCA7K6IB5/C6L5/JC8/LA8/I8/D8/LA/:GIJKLbFaHE9/KcEb/JcIa/HLc/Fb/Ic/HL/:14:18 white self destructs
             // AF2H3I5Ea//H4//B4/G3//:LB7IC6A5K9//C8Gb/KA8/H1/I8//:HbKa///J7Fc/D6/Kc//:93:95 blue self destructs
             // ABCF2GH3D4Ea/G1B5/CF1/AH1/C4/E1/AH/:LJDCBA7I6K5/C6I9/C8I7/LA8/I8/D8/LA/:I5HGJLbKa/GcJa/H4Kb/HLc/Ec/Ic/HL/:28:28  Nxi5 !!
             // BCFH2A3E4F9/B5/D2/DE1/H4/G1//:LCA7C6J5//D7E9/I8//B7//:HGFKbKLa/Fa/L6/HcJb/Ja/Kc//:76:76   movegen bug repro
@@ -387,7 +388,7 @@ impl Frontend {
             // D1D2//C1//:CBA7///L8Jc//B8//://///K5//:75:81
             // ABCEFGH2D3/B5G9/F1D2/AH1/D1/E1/AH/:LKJDCBA7I9/JC6/JC8/LA8/I8/D8/A/:GFEJKLbH9/FLa/FJc/GLc/Ec/Ic/L/:15:17
             board: ThreePlayerChess::from_str(
-                "AF2H3I5Ea//H4//B4/G3//:LB7IC6A5K9//C8Gb/KA8/H1/I8//:HbKa///J7Fc/D6/Kc//:93:95",
+                "BDFGH2ACE3/B1H4/CF1/AH1/F3/E1/AH/:LJDCA7K6IB5/C6L5/JC8/LA8/I8/D8/LA/:GIJKLbFaHE9/KcEb/JcIa/HLc/Fb/Ic/HL/:14:18",
             )
             .unwrap(),
             font: Font::from_typeface(
@@ -1193,13 +1194,8 @@ impl Frontend {
             self.paranoid_engine
                 .search_position(&self.board, self.engine_depth, search_time, true)
         } else {
-            self.engine.search_position(
-                &self.board,
-                self.engine_depth,
-                self.engine_depth,
-                search_time,
-                true,
-            )
+            self.engine
+                .search_position(&self.board, self.engine_depth, search_time, true)
         };
         if let Some(mov) = result {
             self.apply_move_with_history(mov);

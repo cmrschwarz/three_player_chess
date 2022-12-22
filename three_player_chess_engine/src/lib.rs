@@ -6,7 +6,7 @@ use three_player_chess::zobrist::ZOBRIST_NULL_MOVE_HASH;
 use three_player_chess_board_eval::*;
 
 #[derive(Copy, Clone, Eq, PartialEq)]
-struct Transposition {
+pub struct Transposition {
     score: Score,
     eval_max_move_index: u16,
     eval_cap_line_max_move_index: u16,
@@ -14,7 +14,7 @@ struct Transposition {
 }
 
 pub struct Engine {
-    transposition_table: std::collections::HashMap<u64, Transposition>,
+    pub transposition_table: std::collections::HashMap<u64, Transposition>,
     engine_stack: Vec<EngineDepth>,
     pub board: ThreePlayerChess,
     pub eval_depth: u16,
@@ -162,7 +162,6 @@ impl Engine {
         &mut self,
         tpc: &ThreePlayerChess,
         depth: u16,
-        cap_line_len: u16,
         max_time_seconds: f32,
         report_results_per_depth: bool,
     ) -> Option<Move> {
@@ -171,6 +170,7 @@ impl Engine {
         self.eval_cap_line_len = 0;
         self.transposition_table
             .retain(|_, tp| tp.eval_max_move_index > self.board.move_index);
+        self.transposition_table.clear();
         self.deciding_player = self.board.turn;
         let search_start = Instant::now();
         let end = search_start

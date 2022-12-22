@@ -207,7 +207,10 @@ pub fn calculate_position_eval(tpc: &mut ThreePlayerChess, perspective: Color) -
     let (score, caps_exist) = calculate_raw_board_score(tpc);
     let p = usize::from(perspective);
     (
-        2 * score[p] - score[(p + 1) % HB_COUNT] - score[(p + 2) % HB_COUNT],
+        score[p]
+            .saturating_add(score[p])
+            .saturating_sub(score[(p + 1) % HB_COUNT])
+            .saturating_sub(score[(p + 2) % HB_COUNT]),
         caps_exist,
     )
 }

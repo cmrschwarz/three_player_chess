@@ -169,6 +169,9 @@ fn main() {
                         }
                         Some(VirtualKeyCode::A) => {
                             fe.autoplay ^= true;
+                            if fe.autoplay == false {
+                                fe.make_engine_move_after_next_render = false;
+                            }
                             println!("set autoplay to {}", fe.autoplay);
                         }
                         Some(VirtualKeyCode::D) => {
@@ -238,6 +241,11 @@ fn main() {
                         }
                         Some(VirtualKeyCode::X) => {
                             println!("{}", fe.board.state_string());
+                        }
+                        Some(VirtualKeyCode::Y) => {
+                            fe.engine.transposition_table.clear();
+                            fe.paranoid_engine.transposition_table.clear();
+                            println!("transposition table cleared");
                         }
                         Some(VirtualKeyCode::Z) => {
                             let mut zh = fe.board.zobrist_hash;
