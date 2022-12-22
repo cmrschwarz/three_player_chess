@@ -1038,11 +1038,7 @@ impl Move {
                     writer.write_str("(#)")?;
                 }
             }
-            GameStatus::Draw(_) => {
-                // there is no notation for this in normal chess,
-                // so this is just made up
-                writer.write_str("0/0")?;
-            }
+            GameStatus::Draw(_) => (),
         }
         game.revert_move(&rm);
         Ok(())
