@@ -1,10 +1,8 @@
-use std::borrow::Borrow;
 use std::ops::Sub;
 use std::time::{Duration, Instant};
 use three_player_chess::board::MoveType::*;
 use three_player_chess::board::*;
 use three_player_chess::movegen::MovegenOptions;
-use three_player_chess::zobrist::ZOBRIST_NULL_MOVE_HASH;
 use three_player_chess_board_eval::*;
 
 #[derive(Copy, Clone, Eq, PartialEq)]
@@ -251,7 +249,7 @@ impl ParanoidEngine {
         rm: Option<ReversableMove>,
         captures_only: bool,
     ) -> &EngineDepth {
-        let (parent_hash, parent_eval, parent_has_caps) = if depth > 0 {
+        let (parent_hash, _parent_eval, _parent_has_caps) = if depth > 0 {
             let parent = &self.engine_stack[depth as usize - 1];
             let p_mov = &parent.moves[parent.index - 1];
             (p_mov.hash, p_mov.eval, p_mov.captures_available)
@@ -316,6 +314,7 @@ impl ParanoidEngine {
                 mov: Some(*mov),
             });
         }
+        debug_assert!(!captures_only || !ed.moves.is_empty());
         self.dummy_vec.clear();
         ed.moves
             .sort_by(|m_l, m_r| flip_eval(!us, m_r.eval).cmp(&flip_eval(!us, m_l.eval)));
@@ -335,22 +334,23 @@ impl ParanoidEngine {
         let us = is_depth_of_us(depth);
         let mut result = PropagationResult::Ok;
         let mut ed = &mut self.engine_stack[depth as usize];
+        // check if *mov*, if played at the current depth,
+        // is better for the party making that decision than the previous best
         if flip_eval(!us, eval) > flip_eval(!us, ed.eval) {
             ed.eval = eval;
             ed.best_move = mov;
 
-            let prev1_us = is_depth_of_us(depth + 2);
-            let prev2_us = is_depth_of_us(depth + 1);
+            let prev1_us = is_depth_of_us(depth + 3 - 1);
+            let prev2_us = is_depth_of_us(depth + 3 - 2);
 
             if depth >= 2 && (prev2_us || us) {
-                let ed_move_ref = ed.move_rev.as_ref().map(|mr| mr.mov);
-                let ed1 = &self.engine_stack[depth as usize - 1];
-                let ed1_best_move = ed1.best_move;
+                //let ed_move_ref = ed.move_rev.as_ref().map(|mr| mr.mov);
+                //let ed1_best_move = ed1.best_move;
+                let ed1 = &mut self.engine_stack[depth as usize - 1];
                 let ed1_move_ref = ed1.move_rev.as_ref().map(|mr| mr.mov);
                 let ed2 = &self.engine_stack[depth as usize - 2];
-                if flip_eval(!us, eval) >= flip_eval(!us, ed2.eval)
-                    && ed2.best_move != ed1_move_ref
-                    && ed1_best_move != ed_move_ref
+                if flip_eval(!us, eval) >= flip_eval(!us, ed2.eval) && ed2.best_move != ed1_move_ref
+                //&& ed1_best_move != ed_move_ref
                 {
                     self.prune_count += 1;
                     result = PropagationResult::Pruned(2);
@@ -466,46 +466,57 @@ impl ParanoidEngine {
             let mut ed = &mut self.engine_stack[depth as usize];
             while ed.index == ed.moves.len() || propagation_result != PropagationResult::Ok {
                 ed.moves.clear();
-                let edi = &self.engine_stack[depth as usize]; //reborrow as immutable
-                if edi.index > 0 {
-                    self.transposition_table.insert(
-                        edi.hash,
-                        Transposition::new(
-                            edi.best_move,
-                            edi.eval,
-                            self.eval_cap_line_max_move_index,
-                        ),
-                    );
-                }
-                if depth == 0 {
-                    return Ok(());
-                }
-                let rm = edi.move_rev.clone().unwrap();
+                let eval = ed.eval;
+                let best_move = ed.best_move;
+                let hash = ed.hash;
+                let index = ed.index;
                 if depth == 1 && self.debug_log {
-                    if let Some(bm) = edi.best_move {
+                    if let Some(bm) = best_move {
                         let els = self.transposition_line_str(Some(bm));
                         println!(
                             "finished evaluating {}: ({}): {}",
                             bm.to_string(&mut self.board),
-                            eval_str(edi.eval),
+                            eval_str(eval),
                             els
                         );
                     }
                 }
-                self.board.revert_move(&rm);
-                depth -= 1;
+                let edi = &self.engine_stack[depth as usize]; //reborrow
+                if depth > 0 {
+                    self.board.revert_move(edi.move_rev.as_ref().unwrap());
+                }
                 propagation_result = match propagation_result {
                     PropagationResult::Ok => {
-                        if edi.index > 0 {
-                            let eval = edi.eval;
-                            self.propagate_move_eval(depth, Some(rm.mov), eval)
-                        } else {
-                            PropagationResult::Ok
+                        if index > 0 {
+                            assert!(eval.abs() < 2 * EVAL_WIN);
+                            self.transposition_table.insert(
+                                hash,
+                                Transposition::new(
+                                    best_move,
+                                    eval,
+                                    self.eval_cap_line_max_move_index,
+                                ),
+                            );
+                            if depth > 0 {
+                                self.propagate_move_eval(
+                                    depth - 1,
+                                    self.engine_stack[depth as usize]
+                                        .move_rev
+                                        .as_ref()
+                                        .map(|rm| rm.mov),
+                                    eval,
+                                );
+                            }
                         }
+                        PropagationResult::Ok
                     }
                     PropagationResult::Pruned(1) => PropagationResult::Ok,
                     PropagationResult::Pruned(n) => PropagationResult::Pruned(n - 1),
                 };
+                if depth == 0 {
+                    return Ok(());
+                }
+                depth -= 1;
                 ed = &mut self.engine_stack[depth as usize];
             }
             let em = &mut ed.moves[ed.index];
@@ -516,7 +527,7 @@ impl ParanoidEngine {
                         m.to_string(&mut self.board),
                         eval_str(em.eval),
                     );
-                    depth = depth;
+                    depth = depth; // convenient breakpoint hook
                 }
             }
             ed.index += 1;
@@ -585,8 +596,7 @@ impl ParanoidEngine {
                         );
                     }
                 }
-            }
-            if self.debug_log {
+            } else if self.debug_log {
                 let line_depth = depth - rm.as_ref().map_or(1, |_| 0);
                 println!(
                     "expanding further @depth {}: {}",
