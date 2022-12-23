@@ -160,8 +160,7 @@ pub fn board_has_captures(tpc: &mut ThreePlayerChess) -> bool {
     false
 }
 
-pub fn calculate_raw_board_score(tpc: &mut ThreePlayerChess) -> (Score, bool) {
-    let mut captures_exist = false;
+pub fn calculate_raw_board_score(tpc: &mut ThreePlayerChess) -> Score {
     let mut score: Score;
     match tpc.game_status {
         GameStatus::Draw(_) => score = [EVAL_DRAW; HB_COUNT],
@@ -179,19 +178,16 @@ pub fn calculate_raw_board_score(tpc: &mut ThreePlayerChess) -> (Score, bool) {
                 if let Some((color, piece_type)) = *FieldValue::from(tpc.board[i]) {
                     let loc = FieldLocation::from(i);
                     add_location_score(&mut score, loc, piece_type, color);
-                    if !captures_exist {
-                        captures_exist = tpc.is_piece_capturable_at(loc, None, false).is_some();
-                    }
                 }
             }
             add_castling_scores(&mut score, tpc);
             add_king_location_scores(&mut score, tpc);
         }
     };
-    (score, captures_exist)
+    score
 }
-pub fn calculate_position_score(tpc: &mut ThreePlayerChess) -> (Score, bool) {
-    let (bs, caps_exist) = calculate_raw_board_score(tpc);
+pub fn calculate_position_score(tpc: &mut ThreePlayerChess) -> Score {
+    let bs = calculate_raw_board_score(tpc);
     let mut score: Score = [Default::default(); HB_COUNT];
     for i in 0..HB_COUNT {
         score[i] = bs[i]
@@ -199,16 +195,13 @@ pub fn calculate_position_score(tpc: &mut ThreePlayerChess) -> (Score, bool) {
             .saturating_sub(bs[(i + 1) % HB_COUNT])
             .saturating_sub(bs[(i + 2) % HB_COUNT]);
     }
-    (score, caps_exist)
+    score
 }
-pub fn calculate_position_eval(tpc: &mut ThreePlayerChess, perspective: Color) -> (Eval, bool) {
-    let (score, caps_exist) = calculate_raw_board_score(tpc);
+pub fn calculate_position_eval(tpc: &mut ThreePlayerChess, perspective: Color) -> Eval {
+    let score = calculate_raw_board_score(tpc);
     let p = usize::from(perspective);
-    (
-        score[p]
-            .saturating_add(score[p])
-            .saturating_sub(score[(p + 1) % HB_COUNT])
-            .saturating_sub(score[(p + 2) % HB_COUNT]),
-        caps_exist,
-    )
+    score[p]
+        .saturating_add(score[p])
+        .saturating_sub(score[(p + 1) % HB_COUNT])
+        .saturating_sub(score[(p + 2) % HB_COUNT])
 }

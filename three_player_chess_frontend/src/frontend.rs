@@ -827,14 +827,21 @@ impl Frontend {
             let king_check = self.king_in_check[usize::from(color)] && piece_value == King;
             let img = &self.pieces[usize::from(color)][usize::from(piece_value)];
 
-            if let Some(col) = prev_action_col {
-                canvas.draw_rect(&*UNIT_RECT, &sk_paint(col, PaintStyle::Fill));
-            }
             if selected {
                 canvas.draw_rect(&*UNIT_RECT, &selection_paint);
             } else if selected_for_move_hint {
                 canvas.draw_rect(&*UNIT_RECT, &move_hint_paint);
+            } else if self.highlight_attacked
+                && self
+                    .board
+                    .is_piece_capturable_at(field.loc, Some(self.board.turn), true)
+                    .is_some()
+            {
+                canvas.draw_rect(&*UNIT_RECT, &sk_paint(self.danger_light, PaintStyle::Fill));
+            } else if let Some(col) = prev_action_col {
+                canvas.draw_rect(&*UNIT_RECT, &sk_paint(col, PaintStyle::Fill));
             }
+
             if (!selected && possible_move) || king_check {
                 let size = 0.35;
                 let mut path = Path::new();
@@ -859,14 +866,7 @@ impl Frontend {
                 };
                 canvas.draw_path(&path, &sk_paint(color, PaintStyle::Fill));
             }
-            if self.highlight_attacked
-                && self
-                    .board
-                    .is_piece_capturable_at(field.loc, Some(self.board.turn), true)
-                    .is_some()
-            {
-                canvas.draw_rect(&*UNIT_RECT, &sk_paint(self.danger_light, PaintStyle::Fill));
-            }
+
             if !self.transformed_pieces {
                 canvas.restore();
                 canvas.save();
@@ -1244,6 +1244,9 @@ impl Frontend {
 
         if self.board.is_valid_move(mov) {
             self.apply_move_with_history(mov);
+            if self.autoplay {
+                self.autoplay_remaining = self.autoplay_count;
+            }
             return true;
         }
         false

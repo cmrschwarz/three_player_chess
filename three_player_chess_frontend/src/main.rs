@@ -3,7 +3,7 @@ extern crate lazy_static;
 
 use gl::types::*;
 use glutin::{
-    event::{ElementState, Event, KeyboardInput, MouseButton, VirtualKeyCode, WindowEvent},
+    event::{ElementState, Event, KeyboardInput, VirtualKeyCode, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
     window::WindowBuilder,
     GlProfile,
@@ -153,7 +153,7 @@ fn main() {
                         Some(VirtualKeyCode::W) => {
                             println!(
                                 "eval: {}",
-                                score_str(calculate_position_score(&mut fe.board).0)
+                                score_str(calculate_position_score(&mut fe.board))
                             );
                         }
                         Some(VirtualKeyCode::F) => {

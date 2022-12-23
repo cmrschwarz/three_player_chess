@@ -241,7 +241,8 @@ impl Engine {
             let p_mov = &parent.moves[parent.index - 1];
             (p_mov.hash, p_mov.score, p_mov.captures_available)
         } else {
-            let (score, has_caps) = calculate_position_score(&mut self.board);
+            let score = calculate_position_score(&mut self.board);
+            let has_caps = board_has_captures(&mut self.board);
             (self.board.get_zobrist_hash(), score, Some(has_caps))
         };
         let ed = if self.engine_stack.len() == depth as usize {
@@ -280,7 +281,8 @@ impl Engine {
             let hash = self.board.get_zobrist_hash();
             let (score, has_caps) = self.transposition_table.get(&hash).map_or_else(
                 || {
-                    let (score, caps) = calculate_position_score(&mut self.board);
+                    let score = calculate_position_score(&mut self.board);
+                    let caps = board_has_captures(&mut self.board);
                     (score, Some(caps))
                 },
                 |tp| (tp.score, None),
@@ -320,15 +322,15 @@ impl Engine {
             ed.best_move = mov;
 
             if depth >= 2 {
-                let ed_move_ref = ed.move_rev.as_ref().map(|mr| mr.mov);
+                // let ed_move_ref = ed.move_rev.as_ref().map(|mr| mr.mov);
                 let ed1 = &self.engine_stack[depth as usize - 1];
-                let ed1_best_move = ed1.best_move;
+                //   let ed1_best_move = ed1.best_move;
                 let ed1_move_ref = ed1.move_rev.as_ref().map(|mr| mr.mov);
                 let ed2 = &self.engine_stack[depth as usize - 2];
                 let prev_prev_mover = usize::from(self.board.turn.prev());
                 if score[prev_prev_mover] <= ed2.score[prev_prev_mover]
                     && ed2.best_move != ed1_move_ref
-                    && ed1_best_move != ed_move_ref
+                // && ed1_best_move != ed_move_ref
                 {
                     self.prune_count += 1;
                     result = PropagationResult::Pruned(2);
