@@ -262,6 +262,7 @@ impl ParanoidEngine {
                 only_one: false,
             },
         );
+        /*
         if captures_only {
             // null move
             ed.moves.push(EngineMove {
@@ -270,7 +271,7 @@ impl ParanoidEngine {
                 hash: parent_hash ^ ZOBRIST_NULL_MOVE_HASH,
                 mov: None,
             });
-        }
+        }*/
         for mov in self.dummy_vec.iter() {
             if captures_only {
                 match mov.move_type {
@@ -462,16 +463,18 @@ impl ParanoidEngine {
                 let rm = ed.move_rev.take().unwrap();
                 self.board.revert_move(&rm);
                 depth -= 1;
-                let prev_prune_depth = propagation_result.prune_depth();
-                if ed.index > 0 {
-                    let eval = ed.eval;
-                    propagation_result = self.propagate_move_eval(depth, Some(rm.mov), eval);
-                } else {
-                    propagation_result = PropagationResult::Ok;
-                }
-                if prev_prune_depth > 1 && propagation_result.prune_depth() < prev_prune_depth - 1 {
-                    propagation_result = PropagationResult::Pruned(prev_prune_depth - 1);
-                }
+                propagation_result = match propagation_result {
+                    PropagationResult::Ok => {
+                        if ed.index > 0 {
+                            let eval = ed.eval;
+                            self.propagate_move_eval(depth, Some(rm.mov), eval)
+                        } else {
+                            PropagationResult::Ok
+                        }
+                    }
+                    PropagationResult::Pruned(1) => PropagationResult::Ok,
+                    PropagationResult::Pruned(n) => PropagationResult::Pruned(n - 1),
+                };
                 ed = &mut self.engine_stack[depth as usize];
             }
             let only_move = ed.moves.len() == 1;

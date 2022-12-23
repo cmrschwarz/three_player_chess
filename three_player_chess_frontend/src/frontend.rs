@@ -1213,9 +1213,13 @@ impl Frontend {
     }
     pub fn post_render_event(&mut self) -> bool {
         if self.autoplay_remaining > 0 {
-            self.autoplay_remaining -= 1;
-            self.do_engine_move();
-            return self.autoplay_remaining > 0;
+            if self.board.game_status() != GameStatus::Ongoing {
+                self.autoplay_remaining = 0;
+            } else {
+                self.autoplay_remaining -= 1;
+                self.do_engine_move();
+            }
+            return true;
         }
         false
     }
