@@ -395,7 +395,7 @@ impl Frontend {
             // CEFGH2A5E4D5H4C5/BG1/CF1/AH1/D4/E1/AH/:LKIDCBA7J6/KB8/JC8/LA8/L5/D8/LA/:HGFEILbJaK9B2/GKc/FJc/HLc/Ec/Ic/HL/Ka:0:0
             // ABCEFGH2D3/B5G9/F1D2/AH1/D1/E1/AH/:LKJDCBA7I9/JC6/JC8/LA8/I8/D8/A/:GFEJKLbH9/FLa/FJc/GLc/Ec/Ic/L/:15:17
             board: ThreePlayerChess::from_str(
-                "BCFG2A3H4//G9/DE1/E2/G1//:AD4KD7B5L9/I5/DC6/LI8//K8//:HGJbLa/E9/K5Ib/ELc/Ia/Gc//:96:96",
+                "ABEG2G3D7///D2Ib//C1//:CBA7K5///J8J7//B8//:G4L7GLbE9/////K9//:84:84",
             )
             .unwrap(),
             font: Font::from_typeface(
@@ -406,7 +406,7 @@ impl Frontend {
             black: Color::from_rgb(161, 119, 67),
             white: Color::from_rgb(240, 217, 181),
             selection_color: Color::from_argb(128, 56, 173, 105),
-            move_hint_color: Color::from_argb(128, 0,163, 225),
+            move_hint_color: Color::from_argb(128, 0, 163, 225),
             last_move_color: Color::from_argb(180, 75, 104, 198),
             move_before_last_color: Color::from_argb(150, 153, 186, 241),
             background: Color::from_rgb(201, 144, 73),

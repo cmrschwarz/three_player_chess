@@ -2,7 +2,6 @@ use std::ops::Sub;
 use std::time::{Duration, Instant};
 use three_player_chess::board::*;
 use three_player_chess::movegen::MovegenOptions;
-use three_player_chess::zobrist::ZOBRIST_NULL_MOVE_HASH;
 use three_player_chess_board_eval::*;
 
 #[derive(Copy, Clone, Eq, PartialEq)]
@@ -45,7 +44,6 @@ struct EngineMove {
     hash: u64,         // hash of position after the move
     mov: Option<Move>, // we allow null moves
     score: Score,
-    captures_available: Option<bool>,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd)]
@@ -236,15 +234,7 @@ impl Engine {
         rm: Option<ReversableMove>,
         captures_only: bool,
     ) -> &EngineDepth {
-        let (parent_hash, parent_score, parent_has_caps) = if depth > 0 {
-            let parent = &self.engine_stack[depth as usize - 1];
-            let p_mov = &parent.moves[parent.index - 1];
-            (p_mov.hash, p_mov.score, p_mov.captures_available)
-        } else {
-            let score = calculate_position_score(&mut self.board);
-            let has_caps = board_has_captures(&mut self.board);
-            (self.board.get_zobrist_hash(), score, Some(has_caps))
-        };
+        let parent_hash = self.board.get_zobrist_hash();
         let ed = if self.engine_stack.len() == depth as usize {
             self.engine_stack.push(Default::default());
             self.engine_stack.last_mut().unwrap()
@@ -266,31 +256,29 @@ impl Engine {
                 only_one: false,
             },
         );
+        /*
         if captures_only {
             //null move
             ed.moves.push(EngineMove {
                 score: parent_score,
-                captures_available: parent_has_caps,
                 hash: parent_hash ^ ZOBRIST_NULL_MOVE_HASH,
                 mov: None,
             });
-        }
+        }*/
         for mov in self.dummy_vec.iter() {
             let rm = ReversableMove::new(&self.board, *mov);
             self.board.perform_reversable_move(&rm);
             let hash = self.board.get_zobrist_hash();
-            let (score, has_caps) = self.transposition_table.get(&hash).map_or_else(
+            let score = self.transposition_table.get(&hash).map_or_else(
                 || {
                     let score = calculate_position_score(&mut self.board);
-                    let caps = board_has_captures(&mut self.board);
-                    (score, Some(caps))
+                    score
                 },
-                |tp| (tp.score, None),
+                |tp| tp.score,
             );
             self.board.revert_move(&rm);
             ed.moves.push(EngineMove {
                 score,
-                captures_available: has_caps,
                 hash,
                 mov: Some(*mov),
             });
@@ -436,36 +424,56 @@ impl Engine {
         loop {
             let mut ed = &mut self.engine_stack[depth as usize];
             while ed.index == ed.moves.len() || propagation_result != PropagationResult::Ok {
-                ed.moves.clear();
-                if ed.index > 0 {
-                    self.transposition_table.insert(
-                        ed.hash,
-                        Transposition::new(
-                            ed.best_move,
-                            ed.score,
-                            self.eval_max_move_index,
-                            self.eval_cap_line_max_move_index,
-                        ),
+                let score = ed.score;
+                let best_move = ed.best_move;
+                let move_rev = ed.move_rev.clone();
+                let hash = ed.hash;
+                let index = ed.index;
+                if depth > 0 {
+                    self.board.revert_move(&move_rev.clone().unwrap());
+                }
+                if depth == 1 && self.debug_log {
+                    let mov = ed.move_rev.as_ref().map(|rm| rm.mov).unwrap();
+                    let els = self.transposition_line_str(Some(mov));
+                    println!(
+                        "finished evaluating {}: ({}): {}",
+                        move_rev.as_ref().unwrap().mov.to_string(&mut self.board),
+                        score_str(score),
+                        els
                     );
                 }
-                if depth == 0 {
-                    return Ok(());
-                }
-                let rm = ed.move_rev.take().unwrap();
-                self.board.revert_move(&rm);
-                depth -= 1;
+                self.transposition_table.insert(
+                    hash,
+                    Transposition::new(
+                        best_move,
+                        score,
+                        self.eval_max_move_index,
+                        self.eval_cap_line_max_move_index,
+                    ),
+                );
                 propagation_result = match propagation_result {
                     PropagationResult::Ok => {
-                        if ed.index > 0 {
-                            let score = ed.score;
-                            self.propagate_move_score(depth, Some(rm.mov), score)
-                        } else {
-                            PropagationResult::Ok
+                        debug_assert!(index > 0);
+                        if depth > 0 {
+                            self.propagate_move_score(
+                                depth - 1,
+                                self.engine_stack[depth as usize]
+                                    .move_rev
+                                    .as_ref()
+                                    .map(|rm| rm.mov),
+                                score,
+                            );
                         }
+
+                        PropagationResult::Ok
                     }
                     PropagationResult::Pruned(1) => PropagationResult::Ok,
                     PropagationResult::Pruned(n) => PropagationResult::Pruned(n - 1),
                 };
+                if depth == 0 {
+                    return Ok(());
+                }
+                depth -= 1;
                 ed = &mut self.engine_stack[depth as usize];
             }
             let em = &mut ed.moves[ed.index];
@@ -495,39 +503,34 @@ impl Engine {
             let game_over = self.board.game_status != GameStatus::Ongoing;
             let force_eval = rm.is_none() || depth >= self.eval_depth + self.eval_cap_line_len;
             if depth >= self.eval_depth || force_eval || game_over {
-                self.pos_count += 1;
                 let score = em.score;
-                let mut caps_available = em.captures_available;
+                let hash = em.hash;
                 let score_now = if game_over || force_eval {
                     true
                 } else {
-                    let ca = em
-                        .captures_available
-                        .unwrap_or_else(|| board_has_captures(&mut self.board));
-                    caps_available = Some(ca);
-                    !ca
+                    self.gen_engine_depth(depth, rm.clone(), true);
+                    self.engine_stack[depth as usize].moves.len() == 0
                 };
-                let hash = em.hash;
-
-                if self.debug_log {
-                    let line_depth = depth - rm.as_ref().map_or(1, |_| 0);
-                    println!(
-                        "eval@ {}{}: ({}) (eval_now: {})",
-                        self.engine_line_str(line_depth, rm.as_ref()),
-                        rm.as_ref().map_or(" NULL", |_| ""),
-                        score_str(score),
-                        score_now
-                    );
-                }
 
                 if score_now {
+                    self.pos_count += 1;
+                    if self.debug_log {
+                        let line_depth = depth - rm.as_ref().map_or(1, |_| 0);
+                        println!(
+                            "score: ({}): {}{} (score_now: {})",
+                            score_str(score),
+                            self.engine_line_str(line_depth, rm.as_ref()),
+                            rm.as_ref().map_or("NULL", |_| ""),
+                            score_now
+                        );
+                    }
                     self.transposition_table.insert(
                         hash,
                         Transposition::new(
                             None,
                             score,
                             self.eval_max_move_index,
-                            if caps_available == Some(false) {
+                            if !force_eval && score_now {
                                 u16::MAX
                             } else {
                                 self.eval_cap_line_max_move_index
@@ -546,17 +549,26 @@ impl Engine {
                 if self.debug_log {
                     if self.debug_log {
                         println!(
-                            "expanding unstable position: (@depth {}): {}",
+                            "expanding unstable position @depth {}: {}",
                             depth,
                             self.engine_line_str(depth, rm.as_ref()),
                         );
                     }
                 }
+            } else {
+                if self.debug_log {
+                    let line_depth = depth - rm.as_ref().map_or(1, |_| 0);
+                    println!(
+                        "expanding further @depth {}: {}",
+                        depth,
+                        self.engine_line_str(line_depth, rm.as_ref()),
+                    );
+                }
+                self.gen_engine_depth(depth, rm, depth >= self.eval_depth);
             }
             if Instant::now().gt(&end) {
                 return Err(());
             }
-            self.gen_engine_depth(depth, rm, depth >= self.eval_depth);
         }
     }
 }
