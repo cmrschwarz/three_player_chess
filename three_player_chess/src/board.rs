@@ -138,6 +138,11 @@ pub enum GameStatus {
 pub enum MoveType {
     Slide,
     ClaimDraw(DrawClaimBasis),
+    // when the player that does the move that leads to repetition etc.
+    // wants to immediately claim the draw
+    // we don't need CaptureClaimDraw since
+    // neither repetition nor the 50 move rule can happen on a capture
+    // TODO: we need CastleClaimDraw. oof.
     SlideClaimDraw(DrawClaimBasis),
     Capture(PackedFieldValue),                  // (captured piece)
     EnPassant(PackedFieldValue, FieldLocation), // (captured piece, captured piece square)

@@ -374,6 +374,7 @@ impl Frontend {
     pub fn new() -> Frontend {
         Frontend {
             prev_second: -1.0,
+            // BCFG2AD3H4/E9/G9/DE1/E2/H2//:A4KD7CB5L9/I5/D6Kb/LI8//K8//:HGJbLa/Fa/K5Ib/ELc/Ia/Gc//:88:90 Qh9??
             // BCFG2ADH3/E9/G9/DE1/E2/G1//:A4KD7CB5L9/I5/B7D6/LB8//K8//:HGJKbLa/Fa/K5Ea/JLc/Eb/Gc//:75:82 weird knight trade
             // ABCDFGH2E9/BG1/C1J7/AH1/D1/E1/AH/:LKDCBA7Ea/B8I7/JC8/LA8/I8/D8/LA/:HGFIJKLb/KcJa/K5Jc/HLc/Ec/Ic/HL/:11:12 white refuses to take queen
             // BDFGH2ACE3/B1H4/CF1/AH1/F3/E1/AH/:LJDCA7K6IB5/C6L5/JC8/LA8/I8/D8/LA/:GIJKLbFaHE9/KcEb/JcIa/HLc/Fb/Ic/HL/:14:18 white self destructs
@@ -384,14 +385,13 @@ impl Frontend {
             // BFGH2E3D5//F1/H1/C8/E1/H/:D4LKJ7/B4K9/I7J5/L8//B6//:GFIKLbHaEI9/C3/Jc/HKc/Ec/Ic/H/:59:59
             // BFGH2E3D5/F3/F1/H1/I8/E1/H/:LKJ7C5/B4K9/I7J5/L8//C7//:GFIKLbHEaI9/C3C8/Jc/HKc/Ec/Ic/H/:54:54
             // ABEG2G3D7///D1Ib//C1//:CBA7LK5///K8J7//B8//K6:G4GLbLaE9/////L9//:68:68
-            // ABEG2G3D7///D2Ib//C1//:CBA7K5///J8J7//B8//:G4L7GLbE9/////K9//:84:84
+            // ABEG2G3D7///D2Ib//C1//:CBA7K5///J8J7//B8//:G4L7GLbE9/////K9//:84:84 white has to sac a pawn/queen to checkmate
             // ABCFGH2DE4/B1H3/CF1/AH1/B5/E1/AH/:LKJICBA7D5/J6I5/JC8/LA8//D8/LA/:GFEJKbHLaI9/GcJa/FcEa/HLc/Ec/Ic/HL/:10:15
             // ABCEFGH2D3/B5G9/CF1/AH1/D1/E1/AH/:LKJDCBA7I9/JC6/JC8/KA8/I8/D8/A/:GFEJKLbIaH9/FLa/FJc/GLc/Ec/Ic/L/:15:15
             // CEFGH2A5E4D5H4C5/BG1/CF1/AH1/D4/E1/AH/:LKIDCBA7J6/KB8/JC8/LA8/L5/D8/LA/:HGFEILbJaK9B2/GKc/FJc/HLc/Ec/Ic/HL/Ka:0:0
-            // D1D2//C1//:CBA7///L8Jc//B8//://///K5//:75:81
             // ABCEFGH2D3/B5G9/F1D2/AH1/D1/E1/AH/:LKJDCBA7I9/JC6/JC8/LA8/I8/D8/A/:GFEJKLbH9/FLa/FJc/GLc/Ec/Ic/L/:15:17
             board: ThreePlayerChess::from_str(
-                "BCFG2ADH3/E9/G9/DE1/E2/G1//:A4KD7CB5L9/I5/B7D6/LB8//K8//:HGJKbLa/Fa/K5Ea/JLc/Eb/Gc//:75:82",
+                "ABEG2G3D7///D2Ib//C1//:CBA7K5///J8J7//B8//:G4L7GLbE9/////K9//:84:84",
             )
             .unwrap(),
             font: Font::from_typeface(
@@ -433,7 +433,7 @@ impl Frontend {
             use_paranoid_engine: false,
             autoplay: false,
             autoplay_count: u16::MAX,
-            autoplay_remaining:0,
+            autoplay_remaining: 0,
             go_infinite: false,
             engine_depth: 3,
             engine_time_secs: 3,

@@ -133,17 +133,35 @@ impl Engine {
                 })
                 .collect();
             let turn = usize::from(self.board.turn);
+            let good_moves_to_display = 3;
+            let bad_moves_to_display = 1;
             moves.sort_by(|l, r| r.0[turn].cmp(&l.0[turn]));
-            for i in 0..moves.len().min(3) {
-                let em = &moves[i];
+            for (i, em) in moves[0..moves.len().min(good_moves_to_display)]
+                .iter()
+                .enumerate()
+            {
                 eval_str = format!(
                     "{}\n   {}({}): {}",
                     eval_str,
                     if i == 0 { "*" } else { " " },
                     score_str(em.0),
                     self.transposition_line_str(Some(em.1))
-                )
-                .to_string();
+                );
+            }
+            let bad_moves_present = moves
+                .len()
+                .saturating_sub(good_moves_to_display)
+                .min(bad_moves_to_display);
+            for em in moves[moves.len() - bad_moves_present..moves.len()]
+                .iter()
+                .rev()
+            {
+                eval_str = format!(
+                    "{}\n   ~({}): {}",
+                    eval_str,
+                    score_str(em.0),
+                    self.transposition_line_str(Some(em.1))
+                );
             }
         }
         let now = Instant::now();
