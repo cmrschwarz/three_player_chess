@@ -118,14 +118,10 @@ fn main() {
                     env.windowed_context.resize(physical_size)
                 }
                 WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
-                WindowEvent::MouseInput {
-                    state,
-                    button: MouseButton::Left,
-                    ..
-                } => {
+                WindowEvent::MouseInput { state, button, .. } => {
                     match state {
-                        ElementState::Pressed => fe.clicked(),
-                        ElementState::Released => fe.released(),
+                        ElementState::Pressed => fe.clicked(button),
+                        ElementState::Released => fe.released(button),
                     }
                     env.windowed_context.window().request_redraw();
                 }
@@ -148,14 +144,10 @@ fn main() {
                         Some(VirtualKeyCode::Q) => {
                             *control_flow = ControlFlow::Exit;
                         }
-                        Some(VirtualKeyCode::F) => {
-                            fe.transformed_pieces ^= true;
-                            println!("set transform pieces to {}", fe.transformed_pieces);
-                        }
-                        Some(VirtualKeyCode::C) => {
+                        Some(VirtualKeyCode::V) => {
                             fe.recolor();
                         }
-                        Some(VirtualKeyCode::S) => {
+                        Some(VirtualKeyCode::R) => {
                             fe.reset();
                         }
                         Some(VirtualKeyCode::W) => {
@@ -164,8 +156,15 @@ fn main() {
                                 score_str(calculate_position_score(&mut fe.board).0)
                             );
                         }
-                        Some(VirtualKeyCode::R) => {
+                        Some(VirtualKeyCode::F) => {
                             fe.rotate();
+                        }
+                        Some(VirtualKeyCode::D) => {
+                            fe.highlight_attacked ^= true;
+                            println!(
+                                "set highlighting of attacked pieces to {}",
+                                fe.highlight_attacked
+                            );
                         }
                         Some(VirtualKeyCode::A) => {
                             if modifiers.shift() {
@@ -179,7 +178,7 @@ fn main() {
                                 println!("set autoplay to {}", fe.autoplay);
                             }
                         }
-                        Some(VirtualKeyCode::D) => {
+                        Some(VirtualKeyCode::I) => {
                             // #deep
                             fe.go_infinite ^= true;
                             println!("set infinite search to {}", fe.go_infinite);
@@ -234,11 +233,16 @@ fn main() {
                             );
                         }
                         Some(VirtualKeyCode::T) => {
-                            fe.transform_dragged_pieces ^= true;
-                            println!(
-                                "set transform dragged pieces to {}",
-                                fe.transform_dragged_pieces
-                            );
+                            if modifiers.ctrl() {
+                                fe.transform_dragged_pieces ^= true;
+                                println!(
+                                    "set transform dragged pieces to {}",
+                                    fe.transform_dragged_pieces
+                                );
+                            } else {
+                                fe.transformed_pieces ^= true;
+                                println!("set transform pieces to {}", fe.transformed_pieces);
+                            }
                         }
                         Some(VirtualKeyCode::U) => {
                             fe.undo_move();
@@ -248,9 +252,7 @@ fn main() {
                             fe.paranoid_engine.debug_log ^= true;
                             println!("set debug log to {}", fe.engine.debug_log);
                         }
-                        Some(VirtualKeyCode::X) => {
-                            println!("{}", fe.board.state_string());
-                        }
+
                         Some(VirtualKeyCode::Y) => {
                             fe.engine.transposition_table.clear();
                             fe.paranoid_engine.transposition_table.clear();
@@ -263,18 +265,22 @@ fn main() {
                             );
                             println!("zobrist hash: {:#018x}", fe.board.zobrist_hash.value);
                         }
-                        Some(VirtualKeyCode::I) => {
-                            let mut buffer = String::new();
-                            println!("please input state string:");
-                            let stdin = std::io::stdin();
-                            stdin.read_line(&mut buffer).unwrap();
-                            let board = ThreePlayerChess::from_str(&buffer.trim());
-                            if let Ok(board) = board {
-                                fe.reset();
-                                fe.board = board;
-                                println!("input string accepted");
+                        Some(VirtualKeyCode::S) => {
+                            if modifiers.ctrl() {
+                                println!("state: {}", fe.board.state_string());
                             } else {
-                                println!("failed to parse: {}", board.err().unwrap());
+                                let mut buffer = String::new();
+                                println!("please input state string:");
+                                let stdin = std::io::stdin();
+                                stdin.read_line(&mut buffer).unwrap();
+                                let board = ThreePlayerChess::from_str(&buffer.trim());
+                                if let Ok(board) = board {
+                                    fe.reset();
+                                    fe.board = board;
+                                    println!("input string accepted");
+                                } else {
+                                    println!("failed to parse: {}", board.err().unwrap());
+                                }
                             }
                         }
                         _ => (),

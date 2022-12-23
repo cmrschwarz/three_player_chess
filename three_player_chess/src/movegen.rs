@@ -39,7 +39,7 @@ pub struct CheckPossibilities {
 }
 
 lazy_static! {
-    static ref CHECK_POSSIBILITIES: [CheckPossibilities; BOARD_SIZE] = {
+    pub static ref CHECK_POSSIBILITIES: [CheckPossibilities; BOARD_SIZE] = {
         let mut cps = ArrayVec::new();
         for i in 0..BOARD_SIZE {
             cps.push(CheckPossibilities::from_king_pos(FieldLocation::from(i)));
@@ -367,7 +367,7 @@ pub fn get_field_on_next_hb(loc: FieldLocation) -> FieldLocation {
     FieldLocation::from((u8::from(loc) + HB_SIZE as u8) % (HB_COUNT * HB_SIZE) as u8)
 }
 
-fn move_diagonal(
+pub fn move_diagonal(
     field: AnnotatedFieldLocation,
     up: bool,
     right: bool,

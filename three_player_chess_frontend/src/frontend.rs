@@ -1,4 +1,5 @@
 use arrayvec::ArrayString;
+use glutin::event::MouseButton;
 use nalgebra::geometry::*;
 use nalgebra::{ArrayStorage, Matrix3, OMatrix, OVector, Transform2, Vector2};
 use skia_safe::{
@@ -64,6 +65,7 @@ pub struct Frontend {
     pub selected_square: Option<AnnotatedFieldLocation>,
     pub hovered_square: Option<AnnotatedFieldLocation>,
     pub dragged_square: Option<AnnotatedFieldLocation>,
+    pub move_info_square: Option<FieldLocation>,
     pub promotion_preview: Option<AnnotatedFieldLocation>,
     pub possible_moves: bitvec::BitArr!(for (32 * HB_COUNT), in u32), //  BitArray<bitvec::order::LocalBits, [u32; HB_COUNT]>,
     pub king_in_check: [bool; HB_COUNT],
@@ -83,6 +85,7 @@ pub struct Frontend {
     pub autoplay: bool,
     pub autoplay_count: u16,
     pub autoplay_remaining: u16,
+    pub highlight_attacked: bool,
 }
 const PROMOTION_QUADRANTS: [(PieceType, f32, f32); 4] = [
     (Queen, 0., 0.),
@@ -374,6 +377,7 @@ impl Frontend {
     pub fn new() -> Frontend {
         Frontend {
             prev_second: -1.0,
+            // BCFG2A3H4//G9/DE1/E2/G1//:AD4KD7B5L9/I5/DC6/LI8//K8//:HGJbLa/E9/K5Ib/ELc/Ia/Gc//:96:96 paranoid hangs his bishop
             // BCFG2AD3H4/E9/G9/DE1/E2/H2//:A4KD7CB5L9/I5/D6Kb/LI8//K8//:HGJbLa/Fa/K5Ib/ELc/Ia/Gc//:88:90 Qh9??
             // BCFG2ADH3/E9/G9/DE1/E2/G1//:A4KD7CB5L9/I5/B7D6/LB8//K8//:HGJKbLa/Fa/K5Ea/JLc/Eb/Gc//:75:82 weird knight trade
             // ABCDFGH2E9/BG1/C1J7/AH1/D1/E1/AH/:LKDCBA7Ea/B8I7/JC8/LA8/I8/D8/LA/:HGFIJKLb/KcJa/K5Jc/HLc/Ec/Ic/HL/:11:12 white refuses to take queen
@@ -391,7 +395,7 @@ impl Frontend {
             // CEFGH2A5E4D5H4C5/BG1/CF1/AH1/D4/E1/AH/:LKIDCBA7J6/KB8/JC8/LA8/L5/D8/LA/:HGFEILbJaK9B2/GKc/FJc/HLc/Ec/Ic/HL/Ka:0:0
             // ABCEFGH2D3/B5G9/F1D2/AH1/D1/E1/AH/:LKJDCBA7I9/JC6/JC8/LA8/I8/D8/A/:GFEJKLbH9/FLa/FJc/GLc/Ec/Ic/L/:15:17
             board: ThreePlayerChess::from_str(
-                "ABEG2G3D7///D2Ib//C1//:CBA7K5///J8J7//B8//:G4L7GLbE9/////K9//:84:84",
+                "BCFG2A3H4//G9/DE1/E2/G1//:AD4KD7B5L9/I5/DC6/LI8//K8//:HGJbLa/E9/K5Ib/ELc/Ia/Gc//:96:96",
             )
             .unwrap(),
             font: Font::from_typeface(
@@ -402,7 +406,7 @@ impl Frontend {
             black: Color::from_rgb(161, 119, 67),
             white: Color::from_rgb(240, 217, 181),
             selection_color: Color::from_argb(128, 56, 173, 105),
-            move_hint_color: Color::from_argb(128, 56, 173, 105),
+            move_hint_color: Color::from_argb(128, 0,163, 225),
             last_move_color: Color::from_argb(180, 75, 104, 198),
             move_before_last_color: Color::from_argb(150, 153, 186, 241),
             background: Color::from_rgb(201, 144, 73),
@@ -419,6 +423,7 @@ impl Frontend {
             dragged_square: None,
             promotion_preview: None,
             hovered_square: None,
+            move_info_square: None,
             player_colors: [
                 Color::from_rgb(236, 236, 236),
                 Color::from_rgb(41, 41, 41),
@@ -435,6 +440,7 @@ impl Frontend {
             autoplay_count: u16::MAX,
             autoplay_remaining: 0,
             go_infinite: false,
+            highlight_attacked: false,
             engine_depth: 3,
             engine_time_secs: 3,
         }
@@ -752,11 +758,13 @@ impl Frontend {
 
         let possible_move = self.possible_moves[usize::from(field.loc)];
         let selection_paint = sk_paint(self.selection_color, PaintStyle::Fill);
+        let move_hint_paint = sk_paint(self.move_hint_color, PaintStyle::Fill);
         let field_paint = sk_paint(field_color, PaintStyle::Fill);
         let field_val = self.board.get_field_value(field.loc);
         let selected = Some(field) == self.hovered_square
             || Some(field) == self.selected_square
             || Some(field) == self.dragged_square;
+        let selected_for_move_hint = Some(field.loc) == self.move_info_square;
 
         let mut prev_action_col = None;
         for i in 0..min(2, self.history.len()) {
@@ -819,11 +827,13 @@ impl Frontend {
             let king_check = self.king_in_check[usize::from(color)] && piece_value == King;
             let img = &self.pieces[usize::from(color)][usize::from(piece_value)];
 
-            if selected {
-                canvas.draw_rect(&*UNIT_RECT, &selection_paint);
-            }
             if let Some(col) = prev_action_col {
                 canvas.draw_rect(&*UNIT_RECT, &sk_paint(col, PaintStyle::Fill));
+            }
+            if selected {
+                canvas.draw_rect(&*UNIT_RECT, &selection_paint);
+            } else if selected_for_move_hint {
+                canvas.draw_rect(&*UNIT_RECT, &move_hint_paint);
             }
             if (!selected && possible_move) || king_check {
                 let size = 0.35;
@@ -834,21 +844,29 @@ impl Frontend {
                     path.line_to(Point::new(if p.x > 0. { p.x - size } else { size }, p.y));
                     path.line_to(Point::new(p.x, p.y));
                 }
-                if king_check {
-                    let danger_paint = sk_paint(
-                        if self.board.turn == color {
-                            self.danger
-                        } else {
-                            self.danger_light
-                        },
-                        PaintStyle::Fill,
-                    );
-                    canvas.draw_path(&path, &danger_paint);
+                let color = if king_check {
+                    if self.board.turn == color {
+                        self.danger
+                    } else {
+                        self.danger_light
+                    }
                 } else {
-                    canvas.draw_path(&path, &selection_paint);
-                }
+                    if self.move_info_square.is_some() {
+                        self.move_hint_color
+                    } else {
+                        self.selection_color
+                    }
+                };
+                canvas.draw_path(&path, &sk_paint(color, PaintStyle::Fill));
             }
-
+            if self.highlight_attacked
+                && self
+                    .board
+                    .is_piece_capturable_at(field.loc, Some(self.board.turn), true)
+                    .is_some()
+            {
+                canvas.draw_rect(&*UNIT_RECT, &sk_paint(self.danger_light, PaintStyle::Fill));
+            }
             if !self.transformed_pieces {
                 canvas.restore();
                 canvas.save();
@@ -882,7 +900,12 @@ impl Frontend {
                     canvas.restore();
                     canvas.save();
                     self.transform_to_cell(canvas, hb, right, file, rank);
-                    canvas.draw_circle(Point::new(0.5, 0.5), point_radius, &selection_paint);
+                    let paint = if self.move_info_square.is_some() {
+                        &move_hint_paint
+                    } else {
+                        &selection_paint
+                    };
+                    canvas.draw_circle(Point::new(0.5, 0.5), point_radius, paint);
                 }
             }
         }
@@ -999,9 +1022,84 @@ impl Frontend {
         };
         Some(point)
     }
-
-    pub fn clicked(&mut self) {
+    pub fn mark_moves_for_piece(&mut self, square: AnnotatedFieldLocation) {
+        let field_idx = usize::from(square.loc);
+        if let FieldValue(Some((color, piece_type))) = FieldValue::from(self.board.board[field_idx])
+        {
+            let oriented_afl = AnnotatedFieldLocation::from_with_origin(color, square.loc);
+            let cp = &CHECK_POSSIBILITIES[field_idx];
+            if let Queen | Rook = piece_type {
+                for loc in cp.file {
+                    if loc != square.loc {
+                        self.possible_moves.set(usize::from(loc), true);
+                    }
+                }
+                for loc in cp.rank {
+                    if loc != square.loc {
+                        self.possible_moves.set(usize::from(loc), true);
+                    }
+                }
+            }
+            if let Queen | Bishop = piece_type {
+                for loc in cp.diagonal_lines[0..*cp.diagonal_line_ends.last().unwrap()].iter() {
+                    self.possible_moves.set(usize::from(*loc), true);
+                }
+            }
+            if Knight == piece_type {
+                for loc in cp.knight_moves.iter() {
+                    self.possible_moves.set(usize::from(*loc), true);
+                }
+            }
+            if Pawn == piece_type {
+                for dir in [false, true] {
+                    if let Some((take_1, take_2)) = move_diagonal(oriented_afl, true, dir) {
+                        self.possible_moves.set(usize::from(take_1.loc), true);
+                        take_2.map(|take_2| self.possible_moves.set(usize::from(take_2.loc), true));
+                    }
+                }
+                if let Some(afl) = move_rank(oriented_afl, true) {
+                    self.possible_moves.set(usize::from(afl.loc), true);
+                    if oriented_afl.rank == 2 {
+                        self.possible_moves
+                            .set(usize::from(move_rank(afl, true).unwrap().loc), true);
+                    }
+                }
+            }
+            if King == piece_type {
+                for up_down in [false, true] {
+                    for left_right in [false, true] {
+                        if let Some((take_1, take_2)) =
+                            move_diagonal(oriented_afl, up_down, left_right)
+                        {
+                            self.possible_moves.set(usize::from(take_1.loc), true);
+                            take_2.map(|take_2| {
+                                self.possible_moves.set(usize::from(take_2.loc), true)
+                            });
+                        }
+                    }
+                    if let Some(afl) = move_rank(oriented_afl, up_down) {
+                        self.possible_moves.set(usize::from(afl.loc), true);
+                    }
+                    if let Some(afl) = move_file(oriented_afl, up_down) {
+                        self.possible_moves.set(usize::from(afl.loc), true);
+                    }
+                }
+                for loc in self.board.possible_rooks_for_castling[usize::from(color)] {
+                    loc.map(|loc| self.possible_moves.set(usize::from(loc), true));
+                }
+            }
+        }
+    }
+    pub fn clicked(&mut self, mb: MouseButton) {
         let square = self.get_board_pos_from_screen_pos(self.cursor_pos);
+        if mb == MouseButton::Right {
+            self.reset_effects();
+            self.move_info_square = square.map(|afl| afl.loc);
+            if let Some(square) = square {
+                self.mark_moves_for_piece(square);
+            }
+            return;
+        }
         let prev = self.selected_square;
         self.selected_square = None;
         if let Some(square) = square {
@@ -1052,7 +1150,11 @@ impl Frontend {
             self.reset_effects();
         }
     }
-    pub fn released(&mut self) {
+    pub fn released(&mut self, mb: MouseButton) {
+        if mb == MouseButton::Right {
+            self.reset_effects();
+            return;
+        }
         let square = self.get_board_pos_from_screen_pos(self.cursor_pos);
         if let Some(src) = self.dragged_square {
             if let Some(tgt) = square {
@@ -1168,6 +1270,7 @@ impl Frontend {
     pub fn reset_effects(&mut self) {
         self.hovered_square = None;
         self.selected_square = None;
+        self.move_info_square = None;
         self.promotion_preview = None;
         self.dragged_square = None;
         self.possible_moves.fill(false);
