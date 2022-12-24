@@ -111,7 +111,13 @@ fn main() {
                 WindowEvent::Resized(physical_size) => {
                     env.surface =
                         create_surface(&env.windowed_context, &fb_info, &mut env.gr_context);
-                    env.windowed_context.resize(physical_size)
+                    env.windowed_context.resize(physical_size);
+                    fe.update_dimensions(
+                        0,
+                        0,
+                        physical_size.width.try_into().unwrap(),
+                        physical_size.height.try_into().unwrap(),
+                    );
                 }
                 WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
                 WindowEvent::MouseInput { state, button, .. } => {
@@ -171,6 +177,10 @@ fn main() {
                                 "set highlighting of attacked pieces to {}",
                                 fe.highlight_attacked
                             );
+                        }
+                        Some(VirtualKeyCode::D) => {
+                            fe.show_notation ^= true;
+                            println!("set show notation to {}", fe.highlight_attacked);
                         }
                         Some(VirtualKeyCode::A) => {
                             if modifiers.shift() {

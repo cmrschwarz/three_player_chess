@@ -52,7 +52,7 @@ pub struct Frontend {
 
     pub black: Color,
     pub white: Color,
-    pub render_notation: bool,
+    pub show_notation: bool,
     pub selection_color: Color,
     pub move_hint_color: Color,
     pub danger: Color,
@@ -92,6 +92,7 @@ pub struct Frontend {
     pub autoplay_remaining: u16,
     pub highlight_attacked: bool,
     pub allow_illegal_moves: bool,
+    pub show_non_legal_move_hints: bool,
 }
 const PROMOTION_QUADRANTS: [(PieceType, f32, f32); 4] = [
     (Queen, 0., 0.),
@@ -439,7 +440,7 @@ impl Frontend {
             ],
             king_in_check: [false; HB_COUNT],
             pieces: PIECE_IMAGES.clone(),
-            transform_dragged_pieces: true,
+            transform_dragged_pieces: false,
             piece_scale_non_transformed: 1.2,
             engine: Engine::new(),
             paranoid_engine: ParanoidEngine::new(),
@@ -449,9 +450,10 @@ impl Frontend {
             autoplay_remaining: 0,
             go_infinite: false,
             highlight_attacked: false,
-            render_notation: false,
+            show_notation: true,
             engine_depth: 3,
             allow_illegal_moves: false,
+            show_non_legal_move_hints: false,
             engine_time_secs: 3,
         }
     }
@@ -522,7 +524,9 @@ impl Frontend {
         canvas.restore();
     }
     pub fn render_notation(&mut self, canvas: &mut Canvas) {
-        if (!self.render_notation) return;
+        if !self.show_notation {
+            return;
+        }
         let hex_height = *HEX_HEIGHT;
         let hex_side_len = *HEX_SIDE_LEN;
         let notation_paint = {
@@ -663,11 +667,11 @@ impl Frontend {
             }
         }
     }
+    pub fn update_dimensions(&mut self, x: i32, y: i32, width: i32, height: i32) {
+        self.board_origin = Vector2::new(x + width / 2, y + height / 2);
+        self.board_radius = std::cmp::min(width, height) as f32 * 0.46;
+    }
     pub fn render(&mut self, canvas: &mut Canvas) {
-        let dim = canvas.image_info().dimensions();
-
-        self.board_origin = Vector2::new(dim.width / 2, dim.height / 2);
-        self.board_radius = std::cmp::min(dim.width, dim.height) as f32 * 0.46;
         let translation = self.board_origin.cast::<f32>();
 
         canvas.save();
@@ -1020,7 +1024,7 @@ impl Frontend {
     pub fn set_possible_moves_for_move_info(&mut self, square: FieldLocation) {
         let fv = self.board.board[usize::from(square)];
         let (color, piece_type) = FieldValue::from(fv).unwrap();
-        if !self.allow_illegal_moves {
+        if !self.show_non_legal_move_hints {
             let mut board = self.board.clone();
             board.turn = color;
             let mut moves = Default::default();
@@ -1215,6 +1219,7 @@ impl Frontend {
 
     pub fn ctrl_pressed(&mut self) {
         self.allow_illegal_moves = true;
+        self.show_non_legal_move_hints = true;
         if let Some(square) = self.move_info_square {
             self.possible_moves.fill(false);
             self.set_possible_moves_for_move_info(square);
@@ -1225,6 +1230,7 @@ impl Frontend {
     }
     pub fn ctrl_released(&mut self) {
         self.allow_illegal_moves = false;
+        self.show_non_legal_move_hints = false;
         if let Some(square) = self.move_info_square {
             self.possible_moves.fill(false);
             self.set_possible_moves_for_move_info(square);
