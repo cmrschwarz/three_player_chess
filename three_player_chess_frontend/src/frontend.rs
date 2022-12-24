@@ -377,6 +377,7 @@ impl Frontend {
     pub fn new() -> Frontend {
         Frontend {
             prev_second: -1.0,
+            // FH2ABE3//D2/C1G2/Jb/A2//:LKBA7J6/D5/C6/LA8//B8//:HFKLb///K9//Fc//:79:80 blue fails to save himself
             // BCFG2A3H4//G9/DE1/E2/G1//:AD4KD7B5L9/I5/DC6/LI8//K8//:HGJbLa/E9/K5Ib/ELc/Ia/Gc//:96:96 paranoid hangs his bishop
             // BCFG2AD3H4/E9/G9/DE1/E2/H2//:A4KD7CB5L9/I5/D6Kb/LI8//K8//:HGJbLa/Fa/K5Ib/ELc/Ia/Gc//:88:90 Qh9??
             // BCFG2ADH3/E9/G9/DE1/E2/G1//:A4KD7CB5L9/I5/B7D6/LB8//K8//:HGJKbLa/Fa/K5Ea/JLc/Eb/Gc//:75:82 weird knight trade
@@ -395,7 +396,7 @@ impl Frontend {
             // CEFGH2A5E4D5H4C5/BG1/CF1/AH1/D4/E1/AH/:LKIDCBA7J6/KB8/JC8/LA8/L5/D8/LA/:HGFEILbJaK9B2/GKc/FJc/HLc/Ec/Ic/HL/Ka:0:0
             // ABCEFGH2D3/B5G9/F1D2/AH1/D1/E1/AH/:LKJDCBA7I9/JC6/JC8/LA8/I8/D8/A/:GFEJKLbH9/FLa/FJc/GLc/Ec/Ic/L/:15:17
             board: ThreePlayerChess::from_str(
-                "ABEG2G3D7///D2Ib//C1//:CBA7K5///J8J7//B8//:G4L7GLbE9/////K9//:84:84",
+                "FH2ABE3//D2/C1G2/Jb/A2//:LKBA7J6/D5/C6/LA8//B8//:HFKLb///K9//Fc//:79:80",
             )
             .unwrap(),
             font: Font::from_typeface(

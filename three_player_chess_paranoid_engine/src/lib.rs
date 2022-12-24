@@ -281,7 +281,7 @@ impl ParanoidEngine {
         if captures_only {
             // null move
             ed.moves.push(EngineMove {
-                eval: parent_eval,
+                eval: ed.eval,
                 captures_available: parent_has_caps,
                 hash: parent_hash ^ ZOBRIST_NULL_MOVE_HASH,
                 mov: None,

@@ -2,6 +2,7 @@ use std::ops::Sub;
 use std::time::{Duration, Instant};
 use three_player_chess::board::*;
 use three_player_chess::movegen::MovegenOptions;
+use three_player_chess::zobrist::ZOBRIST_NULL_MOVE_HASH;
 use three_player_chess_board_eval::*;
 
 #[derive(Copy, Clone, Eq, PartialEq)]
@@ -34,6 +35,7 @@ struct EngineDepth {
     hash: u64, // hash of position before any of the moves
     index: usize,
     score: Score,
+    board_score: Score, // raw board score without any propagation
     best_move: Option<Move>,
     move_rev: Option<ReversableMove>,
 }
@@ -256,15 +258,14 @@ impl Engine {
                 only_one: false,
             },
         );
-        /*
         if captures_only {
             //null move
             ed.moves.push(EngineMove {
-                score: parent_score,
+                score: calculate_position_score(&mut self.board),
                 hash: parent_hash ^ ZOBRIST_NULL_MOVE_HASH,
                 mov: None,
             });
-        }*/
+        }
         for mov in self.dummy_vec.iter() {
             let rm = ReversableMove::new(&self.board, *mov);
             self.board.perform_reversable_move(&rm);
@@ -305,33 +306,32 @@ impl Engine {
         let mover = usize::from(self.board.turn);
         let mut ed = &mut self.engine_stack[depth as usize];
         if score[mover] > ed.score[mover] {
-            //TODO
             ed.score = score;
             ed.best_move = mov;
-
+            let ed_move_ref = ed.move_rev.as_ref().map(|mr| mr.mov);
             if depth >= 2 {
-                // let ed_move_ref = ed.move_rev.as_ref().map(|mr| mr.mov);
                 let ed1 = &self.engine_stack[depth as usize - 1];
-                //   let ed1_best_move = ed1.best_move;
                 let ed1_move_ref = ed1.move_rev.as_ref().map(|mr| mr.mov);
                 let ed2 = &self.engine_stack[depth as usize - 2];
-                let prev_prev_mover = usize::from(self.board.turn.prev());
-                if score[prev_prev_mover] <= ed2.score[prev_prev_mover]
+                let prev_prev_mover = usize::from(self.board.turn.prev().prev());
+                if ed2.score[prev_prev_mover] >= score[prev_prev_mover]
                     && ed2.best_move != ed1_move_ref
-                // && ed1_best_move != ed_move_ref
                 {
                     self.prune_count += 1;
                     result = PropagationResult::Pruned(2);
                 }
-            } else if depth >= 1 {
-                let ed_move_ref = ed.move_rev.as_ref().map(|mr| mr.mov);
+            }
+            if depth >= 1 && result == PropagationResult::Ok {
                 let prev_mover = usize::from(self.board.turn.prev());
                 let ed1 = &self.engine_stack[depth as usize - 1];
                 if score[prev_mover] <= ed1.score[prev_mover] && ed1.best_move != ed_move_ref {
                     self.prune_count += 1;
                     result = PropagationResult::Pruned(1);
                 }
-            } else if ed.score[mover] >= EVAL_WIN - self.board.move_index as Eval - 1 {
+            }
+            if result == PropagationResult::Ok
+                && score[mover] >= EVAL_WIN - self.board.move_index as Eval - 1
+            {
                 // if we have a checkmate in depth 0, we want to stop eval and not
                 // do a depth N check for no reason
                 self.prune_count += 1;
@@ -340,8 +340,10 @@ impl Engine {
             if self.debug_log && mov.is_some() {
                 // we really like this as debug break point, so we keep separate lines
                 let flavor_text;
-                if depth > 0 {
+                if depth > 1 {
                     flavor_text = "new best move";
+                } else if depth > 0 {
+                    flavor_text = "new best response";
                 } else {
                     flavor_text = "new main line";
                 }
@@ -478,6 +480,16 @@ impl Engine {
             }
             let em = &mut ed.moves[ed.index];
             ed.index += 1;
+            if depth == 0 && self.debug_log {
+                if let Some(m) = em.mov {
+                    println!(
+                        "beginning to evaluate {} (currently {})",
+                        m.to_string(&mut self.board),
+                        score_str(em.score),
+                    );
+                    depth = depth; // convenient breakpoint hook
+                }
+            }
 
             let rm;
             if let Some(mov) = em.mov {
@@ -509,7 +521,8 @@ impl Engine {
                     true
                 } else {
                     self.gen_engine_depth(depth, rm.clone(), true);
-                    self.engine_stack[depth as usize].moves.len() == 0
+                    //1 for the null move
+                    self.engine_stack[depth as usize].moves.len() == 1
                 };
 
                 if score_now {
