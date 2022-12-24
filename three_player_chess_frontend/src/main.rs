@@ -130,6 +130,14 @@ fn main() {
                         nalgebra::Vector2::<i32>::new(position.x as i32, position.y as i32);
                     env.windowed_context.window().request_redraw();
                 }
+                WindowEvent::ModifiersChanged(modifiers) => {
+                    if modifiers.ctrl() {
+                        fe.ctrl_pressed();
+                    } else {
+                        fe.ctrl_released();
+                    }
+                    env.windowed_context.window().request_redraw();
+                }
                 WindowEvent::KeyboardInput {
                     input:
                         KeyboardInput {

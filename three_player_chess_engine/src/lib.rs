@@ -35,7 +35,6 @@ struct EngineDepth {
     hash: u64, // hash of position before any of the moves
     index: usize,
     score: Score,
-    board_score: Score, // raw board score without any propagation
     best_move: Option<Move>,
     move_rev: Option<ReversableMove>,
 }

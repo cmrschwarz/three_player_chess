@@ -60,13 +60,15 @@ pub struct Frontend {
     pub player_colors: [Color; HB_COUNT],
     pub prev_second: f32,
     pub transformed_pieces: bool,
-    pub history: Vec<ReversableMove>,
+    // we need to store the color of the player's turn before the move
+    // to support illegal moves from other players
+    pub history: Vec<(ReversableMove, three_player_chess::board::Color)>,
     pub board: ThreePlayerChess,
-    pub selected_square: Option<AnnotatedFieldLocation>,
-    pub hovered_square: Option<AnnotatedFieldLocation>,
-    pub dragged_square: Option<AnnotatedFieldLocation>,
+    pub selected_square: Option<FieldLocation>,
+    pub hovered_square: Option<FieldLocation>,
+    pub dragged_square: Option<FieldLocation>,
     pub move_info_square: Option<FieldLocation>,
-    pub promotion_preview: Option<AnnotatedFieldLocation>,
+    pub promotion_preview: Option<FieldLocation>,
     pub possible_moves: bitvec::BitArr!(for (32 * HB_COUNT), in u32), //  BitArray<bitvec::order::LocalBits, [u32; HB_COUNT]>,
     pub king_in_check: [bool; HB_COUNT],
     pub cursor_pos: Vector2<i32>,
@@ -86,6 +88,7 @@ pub struct Frontend {
     pub autoplay_count: u16,
     pub autoplay_remaining: u16,
     pub highlight_attacked: bool,
+    pub allow_illegal_moves: bool,
 }
 const PROMOTION_QUADRANTS: [(PieceType, f32, f32); 4] = [
     (Queen, 0., 0.),
@@ -377,6 +380,7 @@ impl Frontend {
     pub fn new() -> Frontend {
         Frontend {
             prev_second: -1.0,
+            // AF2I5Eb//H4///G9//:B4LB7IC6K9//C8Fc/KA8/H1/I8//:HbKa///J7/H2/Kc//:103:103 black refuses to take blues queen
             // FH2ABE3//D2/C1G2/Jb/A2//:LKBA7J6/D5/C6/LA8//B8//:HFKLb///K9//Fc//:79:80 blue fails to save himself
             // BCFG2A3H4//G9/DE1/E2/G1//:AD4KD7B5L9/I5/DC6/LI8//K8//:HGJbLa/E9/K5Ib/ELc/Ia/Gc//:96:96 paranoid hangs his bishop
             // BCFG2AD3H4/E9/G9/DE1/E2/H2//:A4KD7CB5L9/I5/D6Kb/LI8//K8//:HGJbLa/Fa/K5Ib/ELc/Ia/Gc//:88:90 Qh9??
@@ -443,6 +447,7 @@ impl Frontend {
             go_infinite: false,
             highlight_attacked: false,
             engine_depth: 3,
+            allow_illegal_moves: false,
             engine_time_secs: 3,
         }
     }
@@ -577,7 +582,7 @@ impl Frontend {
     }
     pub fn render_dragged_piece(&mut self, canvas: &mut Canvas) {
         if let Some(field) = self.dragged_square {
-            if let Some((color, piece_type)) = *self.board.get_field_value(field.loc) {
+            if let Some((color, piece_type)) = *self.board.get_field_value(field) {
                 let afl = AnnotatedFieldLocation::from(field);
                 let right = afl.file > 4;
                 let file_phys = if !right {
@@ -648,7 +653,7 @@ impl Frontend {
         self.hovered_square = None;
         if self.dragged_square.is_some() {
             if let Some(sq) = self.get_board_pos_from_screen_pos(self.cursor_pos) {
-                if self.possible_moves[usize::from(sq.loc)] {
+                if self.possible_moves[usize::from(sq)] {
                     self.hovered_square = Some(sq);
                 }
             }
@@ -749,7 +754,7 @@ impl Frontend {
         } else {
             (file_rot, rank_rot) = (HB_ROW_COUNT as i8 - file_rot, rank_rot + 1);
         }
-        let field = AnnotatedFieldLocation::from_file_and_rank(hb, hb, file_rot, rank_rot);
+        let field = FieldLocation::new(hb, file_rot, rank_rot);
 
         let field_color = if ((file % 2) + (rank % 2) + (right as usize)) % 2 == 0 {
             self.white // bottom right must be white
@@ -757,20 +762,20 @@ impl Frontend {
             self.black
         };
 
-        let possible_move = self.possible_moves[usize::from(field.loc)];
+        let possible_move = self.possible_moves[usize::from(field)];
         let selection_paint = sk_paint(self.selection_color, PaintStyle::Fill);
         let move_hint_paint = sk_paint(self.move_hint_color, PaintStyle::Fill);
         let field_paint = sk_paint(field_color, PaintStyle::Fill);
-        let field_val = self.board.get_field_value(field.loc);
+        let field_val = self.board.get_field_value(field);
         let selected = Some(field) == self.hovered_square
             || Some(field) == self.selected_square
             || Some(field) == self.dragged_square;
-        let selected_for_move_hint = Some(field.loc) == self.move_info_square;
+        let selected_for_move_hint = Some(field) == self.move_info_square;
 
         let mut prev_action_col = None;
         for i in 0..min(2, self.history.len()) {
-            let m = self.history[self.history.len() - i - 1].mov;
-            if m.source == field.loc || m.target == field.loc {
+            let m = self.history[self.history.len() - i - 1].0.mov;
+            if m.source == field || m.target == field {
                 if i == 0 {
                     prev_action_col = Some(self.last_move_color);
                 } else {
@@ -780,7 +785,7 @@ impl Frontend {
             }
         }
 
-        let promotion = Some(field.loc) == self.promotion_preview.map(|f| f.loc);
+        let promotion = Some(field) == self.promotion_preview;
         let flip_pieces = (field_val.is_some() && field_val.color() != Some(hb)) || promotion;
 
         canvas.save();
@@ -797,7 +802,7 @@ impl Frontend {
 
         if promotion {
             let cursor_quadrant = self
-                .get_screen_pos_in_field(self.cursor_pos, field.loc)
+                .get_screen_pos_in_field(self.cursor_pos, field)
                 .map(|pos| get_quadrant_from_unit_box_pos(pos, self.transformed_pieces));
             if !self.transformed_pieces {
                 canvas.restore();
@@ -805,8 +810,11 @@ impl Frontend {
                 self.transform_to_cell(canvas, hb, right, file, rank);
             }
             for (quadrant, &(piece, x, y)) in PROMOTION_QUADRANTS.iter().enumerate() {
-                let img = &self.pieces[usize::from(self.promotion_preview.unwrap().origin)]
-                    [usize::from(piece)];
+                let color =
+                    FieldValue::from(self.board.board[usize::from(self.dragged_square.unwrap())])
+                        .color()
+                        .unwrap();
+                let img = &self.pieces[usize::from(color)][usize::from(piece)];
 
                 let rect = Rect::from_xywh(x, y, 0.5, 0.5);
                 if Some(quadrant) == cursor_quadrant {
@@ -824,7 +832,7 @@ impl Frontend {
                     &sk_paint_img(),
                 );
             }
-        } else if let Some((color, piece_value)) = *self.board.get_field_value(field.loc) {
+        } else if let Some((color, piece_value)) = *self.board.get_field_value(field) {
             let king_check = self.king_in_check[usize::from(color)] && piece_value == King;
             let img = &self.pieces[usize::from(color)][usize::from(piece_value)];
 
@@ -835,7 +843,7 @@ impl Frontend {
             } else if self.highlight_attacked
                 && self
                     .board
-                    .is_piece_capturable_at(field.loc, Some(self.board.turn), true)
+                    .is_piece_capturable_at(field, Some(self.board.turn), true)
                     .is_some()
             {
                 canvas.draw_rect(&*UNIT_RECT, &sk_paint(self.danger_light, PaintStyle::Fill));
@@ -949,10 +957,7 @@ impl Frontend {
         let pos_scaled = pos_rot.scale(1. / self.board_radius);
         Some((hb, right, pos_scaled))
     }
-    pub fn get_board_pos_from_screen_pos(
-        &self,
-        screen_pos: Vector2<i32>,
-    ) -> Option<AnnotatedFieldLocation> {
+    pub fn get_board_pos_from_screen_pos(&self, screen_pos: Vector2<i32>) -> Option<FieldLocation> {
         let (hb, right, pos_scaled) = self.transform_screen_point_to_hb0(screen_pos)?;
         for f in 0..HB_ROW_COUNT {
             for r in 0..HB_ROW_COUNT {
@@ -964,9 +969,7 @@ impl Frontend {
                     } else {
                         (file, rank) = (rank, HBRC - file + 1)
                     }
-                    return Some(AnnotatedFieldLocation::from_file_and_rank(
-                        hb, hb, file, rank,
-                    ));
+                    return Some(FieldLocation::new(hb, file, rank));
                 }
             }
         }
@@ -1023,71 +1026,120 @@ impl Frontend {
         };
         Some(point)
     }
-    pub fn mark_moves_for_piece(&mut self, square: AnnotatedFieldLocation) {
-        let field_idx = usize::from(square.loc);
-        if let FieldValue(Some((color, piece_type))) = FieldValue::from(self.board.board[field_idx])
-        {
-            let oriented_afl = AnnotatedFieldLocation::from_with_origin(color, square.loc);
-            let cp = &CHECK_POSSIBILITIES[field_idx];
-            if let Queen | Rook = piece_type {
-                for loc in cp.file {
-                    if loc != square.loc {
-                        self.possible_moves.set(usize::from(loc), true);
-                    }
-                }
-                for loc in cp.rank {
-                    if loc != square.loc {
-                        self.possible_moves.set(usize::from(loc), true);
-                    }
-                }
-            }
-            if let Queen | Bishop = piece_type {
-                for loc in cp.diagonal_lines[0..*cp.diagonal_line_ends.last().unwrap()].iter() {
-                    self.possible_moves.set(usize::from(*loc), true);
+    pub fn set_possible_moves_for_move_info(&mut self, square: FieldLocation) {
+        let fv = self.board.board[usize::from(square)];
+        let (color, piece_type) = FieldValue::from(fv).unwrap();
+        if !self.allow_illegal_moves {
+            let mut board = self.board.clone();
+            board.turn = color;
+            let mut moves = Default::default();
+            board.gen_moves_for_field(square, &mut moves, MovegenOptions::default());
+            for m in moves {
+                self.possible_moves.set(usize::from(m.target), true);
+                if let MoveType::Castle(short) = m.move_type {
+                    self.possible_moves.set(
+                        usize::from(
+                            self.board.possible_rooks_for_castling[usize::from(self.board.turn)]
+                                [usize::from(short)]
+                            .unwrap(),
+                        ),
+                        true,
+                    );
                 }
             }
-            if Knight == piece_type {
-                for loc in cp.knight_moves.iter() {
-                    self.possible_moves.set(usize::from(*loc), true);
+            return;
+        }
+
+        let oriented_afl = AnnotatedFieldLocation::from(square);
+        let cp = &CHECK_POSSIBILITIES[usize::from(square)];
+        if let Queen | Rook = piece_type {
+            for loc in cp.file {
+                if loc != square {
+                    self.possible_moves.set(usize::from(loc), true);
                 }
             }
-            if Pawn == piece_type {
-                for dir in [false, true] {
-                    if let Some((take_1, take_2)) = move_diagonal(oriented_afl, true, dir) {
+            for loc in cp.rank {
+                if loc != square {
+                    self.possible_moves.set(usize::from(loc), true);
+                }
+            }
+        }
+        if let Queen | Bishop = piece_type {
+            for loc in cp.diagonal_lines[0..*cp.diagonal_line_ends.last().unwrap()].iter() {
+                self.possible_moves.set(usize::from(*loc), true);
+            }
+        }
+        if Knight == piece_type {
+            for loc in cp.knight_moves.iter() {
+                self.possible_moves.set(usize::from(*loc), true);
+            }
+        }
+        if Pawn == piece_type {
+            for dir in [false, true] {
+                if let Some((take_1, take_2)) = move_diagonal(oriented_afl, true, dir) {
+                    self.possible_moves.set(usize::from(take_1.loc), true);
+                    take_2.map(|take_2| self.possible_moves.set(usize::from(take_2.loc), true));
+                }
+            }
+            if let Some(afl) = move_rank(oriented_afl, true) {
+                self.possible_moves.set(usize::from(afl.loc), true);
+                if oriented_afl.rank == 2 {
+                    self.possible_moves
+                        .set(usize::from(move_rank(afl, true).unwrap().loc), true);
+                }
+            }
+        }
+        if King == piece_type {
+            for up_down in [false, true] {
+                for left_right in [false, true] {
+                    if let Some((take_1, take_2)) = move_diagonal(oriented_afl, up_down, left_right)
+                    {
                         self.possible_moves.set(usize::from(take_1.loc), true);
                         take_2.map(|take_2| self.possible_moves.set(usize::from(take_2.loc), true));
                     }
                 }
-                if let Some(afl) = move_rank(oriented_afl, true) {
+                if let Some(afl) = move_rank(oriented_afl, up_down) {
                     self.possible_moves.set(usize::from(afl.loc), true);
-                    if oriented_afl.rank == 2 {
-                        self.possible_moves
-                            .set(usize::from(move_rank(afl, true).unwrap().loc), true);
-                    }
+                }
+                if let Some(afl) = move_file(oriented_afl, up_down) {
+                    self.possible_moves.set(usize::from(afl.loc), true);
                 }
             }
-            if King == piece_type {
-                for up_down in [false, true] {
-                    for left_right in [false, true] {
-                        if let Some((take_1, take_2)) =
-                            move_diagonal(oriented_afl, up_down, left_right)
-                        {
-                            self.possible_moves.set(usize::from(take_1.loc), true);
-                            take_2.map(|take_2| {
-                                self.possible_moves.set(usize::from(take_2.loc), true)
-                            });
-                        }
-                    }
-                    if let Some(afl) = move_rank(oriented_afl, up_down) {
-                        self.possible_moves.set(usize::from(afl.loc), true);
-                    }
-                    if let Some(afl) = move_file(oriented_afl, up_down) {
-                        self.possible_moves.set(usize::from(afl.loc), true);
-                    }
+            for loc in self.board.possible_rooks_for_castling[usize::from(color)] {
+                loc.map(|loc| self.possible_moves.set(usize::from(loc), true));
+            }
+        }
+    }
+    pub fn set_possible_moves(&mut self, square: FieldLocation) {
+        let mut moves = Default::default();
+        if self.allow_illegal_moves {
+            for i in 0..BOARD_SIZE {
+                if FieldValue::from(self.board.board[i]).piece_type() != Some(King)
+                    && i != usize::from(square)
+                {
+                    self.possible_moves.set(i, true);
                 }
-                for loc in self.board.possible_rooks_for_castling[usize::from(color)] {
-                    loc.map(|loc| self.possible_moves.set(usize::from(loc), true));
-                }
+            }
+            return;
+        }
+        self.board
+            .gen_moves_for_field(square, &mut moves, MovegenOptions::default());
+        for m in moves {
+            if FieldValue::from(self.board.board[usize::from(m.target)]).piece_type() == Some(King)
+            {
+                // prevent moves that would capture a king since they cause our board to freak out
+                continue;
+            }
+            self.possible_moves.set(usize::from(m.target), true);
+            if let MoveType::Castle(short) = m.move_type {
+                self.possible_moves.set(
+                    usize::from(
+                        self.board.possible_rooks_for_castling[usize::from(self.board.turn)]
+                            [usize::from(short)]
+                        .unwrap(),
+                    ),
+                    true,
+                );
             }
         }
     }
@@ -1095,9 +1147,11 @@ impl Frontend {
         let square = self.get_board_pos_from_screen_pos(self.cursor_pos);
         if mb == MouseButton::Right {
             self.reset_effects();
-            self.move_info_square = square.map(|afl| afl.loc);
+            self.move_info_square = square;
             if let Some(square) = square {
-                self.mark_moves_for_piece(square);
+                if FieldValue::from(self.board.board[usize::from(square)]).is_some() {
+                    self.set_possible_moves_for_move_info(square);
+                }
             }
             return;
         }
@@ -1105,47 +1159,32 @@ impl Frontend {
         self.selected_square = None;
         if let Some(square) = square {
             if let Some(src) = prev {
-                if self.promotion_preview.map(|pp| pp.loc) == Some(square.loc) {
+                if self.promotion_preview == Some(square) {
                     let cursor_quadrant = self
-                        .get_screen_pos_in_field(self.cursor_pos, square.loc)
+                        .get_screen_pos_in_field(self.cursor_pos, square)
                         .map(|pos| get_quadrant_from_unit_box_pos(pos, self.transformed_pieces));
                     if let Some(quadrant) = cursor_quadrant {
                         let (piece_type, _, _) = PROMOTION_QUADRANTS[quadrant as usize];
-                        if self.apply_move(src.loc, square.loc, Some(piece_type)) {
+                        if self.apply_move(src, square, Some(piece_type)) {
                             return;
                         }
                     }
                 }
-                if self.apply_move(src.loc, square.loc, None) {
+                if self.apply_move(src, square, None) {
                     return;
                 }
             }
-            let field_value = self.board.get_field_value(square.loc);
+            let field_value = self.board.get_field_value(square);
             self.reset_effects();
             if let Some((color, _)) = *field_value {
-                if color != self.board.turn {
+                if !self.allow_illegal_moves && color != self.board.turn {
                     return;
                 }
                 self.dragged_square = Some(square);
                 if Some(square) != prev {
                     self.selected_square = self.dragged_square;
                 }
-                let mut moves = Default::default();
-                self.board
-                    .gen_moves_for_field(square.loc, &mut moves, MovegenOptions::default());
-                for m in moves {
-                    self.possible_moves.set(usize::from(m.target), true);
-                    if let MoveType::Castle(short) = m.move_type {
-                        self.possible_moves.set(
-                            usize::from(
-                                self.board.possible_rooks_for_castling[usize::from(color)]
-                                    [usize::from(short)]
-                                .unwrap(),
-                            ),
-                            true,
-                        );
-                    }
-                }
+                self.set_possible_moves(square);
             }
         } else {
             self.reset_effects();
@@ -1159,7 +1198,7 @@ impl Frontend {
         let square = self.get_board_pos_from_screen_pos(self.cursor_pos);
         if let Some(src) = self.dragged_square {
             if let Some(tgt) = square {
-                if self.apply_move(src.loc, tgt.loc, None) {
+                if self.apply_move(src, tgt, None) {
                     return;
                 }
             }
@@ -1170,10 +1209,36 @@ impl Frontend {
             self.possible_moves.fill(false);
         }
     }
-    pub fn apply_move_with_history(&mut self, mov: Move) {
+    pub fn ctrl_pressed(&mut self) {
+        self.allow_illegal_moves = true;
+        if let Some(square) = self.move_info_square {
+            self.possible_moves.fill(false);
+            self.set_possible_moves_for_move_info(square);
+        } else if let Some(square) = self.selected_square {
+            self.possible_moves.fill(false);
+            self.set_possible_moves(square);
+        }
+    }
+    pub fn ctrl_released(&mut self) {
+        self.allow_illegal_moves = false;
+        if let Some(square) = self.move_info_square {
+            self.possible_moves.fill(false);
+            self.set_possible_moves_for_move_info(square);
+        } else if let Some(square) = self.selected_square {
+            if FieldValue::from(self.board.board[usize::from(square)]).color()
+                != Some(self.board.turn)
+            {
+                self.reset_effects();
+            } else {
+                self.possible_moves.fill(false);
+                self.set_possible_moves(square);
+            }
+        }
+    }
+    pub fn apply_move_with_history(&mut self, mov: Move, color: three_player_chess::board::Color) {
         println!("making move: {}", mov.to_string(&mut self.board));
         let rm = ReversableMove::new(&self.board, mov);
-        self.history.push(rm.clone());
+        self.history.push((rm.clone(), color));
         self.board.perform_reversable_move(&rm);
         println!("state: {}", self.board.state_string());
         self.reset_effects();
@@ -1223,8 +1288,8 @@ impl Frontend {
                 let tgt_rot = AnnotatedFieldLocation::from_with_origin(color, tgt);
                 if tgt_rot.rank == RS {
                     self.reset_effects();
-                    self.selected_square = Some(src_afl);
-                    self.promotion_preview = Some(tgt_rot);
+                    self.selected_square = Some(src_afl.loc);
+                    self.promotion_preview = Some(tgt_rot.loc);
                     self.possible_moves.set(usize::from(tgt), true);
                     return true;
                 } else if tgt_rot.rank == 6 && tgt_afl.file != src_afl.file && tgt_val.is_none() {
@@ -1244,11 +1309,19 @@ impl Frontend {
         }
 
         if self.board.is_valid_move(mov) {
-            self.apply_move_with_history(mov);
-            if self.autoplay {
+            self.apply_move_with_history(mov, self.board.turn);
+            if !self.allow_illegal_moves && self.autoplay {
                 self.autoplay_remaining = self.autoplay_count;
             }
             return true;
+        } else if self.allow_illegal_moves {
+            if src_val.color() != Some(self.board.turn) {
+                let original_turn = self.board.turn;
+                self.board.turn = src_val.color().unwrap();
+                self.apply_move_with_history(mov, original_turn);
+            } else {
+                self.apply_move_with_history(mov, self.board.turn);
+            }
         }
         false
     }
@@ -1306,15 +1379,16 @@ impl Frontend {
                 .search_position(&self.board, self.engine_depth, search_time, true)
         };
         if let Some(mov) = result {
-            self.apply_move_with_history(mov);
+            self.apply_move_with_history(mov, self.board.turn);
         }
     }
     pub fn undo_move(&mut self) {
         let rm = self.history.pop();
-        if let Some(rm) = rm {
+        if let Some((rm, turn)) = rm {
             self.board.revert_move(&rm);
             self.reset_effects();
             println!("undid move: {}", rm.mov.to_string(&mut self.board));
+            self.board.turn = turn;
             println!("state: {}", self.board.state_string());
         }
     }
