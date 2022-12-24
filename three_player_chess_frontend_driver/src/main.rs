@@ -1,5 +1,6 @@
 use gl::types::*;
 use glutin::{
+    dpi::PhysicalSize,
     event::{ElementState, Event, KeyboardInput, MouseButton, VirtualKeyCode, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
     window::WindowBuilder,
@@ -53,13 +54,16 @@ fn main() {
             1024.0, 1024.0,
         )));
 
+    let size = windowed_context.window().inner_size();
+
     fn create_surface(
         windowed_context: &WindowedContext,
         fb_info: &FramebufferInfo,
         gr_context: &mut skia_safe::gpu::DirectContext,
+        size: PhysicalSize<u32>,
     ) -> skia_safe::Surface {
         let pixel_format = windowed_context.get_pixel_format();
-        let size = windowed_context.window().inner_size();
+
         let backend_render_target = BackendRenderTarget::new_gl(
             (
                 size.width.try_into().unwrap(),
@@ -80,7 +84,7 @@ fn main() {
         .unwrap()
     }
 
-    let surface = create_surface(&windowed_context, &fb_info, &mut gr_context);
+    let surface = create_surface(&windowed_context, &fb_info, &mut gr_context, size);
     // let sf = windowed_context.window().scale_factor() as f32;
     // surface.canvas().scale((sf, sf));
     // Guarantee the drop order inside the FnMut closure. `WindowedContext` _must_ be dropped after
@@ -101,6 +105,13 @@ fn main() {
 
     let mut fe = Frontend::new();
 
+    fe.update_dimensions(
+        0,
+        0,
+        size.width.try_into().unwrap(),
+        size.height.try_into().unwrap(),
+    );
+
     el.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
 
@@ -109,8 +120,12 @@ fn main() {
             Event::LoopDestroyed => {}
             Event::WindowEvent { event, .. } => match event {
                 WindowEvent::Resized(physical_size) => {
-                    env.surface =
-                        create_surface(&env.windowed_context, &fb_info, &mut env.gr_context);
+                    env.surface = create_surface(
+                        &env.windowed_context,
+                        &fb_info,
+                        &mut env.gr_context,
+                        physical_size,
+                    );
                     env.windowed_context.resize(physical_size);
                     fe.update_dimensions(
                         0,
