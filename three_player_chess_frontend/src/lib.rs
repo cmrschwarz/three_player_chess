@@ -52,6 +52,7 @@ pub struct Frontend {
 
     pub black: Color,
     pub white: Color,
+    pub render_notation: bool,
     pub selection_color: Color,
     pub move_hint_color: Color,
     pub danger: Color,
@@ -448,6 +449,7 @@ impl Frontend {
             autoplay_remaining: 0,
             go_infinite: false,
             highlight_attacked: false,
+            render_notation: false,
             engine_depth: 3,
             allow_illegal_moves: false,
             engine_time_secs: 3,
@@ -504,6 +506,7 @@ impl Frontend {
             PaintStyle::Stroke,
         );
         paint.set_stroke_width(BORDER_WIDTH);
+        canvas.save();
         canvas.scale((border_scale, border_scale));
 
         if self.board.game_status == GameStatus::Ongoing {
@@ -516,8 +519,10 @@ impl Frontend {
             paint.set_stroke_width(BORDER_WIDTH / border_2_scale);
             canvas.draw_path(&path, &paint);
         }
+        canvas.restore();
     }
     pub fn render_notation(&mut self, canvas: &mut Canvas) {
+        if (!self.render_notation) return;
         let hex_height = *HEX_HEIGHT;
         let hex_side_len = *HEX_SIDE_LEN;
         let notation_paint = {
@@ -584,6 +589,7 @@ impl Frontend {
     }
     pub fn render_dragged_piece(&mut self, canvas: &mut Canvas) {
         if let Some(field) = self.dragged_square {
+            canvas.save();
             if let Some((color, piece_type)) = *self.board.get_field_value(field) {
                 let afl = AnnotatedFieldLocation::from(field);
                 let right = afl.file > 4;
@@ -647,19 +653,19 @@ impl Frontend {
                 // can happen if the board was reloaded etc.
                 self.dragged_square = None;
             }
+            canvas.restore();
+        }
+    }
+    pub fn render_board(&mut self, canvas: &mut Canvas) {
+        for c in board::Color::iter() {
+            for right in [true, false] {
+                self.render_hexboard(canvas, *c, right);
+            }
         }
     }
     pub fn render(&mut self, canvas: &mut Canvas) {
         let dim = canvas.image_info().dimensions();
 
-        self.hovered_square = None;
-        if self.dragged_square.is_some() {
-            if let Some(sq) = self.get_board_pos_from_screen_pos(self.cursor_pos) {
-                if self.possible_moves[usize::from(sq)] {
-                    self.hovered_square = Some(sq);
-                }
-            }
-        }
         self.board_origin = Vector2::new(dim.width / 2, dim.height / 2);
         self.board_radius = std::cmp::min(dim.width, dim.height) as f32 * 0.46;
         let translation = self.board_origin.cast::<f32>();
@@ -670,26 +676,11 @@ impl Frontend {
             y: translation.y,
         });
         canvas.scale((self.board_radius, self.board_radius));
-        canvas.save();
 
         self.render_background(canvas);
-        canvas.restore();
-
-        canvas.save();
         self.render_notation(canvas);
-        canvas.restore();
-
-        for c in board::Color::iter() {
-            for right in [true, false] {
-                canvas.save();
-                self.render_hexboard(canvas, *c, right);
-                canvas.restore();
-            }
-        }
-
-        canvas.save();
+        self.render_board(canvas);
         self.render_dragged_piece(canvas);
-        canvas.restore();
 
         canvas.restore();
     }
@@ -925,9 +916,7 @@ impl Frontend {
     pub fn render_hexboard(&mut self, canvas: &mut Canvas, hb: board::Color, right: bool) {
         for file in 0..HB_ROW_COUNT {
             for rank in 0..HB_ROW_COUNT {
-                canvas.save();
                 self.draw_cell(canvas, hb, right, file, rank);
-                canvas.restore();
             }
         }
     }
@@ -1214,6 +1203,14 @@ impl Frontend {
     }
     pub fn mouse_moved(&mut self, pos: Vector2<i32>) {
         self.cursor_pos = pos;
+        self.hovered_square = None;
+        if self.dragged_square.is_some() {
+            if let Some(sq) = self.get_board_pos_from_screen_pos(self.cursor_pos) {
+                if self.possible_moves[usize::from(sq)] {
+                    self.hovered_square = Some(sq);
+                }
+            }
+        }
     }
 
     pub fn ctrl_pressed(&mut self) {
