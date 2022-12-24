@@ -35,6 +35,10 @@ pub const START_POSITION_STRING: &'static str = concat!(
 // 1 final character for the bar between the two indices
 pub const MAX_POSITION_STRING_SIZE: usize = BOARD_SIZE * 2 + 3 * (7 + 2 + 2 + 1) + 2 * 5 + 1;
 
+// regular move has max 11 characters, e.g.: 'exf10 e.p.(#)'
+// because of draw claims we have 16 (draw move can't be capture): "Ra3c3(+) draw50"
+pub const MAX_MOVE_STRING_SIZE: usize = 16;
+
 #[repr(u8)]
 #[derive(Copy, Clone, PartialEq, Eq, FromPrimitive, ToPrimitive, Debug)]
 pub enum PieceType {
@@ -1049,9 +1053,7 @@ impl Move {
         game.revert_move(&rm);
         Ok(())
     }
-    // regular move has max 11 characters, e.g.: 'exf10 e.p.(#)'
-    // because of draw claims we have 14 (draw move can't be capture): "Ra3c3 (+) draw50"
-    pub fn to_string(&self, game: &mut ThreePlayerChess) -> ArrayString<16> {
+    pub fn to_string(&self, game: &mut ThreePlayerChess) -> ArrayString<MAX_MOVE_STRING_SIZE> {
         let mut res = ArrayString::new();
         self.write_as_str(game, &mut res).unwrap();
         res
