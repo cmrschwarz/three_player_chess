@@ -1,9 +1,6 @@
-#[macro_use]
-extern crate lazy_static;
-
 use gl::types::*;
 use glutin::{
-    event::{ElementState, Event, KeyboardInput, VirtualKeyCode, WindowEvent},
+    event::{ElementState, Event, KeyboardInput, MouseButton, VirtualKeyCode, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
     window::WindowBuilder,
     GlProfile,
@@ -13,11 +10,10 @@ use skia_safe::{
     ColorType, Surface,
 };
 
-mod frontend;
-use frontend::*;
 use three_player_chess::board::ThreePlayerChess;
 use three_player_chess_board_eval::calculate_position_score;
 use three_player_chess_engine::score_str;
+use three_player_chess_frontend::*;
 fn main() {
     type WindowedContext = glutin::ContextWrapper<glutin::PossiblyCurrent, glutin::window::Window>;
 
@@ -120,14 +116,16 @@ fn main() {
                 WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
                 WindowEvent::MouseInput { state, button, .. } => {
                     match state {
-                        ElementState::Pressed => fe.clicked(button),
-                        ElementState::Released => fe.released(button),
+                        ElementState::Pressed => fe.mouse_clicked(button == MouseButton::Right),
+                        ElementState::Released => fe.mouse_released(button == MouseButton::Right),
                     }
                     env.windowed_context.window().request_redraw();
                 }
                 WindowEvent::CursorMoved { position, .. } => {
-                    fe.cursor_pos =
-                        nalgebra::Vector2::<i32>::new(position.x as i32, position.y as i32);
+                    fe.mouse_moved(nalgebra::Vector2::<i32>::new(
+                        position.x as i32,
+                        position.y as i32,
+                    ));
                     env.windowed_context.window().request_redraw();
                 }
                 WindowEvent::ModifiersChanged(modifiers) => {

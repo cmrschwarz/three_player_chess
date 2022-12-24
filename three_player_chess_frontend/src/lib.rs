@@ -1,5 +1,7 @@
+#[macro_use]
+extern crate lazy_static;
+
 use arrayvec::ArrayString;
-use glutin::event::MouseButton;
 use nalgebra::geometry::*;
 use nalgebra::{ArrayStorage, Matrix3, OMatrix, OVector, Transform2, Vector2};
 use skia_safe::{
@@ -1143,9 +1145,9 @@ impl Frontend {
             }
         }
     }
-    pub fn clicked(&mut self, mb: MouseButton) {
+    pub fn mouse_clicked(&mut self, right_click: bool) {
         let square = self.get_board_pos_from_screen_pos(self.cursor_pos);
-        if mb == MouseButton::Right {
+        if right_click {
             self.reset_effects();
             self.move_info_square = square;
             if let Some(square) = square {
@@ -1191,8 +1193,8 @@ impl Frontend {
             self.reset_effects();
         }
     }
-    pub fn released(&mut self, mb: MouseButton) {
-        if mb == MouseButton::Right {
+    pub fn mouse_released(&mut self, right_click: bool) {
+        if right_click {
             self.reset_effects();
             return;
         }
@@ -1210,6 +1212,10 @@ impl Frontend {
             self.possible_moves.fill(false);
         }
     }
+    pub fn mouse_moved(&mut self, pos: Vector2<i32>) {
+        self.cursor_pos = pos;
+    }
+
     pub fn ctrl_pressed(&mut self) {
         self.allow_illegal_moves = true;
         if let Some(square) = self.move_info_square {
