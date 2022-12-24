@@ -1295,7 +1295,7 @@ impl Frontend {
                     self.promotion_preview = Some(tgt_rot.loc);
                     self.possible_moves.set(usize::from(tgt), true);
                     return true;
-                } else if tgt_rot.rank == 6 && tgt_afl.file != src_afl.file && tgt_val.is_none() {
+                } else if self.board.possible_en_passant[usize::from(tgt.hb())] == Some(tgt) {
                     let ep_square = AnnotatedFieldLocation::from_file_and_rank(
                         tgt_rot.origin,
                         tgt_rot.hb,
