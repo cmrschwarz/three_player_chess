@@ -811,7 +811,7 @@ impl Frontend {
             }
             for (quadrant, &(piece, x, y)) in PROMOTION_QUADRANTS.iter().enumerate() {
                 let color =
-                    FieldValue::from(self.board.board[usize::from(self.dragged_square.unwrap())])
+                    FieldValue::from(self.board.board[usize::from(self.selected_square.unwrap())])
                         .color()
                         .unwrap();
                 let img = &self.pieces[usize::from(color)][usize::from(piece)];
@@ -1171,6 +1171,7 @@ impl Frontend {
                     }
                 }
                 if self.apply_move(src, square, None) {
+                    self.reset_effects();
                     return;
                 }
             }
@@ -1225,11 +1226,13 @@ impl Frontend {
             self.possible_moves.fill(false);
             self.set_possible_moves_for_move_info(square);
         } else if let Some(square) = self.selected_square {
+            let dragged_square = self.dragged_square;
+            self.reset_effects();
             if FieldValue::from(self.board.board[usize::from(square)]).color()
-                != Some(self.board.turn)
+                == Some(self.board.turn)
             {
-                self.reset_effects();
-            } else {
+                self.selected_square = Some(square);
+                self.dragged_square = dragged_square;
                 self.possible_moves.fill(false);
                 self.set_possible_moves(square);
             }
@@ -1322,6 +1325,7 @@ impl Frontend {
             } else {
                 self.apply_move_with_history(mov, self.board.turn);
             }
+            return true;
         }
         false
     }
