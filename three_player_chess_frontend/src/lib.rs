@@ -91,6 +91,7 @@ pub struct Frontend {
     pub autoplay_count: u16,
     pub autoplay_remaining: u16,
     pub highlight_attacked: bool,
+    pub highlight_capturable: bool,
     pub allow_illegal_moves: bool,
     pub show_non_legal_move_hints: bool,
 }
@@ -450,6 +451,7 @@ impl Frontend {
             autoplay_remaining: 0,
             go_infinite: false,
             highlight_attacked: false,
+            highlight_capturable: false,
             show_notation: true,
             engine_depth: 3,
             allow_illegal_moves: false,
@@ -831,6 +833,13 @@ impl Frontend {
             }
         } else if let Some((color, piece_value)) = *self.board.get_field_value(field) {
             let king_check = self.king_in_check[usize::from(color)] && piece_value == King;
+            let capturable = self.highlight_capturable
+                && field_val.color().is_some()
+                && field_val.color() != Some(self.board.turn)
+                && self
+                    .board
+                    .is_piece_capturable_at(field, Some(self.board.turn), true)
+                    .is_some();
             let img = &self.pieces[usize::from(color)][usize::from(piece_value)];
 
             if selected {
@@ -838,9 +847,10 @@ impl Frontend {
             } else if selected_for_move_hint {
                 canvas.draw_rect(&*UNIT_RECT, &move_hint_paint);
             } else if self.highlight_attacked
+                && field_val.color() == Some(self.board.turn)
                 && self
                     .board
-                    .is_piece_capturable_at(field, Some(self.board.turn), true)
+                    .is_piece_capturable_at(field, None, false)
                     .is_some()
             {
                 canvas.draw_rect(&*UNIT_RECT, &sk_paint(self.danger_light, PaintStyle::Fill));
@@ -848,7 +858,7 @@ impl Frontend {
                 canvas.draw_rect(&*UNIT_RECT, &sk_paint(col, PaintStyle::Fill));
             }
 
-            if (!selected && possible_move) || king_check {
+            if (!selected && (possible_move || capturable)) || king_check {
                 let size = 0.35;
                 let mut path = Path::new();
                 for p in UNIT_SQUARE {
@@ -863,12 +873,15 @@ impl Frontend {
                     } else {
                         self.danger_light
                     }
-                } else {
+                } else if possible_move {
                     if self.move_info_square.is_some() {
                         self.move_hint_color
                     } else {
                         self.selection_color
                     }
+                } else {
+                    // -> capturable
+                    self.danger_light
                 };
                 canvas.draw_path(&path, &sk_paint(color, PaintStyle::Fill));
             }

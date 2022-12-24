@@ -172,13 +172,21 @@ fn main() {
                             fe.rotate();
                         }
                         Some(VirtualKeyCode::D) => {
-                            fe.highlight_attacked ^= true;
-                            println!(
-                                "set highlighting of attacked pieces to {}",
-                                fe.highlight_attacked
-                            );
+                            if modifiers.ctrl() {
+                                fe.highlight_capturable ^= true;
+                                println!(
+                                    "set highlighting of capturable pieces to {}",
+                                    fe.highlight_capturable
+                                );
+                            } else {
+                                fe.highlight_attacked ^= true;
+                                println!(
+                                    "set highlighting of attacked pieces to {}",
+                                    fe.highlight_attacked
+                                );
+                            }
                         }
-                        Some(VirtualKeyCode::D) => {
+                        Some(VirtualKeyCode::N) => {
                             fe.show_notation ^= true;
                             println!("set show notation to {}", fe.highlight_attacked);
                         }
