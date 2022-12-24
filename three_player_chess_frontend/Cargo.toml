@@ -19,5 +19,5 @@ three_player_chess_paranoid_engine = {path = "../three_player_chess_paranoid_eng
 three_player_chess_board_eval = {path = "../three_player_chess_board_eval"}
 
 [dependencies.skia-safe]
-version = "0.50.0"
+version = "0.57"
 features = ["gl", "x11"]
