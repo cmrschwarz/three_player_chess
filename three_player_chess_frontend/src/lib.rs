@@ -395,7 +395,7 @@ impl Frontend {
             cursor_pos: Vector2::new(-1, -1),
             board_radius: 1.,
             board_origin: Vector2::new(1, 1),
-            origin: board::Color::C0,
+            origin: board::Color::default(),
             possible_moves: Default::default(),
             dragged_square: None,
             promotion_preview: None,
@@ -514,16 +514,16 @@ impl Frontend {
                 for i in 1..ROW_SIZE + 1 {
                     let field_loc = if rank {
                         if i <= HB_ROW_COUNT {
-                            FieldLocation::new(board::Color::from(c_logical as u8), RS, i as i8)
+                            FieldLocation::new(board::Color::from_u8(c_logical as u8), RS, i as i8)
                         } else {
                             FieldLocation::new(
-                                board::Color::from(((c_logical + 2) % HB_COUNT) as u8),
+                                board::Color::from_u8(((c_logical + 2) % HB_COUNT) as u8),
                                 1,
                                 (ROW_SIZE - i + 1) as i8,
                             )
                         }
                     } else {
-                        FieldLocation::new(board::Color::from(c_logical as u8), i as i8, 1)
+                        FieldLocation::new(board::Color::from_u8(c_logical as u8), i as i8, 1)
                     };
                     let notation = if !rank {
                         let mut res = ArrayString::new();
@@ -916,7 +916,7 @@ impl Frontend {
             return None;
         }
         let hexboard = self.get_hexboard_from_screen_point(screen_pos);
-        let hb = board::Color::from(self.get_hexboard_logical(hexboard) / 2);
+        let hb = board::Color::from_u8(self.get_hexboard_logical(hexboard) / 2);
         let right = hexboard % 2 == 0;
         let pos_rot = nalgebra::geometry::Rotation2::new(hexboard as f32 * -HEX_CENTER_ANGLE)
             .transform_vector(&screen_pos.sub(self.board_origin).cast());
@@ -964,7 +964,7 @@ impl Frontend {
                 .scale(1. / self.board_radius);
             let hexboard = self.get_hexboard_from_screen_point(screen_pos);
             let hexboard_logical = self.get_hexboard_logical(hexboard);
-            if board::Color::from(hexboard_logical / 2) != field.hb()
+            if board::Color::from_u8(hexboard_logical / 2) != field.hb()
                 || (hexboard % 2 == 0) != field.is_right_side()
             {
                 return None;
@@ -1344,7 +1344,7 @@ impl Frontend {
         self.history.clear();
     }
     pub fn rotate(&mut self) {
-        self.origin = board::Color::from((HB_COUNT + usize::from(self.origin) - 1) as u8 % 3);
+        self.origin = board::Color::from_u8((HB_COUNT + usize::from(self.origin) - 1) as u8 % 3);
     }
     pub fn undo_move(&mut self) {
         let rm = self.history.pop();

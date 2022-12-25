@@ -120,7 +120,7 @@ impl Engine {
             prune_count: 0,
             transposition_count: 0,
             pos_count: 0,
-            deciding_player: Color::C0,
+            deciding_player: Color::default(),
             debug_log: false,
             dummy_vec: Vec::new(),
         }

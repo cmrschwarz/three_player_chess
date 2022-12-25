@@ -1,13 +1,14 @@
-use num_derive::{FromPrimitive, ToPrimitive};
-use num_traits::{FromPrimitive, ToPrimitive};
-
 use crate::movegen::*;
 use crate::zobrist::*;
 use arrayvec::ArrayString;
+
+use num_derive::FromPrimitive;
+use num_traits::FromPrimitive;
 use std::char;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::io::Write;
+use std::num::NonZeroU8;
 use MoveType::*;
 use PieceType::*;
 
@@ -40,7 +41,7 @@ pub const MAX_POSITION_STRING_SIZE: usize = BOARD_SIZE * 2 + 3 * (7 + 2 + 2 + 1)
 pub const MAX_MOVE_STRING_SIZE: usize = 16;
 
 #[repr(u8)]
-#[derive(Copy, Clone, PartialEq, Eq, FromPrimitive, ToPrimitive, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug, FromPrimitive)]
 pub enum PieceType {
     Pawn = 0,
     Knight = 1,
@@ -48,6 +49,27 @@ pub enum PieceType {
     Rook = 3,
     Queen = 4,
     King = 5,
+}
+impl std::convert::TryFrom<u8> for PieceType {
+    type Error = ();
+    fn try_from(v: u8) -> Result<PieceType, ()> {
+        FromPrimitive::from_u8(v).ok_or(())
+    }
+}
+impl std::convert::From<PieceType> for u8 {
+    fn from(v: PieceType) -> u8 {
+        v as u8
+    }
+}
+impl std::convert::From<PieceType> for usize {
+    fn from(v: PieceType) -> usize {
+        v as u8 as usize
+    }
+}
+impl std::fmt::Display for PieceType {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}", self.to_ascii() as char)
+    }
 }
 
 impl PieceType {
@@ -83,31 +105,55 @@ impl PieceType {
     }
 }
 
-#[repr(u8)]
-#[derive(Copy, Clone, PartialEq, Eq, FromPrimitive, ToPrimitive, Debug)]
-pub enum Color {
-    // these are assigned clockwise, with player 1 at the bottom
-    C0 = 0,
-    C1 = 1,
-    C2 = 2,
-}
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub struct Color(NonZeroU8);
 
 impl Color {
     pub fn iter() -> std::slice::Iter<'static, Color> {
-        static COLORS: [Color; 3] = [Color::C0, Color::C1, Color::C2];
+        static COLORS: [Color; 3] = unsafe {
+            [
+                Color(NonZeroU8::new_unchecked(1)),
+                Color(NonZeroU8::new_unchecked(2)),
+                Color(NonZeroU8::new_unchecked(3)),
+            ]
+        };
         COLORS.iter()
     }
     pub fn next(self) -> Color {
-        Color::from_u8((u8::from(self) + 1) % HB_COUNT as u8).unwrap()
+        Color::from_u8((u8::from(self) + 1) % HB_COUNT as u8)
     }
     pub fn prev(self) -> Color {
-        Color::from_u8((u8::from(self) + HB_COUNT as u8 - 1) % HB_COUNT as u8).unwrap()
+        Color::from_u8((u8::from(self) + HB_COUNT as u8 - 1) % HB_COUNT as u8)
+    }
+    pub fn from_u8(v: u8) -> Color {
+        Color::try_from(v).unwrap()
+    }
+}
+impl std::convert::TryFrom<u8> for Color {
+    type Error = ();
+    fn try_from(v: u8) -> Result<Color, ()> {
+        Ok(Color(NonZeroU8::new(v + 1).ok_or(())?))
+    }
+}
+impl std::convert::From<Color> for u8 {
+    fn from(v: Color) -> u8 {
+        u8::from(v.0) - 1
+    }
+}
+impl std::convert::From<Color> for usize {
+    fn from(v: Color) -> usize {
+        u8::from(v) as usize
     }
 }
 
 impl Default for Color {
     fn default() -> Self {
-        Self::C0
+        Color::try_from(0).unwrap()
+    }
+}
+impl std::fmt::Display for Color {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}", u8::from(self.0))
     }
 }
 
@@ -118,10 +164,27 @@ pub enum WinReason {
     //todo: maybe allow resignation?
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, Debug, FromPrimitive, ToPrimitive)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum DrawClaimBasis {
     FiftyMoveRule = 0,
     ThreefoldRepetition = 1,
+}
+
+impl TryFrom<u8> for DrawClaimBasis {
+    type Error = ();
+
+    fn try_from(v: u8) -> Result<Self, Self::Error> {
+        match v {
+            0 => Ok(DrawClaimBasis::FiftyMoveRule),
+            1 => Ok(DrawClaimBasis::ThreefoldRepetition),
+            _ => Err(()),
+        }
+    }
+}
+impl From<DrawClaimBasis> for u8 {
+    fn from(v: DrawClaimBasis) -> u8 {
+        v as u8
+    }
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -245,7 +308,7 @@ pub struct ThreePlayerChess {
 impl ThreePlayerChess {
     pub fn new() -> ThreePlayerChess {
         let mut tpc = ThreePlayerChess {
-            turn: Color::C1,
+            turn: Color::from_u8(0),
             possible_en_passant: [None; HB_COUNT],
             possible_rooks_for_castling: Default::default(),
             king_positions: Default::default(),
@@ -387,7 +450,7 @@ impl ThreePlayerChess {
         if tpc.last_capture_or_pawn_move_index > tpc.move_index {
             return Err("capture/pawn move index can't be larger than move index");
         }
-        tpc.turn = Color::from((tpc.move_index % HB_COUNT as u16) as u8);
+        tpc.turn = Color::from_u8((tpc.move_index % HB_COUNT as u16) as u8);
         tpc.recalc_zobrist();
         tpc.game_status = tpc.game_status();
         Ok(tpc)
@@ -529,11 +592,6 @@ lazy_static! {
     };
 }
 
-impl std::fmt::Display for Color {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}", ToPrimitive::to_i8(self).unwrap() + 1)
-    }
-}
 impl std::fmt::Display for FieldValue {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match *self {
@@ -561,27 +619,13 @@ impl std::default::Default for FieldLocation {
 }
 impl std::convert::From<u8> for FieldLocation {
     fn from(v: u8) -> FieldLocation {
+        assert!(v < BOARD_SIZE as u8);
         FieldLocation(std::num::NonZeroU8::new(v + 1).unwrap())
     }
 }
 impl std::convert::From<FieldLocation> for u8 {
     fn from(v: FieldLocation) -> u8 {
         v.0.get() - 1
-    }
-}
-impl std::convert::From<Color> for u8 {
-    fn from(v: Color) -> u8 {
-        ToPrimitive::to_u8(&v).unwrap()
-    }
-}
-impl std::convert::From<u8> for Color {
-    fn from(v: u8) -> Color {
-        Color::from_u8(v).unwrap()
-    }
-}
-impl std::convert::From<Color> for usize {
-    fn from(v: Color) -> usize {
-        u8::from(v) as usize
     }
 }
 impl std::convert::From<usize> for FieldLocation {
@@ -599,28 +643,6 @@ impl std::convert::From<FieldLocation> for [u8; 2] {
         BOARD_NOTATION[usize::from(v)]
     }
 }
-impl std::convert::From<PieceType> for u8 {
-    fn from(v: PieceType) -> u8 {
-        ToPrimitive::to_u8(&v).unwrap()
-    }
-}
-impl std::convert::TryFrom<u8> for PieceType {
-    type Error = ();
-    fn try_from(v: u8) -> Result<PieceType, ()> {
-        PieceType::from_u8(v).ok_or(())
-    }
-}
-impl std::convert::From<PieceType> for usize {
-    fn from(v: PieceType) -> usize {
-        ToPrimitive::to_usize(&v).unwrap()
-    }
-}
-impl std::fmt::Display for PieceType {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}", self.to_ascii() as char)
-    }
-}
-
 impl FieldLocation {
     pub fn from_checked(v: u8) -> Result<FieldLocation, ()> {
         if v >= BOARD_SIZE as u8 {
@@ -679,7 +701,7 @@ impl FieldLocation {
     }
 
     pub fn hb(self) -> Color {
-        Color::from_usize(usize::from(self) / HB_SIZE).unwrap()
+        Color::from_u8((usize::from(self) / HB_SIZE) as u8)
     }
     pub fn is_right_side(self) -> bool {
         usize::from(self) % ROW_SIZE >= ROW_SIZE / 2
@@ -706,8 +728,7 @@ impl std::convert::From<FieldValue> for PackedFieldValue {
     fn from(v: FieldValue) -> PackedFieldValue {
         let val_raw = match v {
             FieldValue(Some((color, piece_type))) => {
-                ToPrimitive::to_u8(&piece_type).unwrap() << 2
-                    | (ToPrimitive::to_u8(&color).unwrap() + 1)
+                u8::from(piece_type) << 2 | (u8::from(color) + 1)
             }
             FieldValue(None) => 0,
         };
@@ -722,8 +743,8 @@ impl std::convert::From<PackedFieldValue> for FieldValue {
             FieldValue(None)
         } else {
             FieldValue(Some((
-                Color::from_u8((v & 0x3) - 1).unwrap(),
-                PieceType::from_u8(v >> 2).unwrap(),
+                Color::from_u8((v & 0x3) - 1),
+                PieceType::try_from(v >> 2).unwrap(),
             )))
         }
     }
@@ -741,8 +762,8 @@ impl std::convert::TryFrom<u8> for PackedFieldValue {
         if v == 0 {
             Ok(PackedFieldValue(v))
         } else {
-            Color::from_u8(v & 0x3 - 1).ok_or(())?;
-            PieceType::from_u8(v >> 2).ok_or(())?;
+            Color::try_from(v & 0x3 - 1)?;
+            PieceType::try_from(v >> 2)?;
             Ok(PackedFieldValue(v))
         }
     }
@@ -1073,10 +1094,10 @@ impl TryFrom<u64> for Move {
             1 => Capture(b1.try_into()?),
             2 => EnPassant(b1.try_into()?, FieldLocation::from_checked(b2)?),
             3 => Castle(b1 > 0),
-            4 => Promotion(PieceType::from_u8(b1).ok_or(())?),
-            5 => CapturePromotion(b1.try_into()?, PieceType::from_u8(b2).ok_or(())?),
-            6 => ClaimDraw(FromPrimitive::from_u8(b1).ok_or(())?),
-            7 => SlideClaimDraw(FromPrimitive::from_u8(b1).ok_or(())?),
+            4 => Promotion(PieceType::try_from(b1)?),
+            5 => CapturePromotion(b1.try_into()?, PieceType::try_from(b2)?),
+            6 => ClaimDraw(DrawClaimBasis::try_from(b1)?),
+            7 => SlideClaimDraw(DrawClaimBasis::try_from(b1)?),
             _ => return Err(()),
         };
         Ok(Move {
@@ -1100,8 +1121,8 @@ impl From<Move> for u64 {
             CapturePromotion(cap, piece) => {
                 5 | (u8::from(piece) as u64) << 8 | (u8::from(cap) as u64) << 16
             }
-            ClaimDraw(claim_reason) => 6 | ToPrimitive::to_u64(&claim_reason).unwrap() << 8,
-            SlideClaimDraw(claim_reason) => 7 | ToPrimitive::to_u64(&claim_reason).unwrap() << 8,
+            ClaimDraw(claim_reason) => 6 | (u8::from(claim_reason) as u64) << 8,
+            SlideClaimDraw(claim_reason) => 7 | (u8::from(claim_reason) as u64) << 8,
         };
         move_type << 16 | (u8::from(m.target) as u64) << 8 | (u8::from(m.source) as u64)
     }

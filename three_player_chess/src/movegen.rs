@@ -68,10 +68,9 @@ impl MovegenResult {
 
 impl CheckPossibilities {
     pub fn add_cardinal_directions(&mut self, field: AnnotatedFieldLocation) {
-        let mut rank_it = FieldLocation::new(field.hb, 1, field.rank);
-        for i in 0..ROW_SIZE {
-            self.rank[i] = rank_it;
-            rank_it = FieldLocation::from(u8::from(rank_it) + 1);
+        self.rank[0] = FieldLocation::new(field.hb, 1, field.rank);
+        for i in 1..ROW_SIZE {
+            self.rank[i] = FieldLocation::from(u8::from(self.rank[i - 1]) + 1);
         }
         self.file[0] = FieldLocation::new(field.origin, field.file, 1);
         self.file[HB_ROW_COUNT] = FieldLocation::new(
@@ -225,7 +224,7 @@ impl From<FieldLocation> for AnnotatedFieldLocation {
 pub fn get_next_hb(color: Color, clockwise: bool) -> Color {
     let dir: i8 = if clockwise { 1 } else { -1 };
     const CC: i8 = COLOR_COUNT as i8;
-    Color::from(((u8::from(color) as i8 + CC + dir) % CC) as u8)
+    Color::from_u8(((u8::from(color) as i8 + CC + dir) % CC) as u8)
 }
 
 fn invert_coord(coord: i8) -> i8 {
@@ -1470,6 +1469,8 @@ impl ThreePlayerChess {
     }
     #[inline(always)]
     pub fn get_packed_field_value(&self, field: FieldLocation) -> PackedFieldValue {
+        // this is safe because FieldLocation asserts on construction
+        // that it's numerical value (-1 for NonZeroU8) is less than BOARD_SIZE
         unsafe { *self.board.get_unchecked(usize::from(field)) }
     }
     #[inline(always)]
