@@ -303,6 +303,7 @@ pub struct ThreePlayerChess {
     pub board: [PackedFieldValue; BOARD_SIZE],
     pub zobrist_hash: ZobristHash,
     pub dummy_vec: Option<Vec<Move>>, //used in movegen to avoid uneccessary allocations
+    pub moves_for_board: &'static MovesForBoard, // to avoid the atomic for the lazy static during movegen
 }
 
 impl ThreePlayerChess {
@@ -318,6 +319,7 @@ impl ThreePlayerChess {
             board: [FieldValue(None).into(); BOARD_SIZE],
             zobrist_hash: ZobristHash::default(),
             dummy_vec: Some(Vec::new()),
+            moves_for_board: &*MOVES_FOR_BOARD,
         };
         tpc.recalc_zobrist();
         tpc
@@ -910,7 +912,7 @@ impl Move {
         let field_val = game.get_field_value(self.source);
         let (color, piece) = field_val.unwrap();
         let mut mov = *self;
-        let mut cp = CheckPossibilities::new();
+        let mut cp = MovesForField::new();
         let mut disambiguate_file = false;
         let mut disambiguate_rank = false;
         let fc = self.source.file_char();

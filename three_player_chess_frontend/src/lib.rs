@@ -1017,26 +1017,26 @@ impl Frontend {
         }
 
         let oriented_afl = AnnotatedFieldLocation::from(square);
-        let cp = &CHECK_POSSIBILITIES[usize::from(square)];
+        let mff = &self.board.moves_for_board[usize::from(square)];
         if let Queen | Rook = piece_type {
-            for loc in cp.file {
+            for loc in mff.file {
                 if loc != square {
                     self.possible_moves.set(usize::from(loc), true);
                 }
             }
-            for loc in cp.rank {
+            for loc in mff.rank {
                 if loc != square {
                     self.possible_moves.set(usize::from(loc), true);
                 }
             }
         }
         if let Queen | Bishop = piece_type {
-            for loc in cp.diagonal_lines[0..*cp.diagonal_line_ends.last().unwrap()].iter() {
+            for loc in mff.diagonal_lines[0..*mff.diagonal_line_ends.last().unwrap()].iter() {
                 self.possible_moves.set(usize::from(*loc), true);
             }
         }
         if Knight == piece_type {
-            for loc in cp.knight_moves.iter() {
+            for loc in mff.knight_moves.iter() {
                 self.possible_moves.set(usize::from(*loc), true);
             }
         }

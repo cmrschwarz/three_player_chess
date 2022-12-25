@@ -28,7 +28,7 @@ enum MovegenResult {
 }
 
 #[derive(Clone, PartialEq, Eq, Default, Debug)]
-pub struct CheckPossibilities {
+pub struct MovesForField {
     pub knight_moves: ArrayVec<FieldLocation, MAX_KNIGHT_MOVES_PER_SQUARE>,
 
     pub diagonal_lines: [FieldLocation; CHECK_LINES_DIAGONALS_MAX_SQUARES],
@@ -38,11 +38,13 @@ pub struct CheckPossibilities {
     pub rank: [FieldLocation; ROW_SIZE],
 }
 
+pub type MovesForBoard = [MovesForField; BOARD_SIZE];
+
 lazy_static! {
-    pub static ref CHECK_POSSIBILITIES: [CheckPossibilities; BOARD_SIZE] = {
+    pub static ref MOVES_FOR_BOARD: MovesForBoard = {
         let mut cps = ArrayVec::new();
         for i in 0..BOARD_SIZE {
-            cps.push(CheckPossibilities::from_king_pos(FieldLocation::from(i)));
+            cps.push(MovesForField::from_king_pos(FieldLocation::from(i)));
         }
         cps.into_inner().unwrap()
     };
@@ -66,7 +68,7 @@ impl MovegenResult {
     }
 }
 
-impl CheckPossibilities {
+impl MovesForField {
     pub fn add_cardinal_directions(&mut self, field: AnnotatedFieldLocation) {
         self.rank[0] = FieldLocation::new(field.hb, 1, field.rank);
         for i in 1..ROW_SIZE {
@@ -158,13 +160,13 @@ impl CheckPossibilities {
             rank: Default::default(),
         }
     }
-    pub fn from_king_pos(king_pos: FieldLocation) -> CheckPossibilities {
-        let mut cp = CheckPossibilities::default();
+    pub fn from_king_pos(king_pos: FieldLocation) -> MovesForField {
+        let mut mff = MovesForField::default();
         let afl = AnnotatedFieldLocation::from(king_pos);
-        cp.add_knight_moves(afl);
-        cp.add_cardinal_directions(afl);
-        cp.add_diagonal_directions(afl);
-        cp
+        mff.add_knight_moves(afl);
+        mff.add_cardinal_directions(afl);
+        mff.add_diagonal_directions(afl);
+        mff
     }
 }
 pub fn get_castling_target(color: Color, king: bool, short: bool) -> FieldLocation {
@@ -794,12 +796,12 @@ impl ThreePlayerChess {
             col != piece_color && capturing_color.map(|cc| cc == col).unwrap_or(true)
         }
         let kp = AnnotatedFieldLocation::from(loc);
-        let cp = &CHECK_POSSIBILITIES[usize::from(loc)];
+        let mff = &self.moves_for_board[usize::from(loc)];
         for (axis, start, end, dir) in [
-            (&cp.file, kp.rank - 1, 0, -1i8),
-            (&cp.file, kp.rank + 1, RS + 1, 1),
-            (&cp.rank, kp.file - 1, 0, -1),
-            (&cp.rank, kp.file + 1, RS + 1, 1),
+            (&mff.file, kp.rank - 1, 0, -1i8),
+            (&mff.file, kp.rank + 1, RS + 1, 1),
+            (&mff.rank, kp.file - 1, 0, -1),
+            (&mff.rank, kp.file + 1, RS + 1, 1),
         ] {
             let mut i = start;
             while i != end {
@@ -834,8 +836,8 @@ impl ThreePlayerChess {
             }
         }
         let mut line_start = 0;
-        for line_end in cp.diagonal_line_ends {
-            for (i, f) in cp.diagonal_lines[line_start..line_end].iter().enumerate() {
+        for line_end in mff.diagonal_line_ends {
+            for (i, f) in mff.diagonal_lines[line_start..line_end].iter().enumerate() {
                 let board_val = self.get_field_value(*f);
                 match *board_val {
                     None => continue,
@@ -879,7 +881,7 @@ impl ThreePlayerChess {
             }
             line_start = line_end;
         }
-        for f in cp.knight_moves.iter() {
+        for f in mff.knight_moves.iter() {
             let board_val = self.get_field_value(*f);
             match *FieldValue::from(board_val) {
                 None => continue,
