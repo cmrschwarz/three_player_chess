@@ -222,9 +222,8 @@ impl From<FieldLocation> for AnnotatedFieldLocation {
 }
 
 pub fn get_next_hb(color: Color, clockwise: bool) -> Color {
-    let dir: i8 = if clockwise { 1 } else { -1 };
-    const CC: i8 = COLOR_COUNT as i8;
-    Color::from_u8(((u8::from(color) as i8 + CC + dir) % CC) as u8)
+    let dir: u8 = if clockwise { 1 } else { 3 - 1 };
+    Color::from_u8((u8::from(color) + dir) % COLOR_COUNT)
 }
 
 fn invert_coord(coord: i8) -> i8 {
@@ -381,8 +380,8 @@ pub fn move_diagonal(
     // moving from rank 4 to 5 or vice versa is the only way to change boards
     if (tgt_rank == HBRC + 1 && up) || (tgt_rank == HBRC && !up) {
         if (tgt_file == HBRC + 1 && right) || (tgt_file == HBRC && !right) {
-            let hb1 = get_next_hb(field.hb, true);
-            let hb2 = get_next_hb(hb1, true);
+            let hb1 = field.hb.next();
+            let hb2 = hb1.next();
             let loc1 = get_field_on_next_hb(field.loc);
             let loc2 = get_field_on_next_hb(loc1);
             let tgt_rank_1 = adjust_coord(HBRC, hb1 != field.origin);
@@ -678,7 +677,7 @@ impl ThreePlayerChess {
                 self.last_capture_or_pawn_move_index = self.move_index;
             }
         }
-        self.turn = get_next_hb(self.turn, true);
+        self.turn = self.turn.next();
         self.zobrist_hash.next_turn(self.turn);
         self.game_status = self.game_status();
     }
@@ -724,7 +723,7 @@ impl ThreePlayerChess {
         }
     }
     pub fn unapply_move_sideffects(&mut self, rm: &ReversableMove) {
-        self.turn = get_next_hb(self.turn, false);
+        self.turn = self.turn.prev();
         self.game_status = GameStatus::Ongoing;
         self.move_index -= 1;
         self.last_capture_or_pawn_move_index = rm.last_capture_or_pawn_move_index;
@@ -938,7 +937,7 @@ impl ThreePlayerChess {
         // check whether the current player has a legal move (doesn't disregard check)
         // that would capture the third player's king
         // (piece of previous player moved out of the way uncovering the king). in that case the current player wins
-        let next_player = get_next_hb(self.turn, true);
+        let next_player = self.turn.next();
         if self
             .is_piece_capturable_at(
                 self.king_positions[usize::from(next_player)],
