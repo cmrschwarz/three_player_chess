@@ -11,3 +11,8 @@ exclude = ["./deps/**"]
 [profile.release-with-debug]
 inherits = "release"
 debug = true
+
+[profile.release]
+panic = "abort"
+lto = "thin"
+debug = true

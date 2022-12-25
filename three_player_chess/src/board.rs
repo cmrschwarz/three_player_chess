@@ -626,7 +626,7 @@ impl FieldLocation {
         if v >= BOARD_SIZE as u8 {
             return Err(());
         }
-        Ok(FieldLocation(std::num::NonZeroU8::new(v + 1).unwrap()))
+        Ok(FieldLocation::from(v))
     }
     pub fn from_utf8(board_str: [u8; 2]) -> Option<Self> {
         BOARD_NOTATION_MAP

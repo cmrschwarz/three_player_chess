@@ -1,3 +1,4 @@
+use std::hash::{BuildHasherDefault, Hasher};
 use std::ops::Sub;
 use std::time::{Duration, Instant};
 use three_player_chess::board::*;
@@ -12,9 +13,28 @@ pub struct Transposition {
     eval_cap_line_max_move_index: u16,
     best_move: Option<Move>,
 }
+#[derive(Default)]
+pub struct IdentityHasher {
+    value: u64,
+}
+
+impl Hasher for IdentityHasher {
+    fn finish(&self) -> u64 {
+        return self.value;
+    }
+
+    fn write(&mut self, _bytes: &[u8]) {
+        unreachable!();
+    }
+    fn write_u64(&mut self, i: u64) {
+        debug_assert!(self.value == 0);
+        self.value = i;
+    }
+}
 
 pub struct Engine {
-    pub transposition_table: std::collections::HashMap<u64, Transposition>,
+    pub transposition_table:
+        std::collections::HashMap<u64, Transposition, BuildHasherDefault<IdentityHasher>>,
     engine_stack: Vec<EngineDepth>,
     pub board: ThreePlayerChess,
     pub eval_depth: u16,

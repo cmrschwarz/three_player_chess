@@ -738,11 +738,7 @@ impl ThreePlayerChess {
         if let ClaimDraw(_) = rm.mov.move_type {
             return;
         }
-        if FieldValue::from(self.board[usize::from(rm.mov.target)])
-            .piece_type()
-            .unwrap()
-            == King
-        {
+        if self.get_field_value(rm.mov.target).piece_type().unwrap() == King {
             self.king_positions[usize::from(self.turn)] = rm.mov.source;
         }
     }
@@ -790,7 +786,7 @@ impl ThreePlayerChess {
     ) -> Option<Move> {
         //checking for checks only makes sense for the current player
         debug_assert!(!check_for_checks || capturing_color == Some(self.turn));
-        let field_value = self.board[usize::from(loc)];
+        let field_value = self.get_packed_field_value(loc);
         let (piece_color, piece_type) = FieldValue::from(field_value).unwrap();
         fn color_may_capture(
             col: Color,
@@ -842,8 +838,8 @@ impl ThreePlayerChess {
         let mut line_start = 0;
         for line_end in cp.diagonal_line_ends {
             for (i, f) in cp.diagonal_lines[line_start..line_end].iter().enumerate() {
-                let board_val = self.board[usize::from(*f)];
-                match *FieldValue::from(board_val) {
+                let board_val = self.get_field_value(*f);
+                match *board_val {
                     None => continue,
                     Some((color, piece_type)) => match piece_type {
                         PieceType::Bishop | PieceType::Queen
@@ -886,7 +882,7 @@ impl ThreePlayerChess {
             line_start = line_end;
         }
         for f in cp.knight_moves.iter() {
-            let board_val = self.board[usize::from(*f)];
+            let board_val = self.get_field_value(*f);
             match *FieldValue::from(board_val) {
                 None => continue,
                 Some((color, piece_type)) => match piece_type {
@@ -910,9 +906,7 @@ impl ThreePlayerChess {
                     for f in [-1, 1] {
                         if coord_in_bounds(kp.file + f) {
                             let src_loc = FieldLocation::new(kp.hb, kp.file + f, kp.rank);
-                            if let Some((color, piece_type)) =
-                                *FieldValue::from(self.board[usize::from(src_loc)])
-                            {
+                            if let Some((color, piece_type)) = *self.get_field_value(src_loc) {
                                 if piece_type == PieceType::Pawn
                                     && color_may_capture(color, piece_color, capturing_color)
                                 {
@@ -957,7 +951,7 @@ impl ThreePlayerChess {
             return GameStatus::Win(self.turn, WinReason::CapturableKing(next_player));
         }
         // check whether the current player has no move to get out of check
-        // which would mean somebody won
+        // which would mean somebody won, or we have a stalemate
         let opts = MovegenOptions {
             captures_only: false,
             only_one: true,
@@ -1198,7 +1192,7 @@ impl ThreePlayerChess {
         opts: MovegenOptions,
     ) -> bool {
         let move_type;
-        let piece_val = self.board[usize::from(tgt)];
+        let piece_val = self.get_packed_field_value(tgt);
         if let Some((color, _)) = *FieldValue::from(piece_val) {
             if color == self.turn {
                 return false;
@@ -1320,7 +1314,7 @@ impl ThreePlayerChess {
                     self.gen_non_king_move_unless_check(
                         src.loc,
                         tgt.loc,
-                        EnPassant(self.board[usize::from(ep_pawn_pos)], ep_pawn_pos),
+                        EnPassant(self.get_packed_field_value(ep_pawn_pos), ep_pawn_pos),
                         moves,
                     )
                 } else {
@@ -1450,7 +1444,7 @@ impl ThreePlayerChess {
         }
         for i in 0..self.board.len() {
             self.gen_moves_for_field_unchecked(FieldLocation::from(i), moves, opts);
-            if !moves.is_empty() && opts.only_one {
+            if opts.only_one && !moves.is_empty() {
                 return;
             }
         }
@@ -1474,9 +1468,11 @@ impl ThreePlayerChess {
         self.gen_moves_with_options(&mut moves, MovegenOptions::default());
         moves
     }
+    #[inline(always)]
     pub fn get_packed_field_value(&self, field: FieldLocation) -> PackedFieldValue {
-        self.board[usize::from(field)]
+        unsafe { *self.board.get_unchecked(usize::from(field)) }
     }
+    #[inline(always)]
     pub fn get_field_value(&self, field: FieldLocation) -> FieldValue {
         FieldValue::from(self.get_packed_field_value(field))
     }
