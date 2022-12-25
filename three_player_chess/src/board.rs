@@ -912,7 +912,7 @@ impl Move {
         let field_val = game.get_field_value(self.source);
         let (color, piece) = field_val.unwrap();
         let mut mov = *self;
-        let mut cp = MovesForField::new();
+        let mut mff = MovesForField::new_empty(self.target);
         let mut disambiguate_file = false;
         let mut disambiguate_rank = false;
         let fc = self.source.file_char();
@@ -934,29 +934,25 @@ impl Move {
             }
         };
         if piece == Knight {
-            cp.add_knight_moves(self.target.into());
-            for nm in &cp.knight_moves {
+            mff.add_knight_moves();
+            for nm in &mff.knight_moves {
                 check_move_ambiguities(*nm);
             }
         }
         if piece == Bishop || piece == Queen {
-            cp.add_diagonal_directions(self.target.into());
-            for i in 0..5 {
-                let begin = if i > 0 {
-                    cp.diagonal_line_ends[i - 1]
-                } else {
-                    0
-                };
-                for j in begin..cp.diagonal_line_ends[i] {
-                    check_move_ambiguities(cp.diagonal_lines[j]);
+            mff.add_diagonal_lines();
+            for dli in mff.diagonal_lines_iter() {
+                for l in dli {
+                    check_move_ambiguities(*l);
                 }
             }
         }
         if piece == Rook || piece == Queen {
-            cp.add_cardinal_directions(self.target.into());
-            for i in 0..ROW_SIZE {
-                check_move_ambiguities(cp.file[i]);
-                check_move_ambiguities(cp.rank[i]);
+            mff.add_orthogonal_lines();
+            for cdi in mff.orthogonal_lines_iter() {
+                for l in cdi {
+                    check_move_ambiguities(*l);
+                }
             }
         }
         let mut res = ArrayString::new();

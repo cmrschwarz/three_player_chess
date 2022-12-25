@@ -1020,19 +1020,14 @@ impl Frontend {
         let oriented_afl = AnnotatedFieldLocation::from(square);
         let mff = &self.board.moves_for_board[usize::from(square)];
         if let Queen | Rook = piece_type {
-            for loc in mff.file {
-                if loc != square {
-                    self.possible_moves.set(usize::from(loc), true);
-                }
-            }
-            for loc in mff.rank {
-                if loc != square {
-                    self.possible_moves.set(usize::from(loc), true);
-                }
+            for loc in mff.orthogonal_lines {
+                self.possible_moves.set(usize::from(loc), true);
             }
         }
         if let Queen | Bishop = piece_type {
-            for loc in mff.diagonal_lines[0..*mff.diagonal_line_ends.last().unwrap()].iter() {
+            for loc in
+                mff.diagonal_lines[0..*mff.diagonal_line_ends.last().unwrap() as usize].iter()
+            {
                 self.possible_moves.set(usize::from(*loc), true);
             }
         }

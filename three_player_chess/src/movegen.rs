@@ -8,8 +8,11 @@ use MovegenResult::*;
 pub const HBRC: i8 = HB_ROW_COUNT as i8;
 pub const RS: i8 = ROW_SIZE as i8;
 
-const CHECK_LINES_DIAGONALS_MAX_SQUARES: usize = 17;
-const CHECK_LINES_DIAGONALS_COUNT: usize = 5;
+const MOVES_FOR_FIELD_DIAGONAL_LINES_MAX_SQUARES: usize = 17;
+const MOVES_FOR_FIELD_DIAGONAL_LINE_COUNT: usize = 5;
+
+const MOVES_FOR_FIELD_ORTHOGONAL_LINE_COUNT: usize = 4;
+const MOVES_FOR_FIELD_ORTHOGONAL_LINES_SQUARE_COUNT: usize = ROW_SIZE * 2 - 2;
 const MAX_KNIGHT_MOVES_PER_SQUARE: usize = 10;
 #[repr(packed)]
 #[derive(Copy, Clone)]
@@ -42,15 +45,82 @@ enum MovegenResult {
     SlideButCheck,
 }
 
+pub struct SegmentedArrayIter<
+    'a,
+    T,
+    INDICES: Into<usize> + Copy,
+    const ARR_CAP: usize,
+    const SEGMENT_COUNT: usize,
+> {
+    storage_arr: &'a [T; ARR_CAP],
+    segment_ends: &'a [INDICES; SEGMENT_COUNT],
+    segment_idx: usize,
+}
+
+impl<'a, T, INDICES: Into<usize> + Copy, const ARR_CAP: usize, const SEGMENT_COUNT: usize> Iterator
+    for SegmentedArrayIter<'a, T, INDICES, ARR_CAP, SEGMENT_COUNT>
+{
+    type Item = &'a [T];
+
+    fn next(&mut self) -> Option<&'a [T]> {
+        if self.segment_idx < SEGMENT_COUNT - 1 {
+            let start = if self.segment_idx == 0 {
+                0usize
+            } else {
+                self.segment_ends[self.segment_idx - 1].into()
+            };
+            self.segment_idx += 1;
+            Some(&self.storage_arr[start as usize..self.segment_ends[self.segment_idx].into()])
+        } else {
+            None
+        }
+    }
+}
+
 #[derive(Clone, PartialEq, Eq, Default, Debug)]
 pub struct MovesForField {
     pub knight_moves: ArrayVec<FieldLocation, MAX_KNIGHT_MOVES_PER_SQUARE>,
 
-    pub diagonal_lines: [FieldLocation; CHECK_LINES_DIAGONALS_MAX_SQUARES],
-    pub diagonal_line_ends: [usize; CHECK_LINES_DIAGONALS_COUNT],
+    pub diagonal_lines: [FieldLocation; MOVES_FOR_FIELD_DIAGONAL_LINES_MAX_SQUARES],
+    pub diagonal_line_ends: [u8; MOVES_FOR_FIELD_DIAGONAL_LINE_COUNT],
 
-    pub file: [FieldLocation; ROW_SIZE],
-    pub rank: [FieldLocation; ROW_SIZE],
+    pub orthogonal_lines: [FieldLocation; MOVES_FOR_FIELD_ORTHOGONAL_LINES_SQUARE_COUNT],
+    pub orthogonal_line_ends: [u8; MOVES_FOR_FIELD_ORTHOGONAL_LINE_COUNT],
+
+    pub field: AnnotatedFieldLocation,
+}
+
+impl MovesForField {
+    pub fn diagonal_lines_iter<'a>(
+        &'a self,
+    ) -> SegmentedArrayIter<
+        'a,
+        FieldLocation,
+        u8,
+        MOVES_FOR_FIELD_DIAGONAL_LINES_MAX_SQUARES,
+        MOVES_FOR_FIELD_DIAGONAL_LINE_COUNT,
+    > {
+        SegmentedArrayIter {
+            storage_arr: &self.diagonal_lines,
+            segment_ends: &self.diagonal_line_ends,
+            segment_idx: 0,
+        }
+    }
+    pub fn orthogonal_lines_iter<'a>(
+        &'a self,
+    ) -> SegmentedArrayIter<
+        'a,
+        FieldLocation,
+        u8,
+        MOVES_FOR_FIELD_ORTHOGONAL_LINES_SQUARE_COUNT,
+        MOVES_FOR_FIELD_ORTHOGONAL_LINE_COUNT,
+    > {
+        SegmentedArrayIter {
+            storage_arr: &&self.orthogonal_lines,
+            segment_ends: &self.orthogonal_line_ends,
+            segment_idx: 0,
+        }
+    }
 }
 
 pub type MovesForBoard = [MovesForField; BOARD_SIZE];
@@ -59,7 +129,7 @@ lazy_static! {
     pub static ref MOVES_FOR_BOARD: MovesForBoard = {
         let mut cps = ArrayVec::new();
         for i in 0..BOARD_SIZE {
-            cps.push(MovesForField::from_king_pos(FieldLocation::from(i)));
+            cps.push(MovesForField::new_full(FieldLocation::from(i)));
         }
         cps.into_inner().unwrap()
     };
@@ -84,34 +154,49 @@ impl MovegenResult {
 }
 
 impl MovesForField {
-    pub fn add_cardinal_directions(&mut self, field: AnnotatedFieldLocation) {
-        self.rank[0] = FieldLocation::new(field.hb, 1, field.rank);
-        for i in 1..ROW_SIZE {
-            self.rank[i] = FieldLocation::from(u8::from(self.rank[i - 1]) + 1);
+    pub fn add_orthogonal_lines(&mut self) {
+        let mut f = self.field.loc;
+        let mut i = 0;
+        for _ in 0..self.field.file - 1 {
+            f = FieldLocation::from(u8::from(f) - 1);
+            self.orthogonal_lines[i] = f;
+            i += 1;
         }
-        self.file[0] = FieldLocation::new(field.origin, field.file, 1);
-        self.file[HB_ROW_COUNT] = FieldLocation::new(
-            get_next_hb(field.origin, field.file <= HBRC),
-            invert_coord(field.file),
-            HBRC,
-        );
-        for i in 1..HB_ROW_COUNT {
-            self.file[i] = FieldLocation::from(u8::from(self.file[i - 1]) + ROW_SIZE as u8);
-            self.file[i + HB_ROW_COUNT] =
-                FieldLocation::from(u8::from(self.file[i + HB_ROW_COUNT - 1]) - ROW_SIZE as u8);
+        self.orthogonal_line_ends[0] = i as u8;
+        f = self.field.loc;
+        for _ in self.field.file..RS {
+            f = FieldLocation::from(u8::from(f) + 1);
+            self.orthogonal_lines[i] = f;
+            i += 1;
         }
+        self.orthogonal_line_ends[1] = i as u8;
+        let mut afl = self.field;
+        for _ in 0..self.field.rank - 1 {
+            afl = move_rank(afl, false).unwrap();
+            self.orthogonal_lines[i] = afl.loc;
+            i += 1;
+        }
+        self.orthogonal_line_ends[2] = i as u8;
+        afl = self.field;
+        for _ in self.field.rank..RS {
+            afl = move_rank(afl, true).unwrap();
+            self.orthogonal_lines[i] = afl.loc;
+            i += 1;
+        }
+        self.orthogonal_line_ends[3] = i as u8;
     }
-    pub fn add_diagonal_directions(&mut self, field: AnnotatedFieldLocation) {
+    pub fn add_diagonal_lines(&mut self) {
         let mut lines_idx = 0;
         let mut lines_count = 0;
         let mut line_begin = 0;
+        let afl = self.field;
         for (length, up, right) in [
-            (min(RS - field.file, RS - field.rank), true, true), // up right
-            (min(field.file, RS - field.rank), true, false),     // up left
-            (min(field.file, field.rank), false, false),         // down left
-            (min(RS - field.file, field.rank), false, true),     // down right
+            (min(RS - afl.file, RS - afl.rank), true, true), // up right
+            (min(afl.file, RS - afl.rank), true, false),     // up left
+            (min(afl.file, afl.rank), false, false),         // down left
+            (min(RS - afl.file, afl.rank), false, true),     // down right
         ] {
-            let mut pos = field;
+            let mut pos = afl;
             for i in 0..length {
                 match move_diagonal(pos, up, right) {
                     None => break,
@@ -121,8 +206,8 @@ impl MovesForField {
                         pos = one;
                     }
                     Some((mut one, Some(mut two))) => {
-                        let swap_dir = pos.hb != field.origin;
-                        if swap_dir && one.hb != field.origin {
+                        let swap_dir = pos.hb != afl.origin;
+                        if swap_dir && one.hb != afl.origin {
                             std::mem::swap(&mut one, &mut two);
                         }
                         let line_split_point = lines_idx;
@@ -141,7 +226,7 @@ impl MovesForField {
                             }
                         }
                         let line_end = lines_idx;
-                        self.diagonal_line_ends[lines_count] = line_end;
+                        self.diagonal_line_ends[lines_count] = line_end as u8;
                         lines_count += 1;
                         for i in line_begin..line_split_point {
                             self.diagonal_lines[lines_idx] = self.diagonal_lines[i];
@@ -154,33 +239,32 @@ impl MovesForField {
                     }
                 }
             }
-            self.diagonal_line_ends[lines_count] = lines_idx;
+            self.diagonal_line_ends[lines_count] = lines_idx as u8;
             line_begin = lines_idx;
             lines_count += 1;
         }
-        if lines_count != CHECK_LINES_DIAGONALS_COUNT {
-            debug_assert!(lines_count + 1 == CHECK_LINES_DIAGONALS_COUNT);
+        if lines_count != MOVES_FOR_FIELD_DIAGONAL_LINE_COUNT {
+            debug_assert!(lines_count + 1 == MOVES_FOR_FIELD_DIAGONAL_LINE_COUNT);
             self.diagonal_line_ends[lines_count] = self.diagonal_line_ends[lines_count - 1];
         }
     }
-    pub fn add_knight_moves(&mut self, field: AnnotatedFieldLocation) {
-        get_knight_moves_for_field(field, &mut self.knight_moves);
+    pub fn add_knight_moves(&mut self) {
+        get_knight_moves_for_field(
+            AnnotatedFieldLocation::from(self.field),
+            &mut self.knight_moves,
+        );
     }
-    pub fn new() -> Self {
+    pub fn new_empty(field: FieldLocation) -> Self {
         Self {
-            knight_moves: Default::default(),
-            diagonal_lines: Default::default(),
-            diagonal_line_ends: Default::default(),
-            file: Default::default(),
-            rank: Default::default(),
+            field: AnnotatedFieldLocation::from(field),
+            ..Default::default()
         }
     }
-    pub fn from_king_pos(king_pos: FieldLocation) -> MovesForField {
-        let mut mff = MovesForField::default();
-        let afl = AnnotatedFieldLocation::from(king_pos);
-        mff.add_knight_moves(afl);
-        mff.add_cardinal_directions(afl);
-        mff.add_diagonal_directions(afl);
+    pub fn new_full(field: FieldLocation) -> MovesForField {
+        let mut mff = MovesForField::new_empty(field);
+        mff.add_knight_moves();
+        mff.add_orthogonal_lines();
+        mff.add_diagonal_lines();
         mff
     }
 }
@@ -812,21 +896,14 @@ impl ThreePlayerChess {
         }
         let kp = AnnotatedFieldLocation::from(loc);
         let mff = &self.moves_for_board[usize::from(loc)];
-        for (axis, start, end, dir) in [
-            (&mff.file, kp.rank - 1, 0, -1i8),
-            (&mff.file, kp.rank + 1, RS + 1, 1),
-            (&mff.rank, kp.file - 1, 0, -1),
-            (&mff.rank, kp.file + 1, RS + 1, 1),
-        ] {
-            let mut i = start;
-            while i != end {
-                let f = axis[i as usize - 1];
-                match *self.get_field_value(f) {
+        for oli in mff.orthogonal_lines_iter() {
+            for (i, f) in oli.iter().enumerate() {
+                match *self.get_field_value(*f) {
                     Some((color, piece_type)) => match piece_type {
                         PieceType::Rook | PieceType::Queen
                             if color_may_capture(color, piece_color, capturing_color) =>
                         {
-                            let m = Move::new(f, loc, Capture(field_value));
+                            let m = Move::new(*f, loc, Capture(field_value));
                             if !check_for_checks || !self.would_non_king_move_bypass_check(m) {
                                 return Some(m);
                             }
@@ -835,8 +912,8 @@ impl ThreePlayerChess {
                         PieceType::King
                             if color_may_capture(color, piece_color, capturing_color) =>
                         {
-                            if i == start {
-                                let m = Move::new(f, loc, Capture(field_value));
+                            if i == 0 {
+                                let m = Move::new(*f, loc, Capture(field_value));
                                 if !check_for_checks || !self.would_king_move_bypass_check(m) {
                                     return Some(m);
                                 }
@@ -847,12 +924,10 @@ impl ThreePlayerChess {
                     },
                     None => (),
                 }
-                i += dir;
             }
         }
-        let mut line_start = 0;
-        for line_end in mff.diagonal_line_ends {
-            for (i, f) in mff.diagonal_lines[line_start..line_end].iter().enumerate() {
+        for dli in mff.diagonal_lines_iter() {
+            for (i, f) in dli.iter().enumerate() {
                 let board_val = self.get_field_value(*f);
                 match *board_val {
                     None => continue,
@@ -894,7 +969,6 @@ impl ThreePlayerChess {
                     },
                 }
             }
-            line_start = line_end;
         }
         for f in mff.knight_moves.iter() {
             let board_val = self.get_field_value(*f);
