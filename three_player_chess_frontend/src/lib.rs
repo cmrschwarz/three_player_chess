@@ -999,7 +999,8 @@ impl Frontend {
             let mut board = self.board.clone();
             board.turn = color;
             let mut moves = Default::default();
-            board.gen_moves_for_field(square, &mut moves, MovegenOptions::default());
+            let mp = MovegenParams::new(&mut self.board, MovegenOptions::default());
+            board.gen_moves_for_field(square, &mut moves, mp);
             for m in moves {
                 self.possible_moves.set(usize::from(m.target), true);
                 if let MoveType::Castle(short) = m.move_type {
@@ -1088,8 +1089,8 @@ impl Frontend {
             }
             return;
         }
-        self.board
-            .gen_moves_for_field(square, &mut moves, MovegenOptions::default());
+        let mp = MovegenParams::new(&mut self.board, MovegenOptions::default());
+        self.board.gen_moves_for_field(square, &mut moves, mp);
         for m in moves {
             if FieldValue::from(self.board.board[usize::from(m.target)]).piece_type() == Some(King)
             {

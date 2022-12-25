@@ -18,6 +18,21 @@ pub struct MovegenOptions {
     pub only_one: bool,
 }
 
+#[derive(Copy, Clone)]
+pub struct MovegenParams {
+    opts: MovegenOptions,
+    king_is_safe: bool,
+}
+
+impl MovegenParams {
+    pub fn new(board: &mut ThreePlayerChess, opts: MovegenOptions) -> MovegenParams {
+        MovegenParams {
+            opts: opts,
+            king_is_safe: board.is_king_safe(),
+        }
+    }
+}
+
 enum MovegenResult {
     SuccessCapture,
     SuccessSlide,
@@ -983,12 +998,12 @@ impl ThreePlayerChess {
         src: FieldLocation,
         tgt: FieldLocation,
         moves: &mut Vec<Move>,
-        opts: MovegenOptions,
+        mp: MovegenParams,
     ) -> MovegenResult {
         let piece_value = self.get_packed_field_value(tgt);
         match FieldValue::from(piece_value) {
             FieldValue(None) => {
-                if opts.captures_only {
+                if mp.opts.captures_only {
                     SlideButCapturesOnly
                 } else if self.gen_non_king_move_unless_check(src, tgt, Slide, moves) {
                     SuccessSlide
@@ -1012,7 +1027,7 @@ impl ThreePlayerChess {
         &mut self,
         field: AnnotatedFieldLocation,
         moves: &mut Vec<Move>,
-        opts: MovegenOptions,
+        mp: MovegenParams,
     ) {
         // we want to avoid having to change directions when attempting
         // to move up/down(!) across the upper center line
@@ -1034,8 +1049,8 @@ impl ThreePlayerChess {
                 };
                 match res {
                     Some(tgt) => {
-                        match self.gen_non_king_slide_move(field.loc, tgt.loc, moves, opts) {
-                            SuccessCapture | SuccessSlide if opts.only_one => return,
+                        match self.gen_non_king_slide_move(field.loc, tgt.loc, moves, mp) {
+                            SuccessCapture | SuccessSlide if mp.opts.only_one => return,
                             SuccessCapture | CaptureButCheck | SameColorCollision => break,
                             SlideButCheck | SuccessSlide | SlideButCapturesOnly => {}
                         }
@@ -1050,7 +1065,7 @@ impl ThreePlayerChess {
         &mut self,
         field: AnnotatedFieldLocation,
         moves: &mut Vec<Move>,
-        opts: MovegenOptions,
+        mp: MovegenParams,
     ) {
         for (length, up, right) in [
             (min(RS - field.file, RS - field.rank), true, true), // up right
@@ -1063,8 +1078,8 @@ impl ThreePlayerChess {
                 match move_diagonal(pos, up, right) {
                     None => break,
                     Some((one, None)) => {
-                        match self.gen_non_king_slide_move(field.loc, one.loc, moves, opts) {
-                            SuccessCapture | SuccessSlide if opts.only_one => return,
+                        match self.gen_non_king_slide_move(field.loc, one.loc, moves, mp) {
+                            SuccessCapture | SuccessSlide if mp.opts.only_one => return,
                             SuccessCapture | CaptureButCheck | SameColorCollision => break,
                             SlideButCheck | SuccessSlide | SlideButCapturesOnly => {}
                         };
@@ -1079,8 +1094,8 @@ impl ThreePlayerChess {
                             // to avoid for the outer loop
                             std::mem::swap(&mut one, &mut two);
                         }
-                        match self.gen_non_king_slide_move(field.loc, two.loc, moves, opts) {
-                            SuccessCapture | SuccessSlide if opts.only_one => return,
+                        match self.gen_non_king_slide_move(field.loc, two.loc, moves, mp) {
+                            SuccessCapture | SuccessSlide if mp.opts.only_one => return,
                             SuccessCapture | CaptureButCheck | SameColorCollision => break,
                             SlideButCheck | SuccessSlide | SlideButCapturesOnly => {
                                 let mut pos2 = two;
@@ -1089,9 +1104,11 @@ impl ThreePlayerChess {
                                         None => break,
                                         Some((one, None)) => {
                                             match self.gen_non_king_slide_move(
-                                                field.loc, one.loc, moves, opts,
+                                                field.loc, one.loc, moves, mp,
                                             ) {
-                                                SuccessCapture | SuccessSlide if opts.only_one => {
+                                                SuccessCapture | SuccessSlide
+                                                    if mp.opts.only_one =>
+                                                {
                                                     return
                                                 }
                                                 SuccessCapture | CaptureButCheck
@@ -1106,8 +1123,8 @@ impl ThreePlayerChess {
                                 }
                             }
                         }
-                        match self.gen_non_king_slide_move(field.loc, one.loc, moves, opts) {
-                            SuccessCapture | SuccessSlide if opts.only_one => return,
+                        match self.gen_non_king_slide_move(field.loc, one.loc, moves, mp) {
+                            SuccessCapture | SuccessSlide if mp.opts.only_one => return,
                             SuccessCapture | CaptureButCheck | SameColorCollision => break,
                             SlideButCheck | SuccessSlide | SlideButCapturesOnly => {}
                         };
@@ -1121,13 +1138,13 @@ impl ThreePlayerChess {
         &mut self,
         field: AnnotatedFieldLocation,
         moves: &mut Vec<Move>,
-        opts: MovegenOptions,
+        mp: MovegenParams,
     ) {
         let mut knight_moves = arrayvec::ArrayVec::new();
         get_knight_moves_for_field(field, &mut knight_moves);
         for m in knight_moves {
-            let mt = self.gen_non_king_slide_move(field.loc, m, moves, opts);
-            if opts.only_one && mt.success() {
+            let mt = self.gen_non_king_slide_move(field.loc, m, moves, mp);
+            if mp.opts.only_one && mt.success() {
                 return;
             };
         }
@@ -1189,7 +1206,7 @@ impl ThreePlayerChess {
         src: FieldLocation,
         tgt: FieldLocation,
         moves: &mut Vec<Move>,
-        opts: MovegenOptions,
+        mp: MovegenParams,
     ) -> bool {
         let move_type;
         let piece_val = self.get_packed_field_value(tgt);
@@ -1199,7 +1216,7 @@ impl ThreePlayerChess {
             }
             move_type = Capture(piece_val);
         } else {
-            if opts.captures_only {
+            if mp.opts.captures_only {
                 return false;
             }
             move_type = Slide;
@@ -1224,7 +1241,7 @@ impl ThreePlayerChess {
         &mut self,
         field: AnnotatedFieldLocation,
         moves: &mut Vec<Move>,
-        opts: MovegenOptions,
+        mp: MovegenParams,
     ) {
         for tgt in [
             move_rank(field, true),
@@ -1233,8 +1250,8 @@ impl ThreePlayerChess {
             move_file(field, false),
         ] {
             if let Some(tgt) = tgt {
-                if self.gen_king_slide_unless_check(field.loc, tgt.loc, moves, opts)
-                    && opts.only_one
+                if self.gen_king_slide_unless_check(field.loc, tgt.loc, moves, mp)
+                    && mp.opts.only_one
                 {
                     return;
                 }
@@ -1246,8 +1263,8 @@ impl ThreePlayerChess {
                     Some((one, two)) => {
                         for tgt in [Some(one), two] {
                             if let Some(tgt) = tgt {
-                                if self.gen_king_slide_unless_check(field.loc, tgt.loc, moves, opts)
-                                    && opts.only_one
+                                if self.gen_king_slide_unless_check(field.loc, tgt.loc, moves, mp)
+                                    && mp.opts.only_one
                                 {
                                     return;
                                 }
@@ -1258,11 +1275,11 @@ impl ThreePlayerChess {
                 }
             }
         }
-        if !opts.captures_only {
+        if !mp.opts.captures_only {
             for castle in [self.gen_move_castling(false), self.gen_move_castling(true)] {
                 if let Some(m) = castle {
                     moves.push(m);
-                    if opts.only_one {
+                    if mp.opts.only_one {
                         return;
                     }
                 }
@@ -1274,7 +1291,7 @@ impl ThreePlayerChess {
         src: AnnotatedFieldLocation,
         tgt: AnnotatedFieldLocation,
         moves: &mut Vec<Move>,
-        opts: MovegenOptions,
+        mp: MovegenParams,
     ) -> bool {
         let piece_value = self.get_packed_field_value(tgt.loc);
         match FieldValue::from(piece_value) {
@@ -1289,7 +1306,7 @@ impl ThreePlayerChess {
                         for promotion_piece in [Queen, Bishop, Knight, Rook] {
                             mov.move_type = CapturePromotion(piece_value, promotion_piece);
                             moves.push(mov);
-                            if opts.only_one {
+                            if mp.opts.only_one {
                                 return true;
                             }
                         }
@@ -1324,21 +1341,16 @@ impl ThreePlayerChess {
             _ => false,
         }
     }
-    fn gen_moves_pawn(
-        &mut self,
-        field: FieldLocation,
-        moves: &mut Vec<Move>,
-        opts: MovegenOptions,
-    ) {
+    fn gen_moves_pawn(&mut self, field: FieldLocation, moves: &mut Vec<Move>, mp: MovegenParams) {
         let src = AnnotatedFieldLocation::from_with_origin(self.turn, field);
-        if !opts.captures_only {
+        if !mp.opts.captures_only {
             if let Some(up) = move_rank(src, true) {
                 if let FieldValue(None) = self.get_field_value(up.loc) {
                     if src.rank == 2 {
                         let up2 = move_rank(up, true).unwrap();
                         if let FieldValue(None) = self.get_field_value(up2.loc) {
                             if self.gen_non_king_move_unless_check(src.loc, up2.loc, Slide, moves)
-                                && opts.only_one
+                                && mp.opts.only_one
                             {
                                 return;
                             }
@@ -1354,14 +1366,14 @@ impl ThreePlayerChess {
                             for promotion_piece in [Queen, Bishop, Knight, Rook] {
                                 mov.move_type = Promotion(promotion_piece);
                                 moves.push(mov);
-                                if opts.only_one {
+                                if mp.opts.only_one {
                                     return;
                                 }
                             }
                         }
                     } else {
                         if self.gen_non_king_move_unless_check(src.loc, up.loc, Slide, moves)
-                            && opts.only_one
+                            && mp.opts.only_one
                         {
                             return;
                         }
@@ -1372,12 +1384,12 @@ impl ThreePlayerChess {
         for right in [true, false] {
             match move_diagonal(src, true, right) {
                 Some((one, two)) => {
-                    self.try_gen_pawn_capture(src, one, moves, opts);
-                    if opts.only_one {
+                    self.try_gen_pawn_capture(src, one, moves, mp);
+                    if mp.opts.only_one {
                         return;
                     }
                     if let Some(two) = two {
-                        if self.try_gen_pawn_capture(src, two, moves, opts) && opts.only_one {
+                        if self.try_gen_pawn_capture(src, two, moves, mp) && mp.opts.only_one {
                             return;
                         }
                     }
@@ -1390,14 +1402,14 @@ impl ThreePlayerChess {
         &mut self,
         field: AnnotatedFieldLocation,
         moves: &mut Vec<Move>,
-        opts: MovegenOptions,
+        mp: MovegenParams,
     ) {
         let moves_len = moves.len();
-        self.gen_moves_rook(field, moves, opts);
-        if opts.only_one && moves.len() != moves_len {
+        self.gen_moves_rook(field, moves, mp);
+        if mp.opts.only_one && moves.len() != moves_len {
             return;
         }
-        self.gen_moves_bishop(field, moves, opts);
+        self.gen_moves_bishop(field, moves, mp);
     }
     pub fn fifty_move_rule_applies(&self) -> bool {
         self.move_index >= self.last_capture_or_pawn_move_index + DRAW_AFTER_N_SLIDES as u16
@@ -1409,42 +1421,49 @@ impl ThreePlayerChess {
         &mut self,
         field: FieldLocation,
         moves: &mut Vec<Move>,
-        opts: MovegenOptions,
+        mp: MovegenParams,
     ) {
         if self.game_status != GameStatus::Ongoing {
             return;
         }
-        self.gen_moves_for_field_unchecked(field, moves, opts);
+        self.gen_moves_for_field_unchecked(field, moves, mp);
     }
     pub fn gen_moves_for_field_unchecked(
         &mut self,
         field: FieldLocation,
         moves: &mut Vec<Move>,
-        opts: MovegenOptions,
+        mp: MovegenParams,
     ) {
         match self.get_field_value(field) {
             FieldValue(Some((color, piece_type))) if color == self.turn => {
                 let field = field;
                 let field_a = AnnotatedFieldLocation::from(field);
                 match piece_type {
-                    PieceType::Pawn => self.gen_moves_pawn(field, moves, opts),
-                    PieceType::Knight => self.gen_moves_knight(field_a, moves, opts),
-                    PieceType::Bishop => self.gen_moves_bishop(field_a, moves, opts),
-                    PieceType::Rook => self.gen_moves_rook(field_a, moves, opts),
-                    PieceType::Queen => self.gen_moves_queen(field_a, moves, opts),
-                    PieceType::King => self.gen_moves_king(field_a, moves, opts),
+                    PieceType::Pawn => self.gen_moves_pawn(field, moves, mp),
+                    PieceType::Knight => self.gen_moves_knight(field_a, moves, mp),
+                    PieceType::Bishop => self.gen_moves_bishop(field_a, moves, mp),
+                    PieceType::Rook => self.gen_moves_rook(field_a, moves, mp),
+                    PieceType::Queen => self.gen_moves_queen(field_a, moves, mp),
+                    PieceType::King => self.gen_moves_king(field_a, moves, mp),
                 }
             }
             _ => {}
         }
     }
+    pub fn is_king_safe(&mut self) -> bool {
+        false
+    }
     pub fn gen_moves_with_options(&mut self, moves: &mut Vec<Move>, opts: MovegenOptions) {
+        let mp = MovegenParams {
+            opts: opts,
+            king_is_safe: self.is_king_safe(),
+        };
         if self.game_status != GameStatus::Ongoing {
             return;
         }
         for i in 0..self.board.len() {
-            self.gen_moves_for_field_unchecked(FieldLocation::from(i), moves, opts);
-            if opts.only_one && !moves.is_empty() {
+            self.gen_moves_for_field_unchecked(FieldLocation::from(i), moves, mp);
+            if mp.opts.only_one && !moves.is_empty() {
                 return;
             }
         }
@@ -1482,7 +1501,8 @@ impl ThreePlayerChess {
         // this is not used by engines, and therfore not performance critical
         // we are therefore fine with using a rather inefficient implementation
         let mut dv = self.dummy_vec.take().unwrap();
-        self.gen_moves_for_field(mov.source, &mut dv, MovegenOptions::default());
+        let mp = MovegenParams::new(self, MovegenOptions::default());
+        self.gen_moves_for_field(mov.source, &mut dv, mp);
         for candidate_move in dv.iter() {
             if mov == *candidate_move {
                 dv.clear();
