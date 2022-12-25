@@ -223,9 +223,15 @@ impl ParanoidEngine {
                     }
                 } else {
                     if self.debug_log || report_results_per_depth {
+                        let time_elapsed = Instant::now().sub(depth_start).as_secs_f32();
                         println!(
-                            "aborted depth {}+{} (after {} positions)",
-                            self.depth_max, self.cap_line_len, self.pos_count
+                            "depth {}+{} ({:.1}s [{:.1} s], {:.2} kN/s): aborted (after {} positions)",
+                            self.depth_max,
+                            self.cap_line_len,
+                            time_elapsed,
+                            Instant::now().sub(search_start).as_secs_f32(),
+                            (self.pos_count as f32 / time_elapsed) / 1000.,
+                            self.pos_count
                         );
                     }
                     self.depth_max -= 1;
