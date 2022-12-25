@@ -125,7 +125,7 @@ impl Engine {
                             self.board.perform_reversable_move(&rm);
                             let te = self.transposition_table.get(&self.board.get_zobrist_hash());
                             self.board.revert_move(&rm);
-                            te.map_or([EVAL_LOSS; HB_COUNT], |te| te.score)
+                            te.map_or([Eval::MIN; HB_COUNT], |te| te.score)
                         },
                         *m,
                     )
@@ -271,7 +271,7 @@ impl Engine {
             let hash = self.board.get_zobrist_hash();
             let score = self.transposition_table.get(&hash).map_or_else(
                 || {
-                    let score = calculate_position_score(&mut self.board);
+                    let score = [Eval::MIN; HB_COUNT];
                     score
                 },
                 |tp| tp.score,
@@ -328,9 +328,7 @@ impl Engine {
                     result = PropagationResult::Pruned(1);
                 }
             }
-            if result == PropagationResult::Ok
-                && score[mover] >= EVAL_WIN - self.board.move_index as Eval - 1
-            {
+            if result == PropagationResult::Ok && score[mover] >= EVAL_WIN {
                 // if we have a checkmate in depth 0, we want to stop eval and not
                 // do a depth N check for no reason
                 self.prune_count += 1;
@@ -495,6 +493,7 @@ impl Engine {
                         propagation_result = self.propagate_move_score(depth, Some(mov), tp_score);
                         continue;
                     }
+                    em.score = tp.score;
                 }
                 rm = Some(ReversableMove::new(&self.board, mov));
                 self.board.perform_reversable_move(rm.as_ref().unwrap());
@@ -507,8 +506,8 @@ impl Engine {
             let game_over = self.board.game_status != GameStatus::Ongoing;
             let force_eval = rm.is_none() || depth >= self.eval_depth + self.eval_cap_line_len;
             if depth >= self.eval_depth || force_eval || game_over {
-                let score = em.score;
                 let hash = em.hash;
+                let mut score = em.score;
                 let score_now = if game_over || force_eval {
                     true
                 } else {
@@ -518,6 +517,9 @@ impl Engine {
                 };
 
                 if score_now {
+                    if score[usize::from(self.board.turn)] == Eval::MIN {
+                        score = calculate_position_score(&mut self.board)
+                    }
                     self.pos_count += 1;
                     if self.debug_log {
                         let line_depth = depth - rm.as_ref().map_or(1, |_| 0);
