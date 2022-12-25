@@ -13,11 +13,79 @@ use skia_safe::{
 
 use three_player_chess::board::ThreePlayerChess;
 use three_player_chess_board_eval::calculate_position_score;
-use three_player_chess_engine::score_str;
+use three_player_chess_engine::{score_str, Engine};
 use three_player_chess_frontend::*;
-fn main() {
-    type WindowedContext = glutin::ContextWrapper<glutin::PossiblyCurrent, glutin::window::Window>;
+use three_player_chess_paranoid_engine::ParanoidEngine;
 
+struct FrontendDriver {
+    engine: Engine,
+    paranoid_engine: ParanoidEngine,
+    autoplay: bool,
+    autoplay_count: usize,
+    autoplay_remaining: usize,
+    fe: Frontend,
+    engine_time_secs: u32,
+    engine_depth: u16,
+    go_infinite: bool,
+    use_paranoid_engine: bool,
+}
+
+impl FrontendDriver {
+    fn do_engine_move(&mut self) {
+        let time = if self.go_infinite {
+            10e6f32
+        } else {
+            self.engine_time_secs as f32
+        };
+        let result = if self.use_paranoid_engine {
+            self.paranoid_engine
+                .search_position(&self.fe.board, self.engine_depth, time, true)
+        } else {
+            self.engine
+                .search_position(&self.fe.board, self.engine_depth, time, true)
+        };
+        if let Some(mov) = result {
+            self.fe.apply_move_with_history(mov, self.fe.board.turn);
+        }
+    }
+}
+
+type WindowedContext = glutin::ContextWrapper<glutin::PossiblyCurrent, glutin::window::Window>;
+struct Env {
+    surface: Surface,
+    gr_context: skia_safe::gpu::DirectContext,
+    windowed_context: WindowedContext,
+}
+
+fn create_surface(
+    windowed_context: &WindowedContext,
+    fb_info: &FramebufferInfo,
+    gr_context: &mut skia_safe::gpu::DirectContext,
+    size: PhysicalSize<u32>,
+) -> skia_safe::Surface {
+    let pixel_format = windowed_context.get_pixel_format();
+
+    let backend_render_target = BackendRenderTarget::new_gl(
+        (
+            size.width.try_into().unwrap(),
+            size.height.try_into().unwrap(),
+        ),
+        pixel_format.multisampling.map(|s| s.try_into().unwrap()),
+        pixel_format.stencil_bits.try_into().unwrap(),
+        *fb_info,
+    );
+    Surface::from_backend_render_target(
+        gr_context,
+        &backend_render_target,
+        SurfaceOrigin::BottomLeft,
+        ColorType::RGBA8888,
+        None,
+        None,
+    )
+    .unwrap()
+}
+
+fn main() {
     let el = EventLoop::new();
     let wb = WindowBuilder::new().with_title("rust-skia-gl-window");
 
@@ -56,34 +124,6 @@ fn main() {
 
     let size = windowed_context.window().inner_size();
 
-    fn create_surface(
-        windowed_context: &WindowedContext,
-        fb_info: &FramebufferInfo,
-        gr_context: &mut skia_safe::gpu::DirectContext,
-        size: PhysicalSize<u32>,
-    ) -> skia_safe::Surface {
-        let pixel_format = windowed_context.get_pixel_format();
-
-        let backend_render_target = BackendRenderTarget::new_gl(
-            (
-                size.width.try_into().unwrap(),
-                size.height.try_into().unwrap(),
-            ),
-            pixel_format.multisampling.map(|s| s.try_into().unwrap()),
-            pixel_format.stencil_bits.try_into().unwrap(),
-            *fb_info,
-        );
-        Surface::from_backend_render_target(
-            gr_context,
-            &backend_render_target,
-            SurfaceOrigin::BottomLeft,
-            ColorType::RGBA8888,
-            None,
-            None,
-        )
-        .unwrap()
-    }
-
     let surface = create_surface(&windowed_context, &fb_info, &mut gr_context, size);
     // let sf = windowed_context.window().scale_factor() as f32;
     // surface.canvas().scale((sf, sf));
@@ -91,11 +131,6 @@ fn main() {
     // `DirectContext`.
     //
     // https://github.com/rust-skia/rust-skia/issues/476
-    struct Env {
-        surface: Surface,
-        gr_context: skia_safe::gpu::DirectContext,
-        windowed_context: WindowedContext,
-    }
 
     let mut env = Env {
         surface,
@@ -103,9 +138,20 @@ fn main() {
         windowed_context,
     };
 
-    let mut fe = Frontend::new();
+    let mut fd = FrontendDriver {
+        fe: Frontend::new(),
+        engine: Engine::new(),
+        paranoid_engine: ParanoidEngine::new(),
+        autoplay: false,
+        autoplay_count: 0,
+        autoplay_remaining: 0,
+        engine_time_secs: 3,
+        engine_depth: 3,
+        go_infinite: false,
+        use_paranoid_engine: false,
+    };
 
-    fe.update_dimensions(
+    fd.fe.update_dimensions(
         0,
         0,
         size.width.try_into().unwrap(),
@@ -127,7 +173,7 @@ fn main() {
                         physical_size,
                     );
                     env.windowed_context.resize(physical_size);
-                    fe.update_dimensions(
+                    fd.fe.update_dimensions(
                         0,
                         0,
                         physical_size.width.try_into().unwrap(),
@@ -137,13 +183,15 @@ fn main() {
                 WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
                 WindowEvent::MouseInput { state, button, .. } => {
                     match state {
-                        ElementState::Pressed => fe.mouse_clicked(button == MouseButton::Right),
-                        ElementState::Released => fe.mouse_released(button == MouseButton::Right),
+                        ElementState::Pressed => fd.fe.mouse_clicked(button == MouseButton::Right),
+                        ElementState::Released => {
+                            fd.fe.mouse_released(button == MouseButton::Right)
+                        }
                     }
                     env.windowed_context.window().request_redraw();
                 }
                 WindowEvent::CursorMoved { position, .. } => {
-                    fe.mouse_moved(nalgebra::Vector2::<i32>::new(
+                    fd.fe.mouse_moved(nalgebra::Vector2::<i32>::new(
                         position.x as i32,
                         position.y as i32,
                     ));
@@ -151,9 +199,9 @@ fn main() {
                 }
                 WindowEvent::ModifiersChanged(modifiers) => {
                     if modifiers.ctrl() {
-                        fe.ctrl_pressed();
+                        fd.fe.ctrl_pressed();
                     } else {
-                        fe.ctrl_released();
+                        fd.fe.ctrl_released();
                     }
                     env.windowed_context.window().request_redraw();
                 }
@@ -172,99 +220,98 @@ fn main() {
                             *control_flow = ControlFlow::Exit;
                         }
                         Some(VirtualKeyCode::V) => {
-                            fe.recolor();
+                            fd.fe.recolor();
                         }
                         Some(VirtualKeyCode::R) => {
-                            fe.reset();
+                            fd.fe.reset();
                         }
                         Some(VirtualKeyCode::W) => {
                             println!(
                                 "eval: {}",
-                                score_str(calculate_position_score(&mut fe.board))
+                                score_str(calculate_position_score(&mut fd.fe.board))
                             );
                         }
                         Some(VirtualKeyCode::F) => {
-                            fe.rotate();
+                            fd.fe.rotate();
                         }
                         Some(VirtualKeyCode::D) => {
                             if modifiers.ctrl() {
-                                fe.highlight_capturable ^= true;
+                                fd.fe.highlight_capturable ^= true;
                                 println!(
                                     "set highlighting of capturable pieces to {}",
-                                    fe.highlight_capturable
+                                    fd.fe.highlight_capturable
                                 );
                             } else {
-                                fe.highlight_attacked ^= true;
+                                fd.fe.highlight_attacked ^= true;
                                 println!(
                                     "set highlighting of attacked pieces to {}",
-                                    fe.highlight_attacked
+                                    fd.fe.highlight_attacked
                                 );
                             }
                         }
                         Some(VirtualKeyCode::N) => {
-                            fe.show_notation ^= true;
-                            println!("set show notation to {}", fe.highlight_attacked);
+                            fd.fe.show_notation ^= true;
+                            println!("set show notation to {}", fd.fe.highlight_attacked);
                         }
                         Some(VirtualKeyCode::A) => {
                             if modifiers.shift() {
-                                fe.autoplay_count = fe.autoplay_count.wrapping_sub(1);
-                                println!("set autoplay count to {}", fe.autoplay_count);
+                                fd.autoplay_count = fd.autoplay_count.wrapping_sub(1);
+                                println!("set autoplay count to {}", fd.autoplay_count);
                             } else if modifiers.ctrl() {
-                                fe.autoplay_count = fe.autoplay_count.wrapping_add(1);
-                                println!("set autoplay count to {}", fe.autoplay_count);
+                                fd.autoplay_count = fd.autoplay_count.wrapping_add(1);
+                                println!("set autoplay count to {}", fd.autoplay_count);
                             } else {
-                                fe.autoplay ^= true;
-                                println!("set autoplay to {}", fe.autoplay);
+                                fd.autoplay ^= true;
+                                println!("set autoplay to {}", fd.autoplay);
                             }
                         }
                         Some(VirtualKeyCode::I) => {
-                            // #deep
-                            fe.go_infinite ^= true;
-                            println!("set infinite search to {}", fe.go_infinite);
+                            fd.go_infinite ^= true;
+                            println!("set infinite search to {}", fd.go_infinite);
                         }
                         Some(VirtualKeyCode::Plus | VirtualKeyCode::Asterisk) => {
                             if modifiers.ctrl() {
-                                fe.engine_depth = fe.engine_depth.saturating_add(1);
-                                println!("set engine depth to {}", fe.engine_depth);
+                                fd.engine_depth = fd.engine_depth.saturating_add(1);
+                                println!("set engine depth to {}", fd.engine_depth);
                             } else {
-                                fe.engine_time_secs = fe.engine_time_secs.saturating_add(1);
-                                println!("set engine time to {} s", fe.engine_time_secs);
+                                fd.engine_time_secs = fd.engine_time_secs.saturating_add(1);
+                                println!("set engine time to {} s", fd.engine_time_secs);
                             }
                         }
                         Some(VirtualKeyCode::Minus) => {
                             if modifiers.ctrl() {
-                                fe.engine_depth = fe.engine_depth.saturating_sub(1);
-                                println!("set engine depth to {}", fe.engine_depth);
+                                fd.engine_depth = fd.engine_depth.saturating_sub(1);
+                                println!("set engine depth to {}", fd.engine_depth);
                             } else {
-                                fe.engine_time_secs = fe.engine_time_secs.saturating_sub(1);
-                                println!("set engine time to {} s", fe.engine_time_secs);
+                                fd.engine_time_secs = fd.engine_time_secs.saturating_sub(1);
+                                println!("set engine time to {} s", fd.engine_time_secs);
                             }
                         }
                         Some(VirtualKeyCode::E) => {
                             println!(
                                 "running {} engine ... (depth: {}, time: {})",
-                                if fe.use_paranoid_engine {
+                                if fd.use_paranoid_engine {
                                     "paranoid"
                                 } else {
                                     "sane"
                                 },
-                                fe.engine_depth,
-                                if fe.go_infinite {
+                                fd.engine_depth,
+                                if fd.go_infinite {
                                     format!("infinite")
                                 } else {
-                                    format!("{} s", fe.engine_time_secs)
+                                    format!("{} s", fd.engine_time_secs)
                                 }
                             );
-                            fe.do_engine_move();
-                            if fe.autoplay {
-                                fe.autoplay_remaining = fe.autoplay_count.saturating_sub(1);
+                            fd.do_engine_move();
+                            if fd.autoplay {
+                                fd.autoplay_remaining = fd.autoplay_count.saturating_sub(1);
                             }
                         }
                         Some(VirtualKeyCode::P) => {
-                            fe.use_paranoid_engine ^= true;
+                            fd.use_paranoid_engine ^= true;
                             println!(
                                 "switching to {} engine",
-                                if fe.use_paranoid_engine {
+                                if fd.use_paranoid_engine {
                                     "paranoid"
                                 } else {
                                     "sane"
@@ -273,40 +320,40 @@ fn main() {
                         }
                         Some(VirtualKeyCode::T) => {
                             if modifiers.ctrl() {
-                                fe.transform_dragged_pieces ^= true;
+                                fd.fe.transform_dragged_pieces ^= true;
                                 println!(
                                     "set transform dragged pieces to {}",
-                                    fe.transform_dragged_pieces
+                                    fd.fe.transform_dragged_pieces
                                 );
                             } else {
-                                fe.transformed_pieces ^= true;
-                                println!("set transform pieces to {}", fe.transformed_pieces);
+                                fd.fe.transformed_pieces ^= true;
+                                println!("set transform pieces to {}", fd.fe.transformed_pieces);
                             }
                         }
                         Some(VirtualKeyCode::U) => {
-                            fe.undo_move();
+                            fd.fe.undo_move();
                         }
                         Some(VirtualKeyCode::L) => {
-                            fe.engine.debug_log ^= true;
-                            fe.paranoid_engine.debug_log ^= true;
-                            println!("set debug log to {}", fe.engine.debug_log);
+                            fd.engine.debug_log ^= true;
+                            fd.paranoid_engine.debug_log ^= true;
+                            println!("set debug log to {}", fd.engine.debug_log);
                         }
 
                         Some(VirtualKeyCode::Y) => {
-                            fe.engine.transposition_table.clear();
-                            fe.paranoid_engine.transposition_table.clear();
+                            fd.engine.transposition_table.clear();
+                            fd.paranoid_engine.transposition_table.clear();
                             println!("transposition table cleared");
                         }
                         Some(VirtualKeyCode::Z) => {
-                            let mut zh = fe.board.zobrist_hash;
+                            let mut zh = fd.fe.board.zobrist_hash;
                             debug_assert!(
-                                fe.board.zobrist_hash.value == zh.recalc_zobrist(&fe.board)
+                                fd.fe.board.zobrist_hash.value == zh.recalc_zobrist(&fd.fe.board)
                             );
-                            println!("zobrist hash: {:#018x}", fe.board.zobrist_hash.value);
+                            println!("zobrist hash: {:#018x}", fd.fe.board.zobrist_hash.value);
                         }
                         Some(VirtualKeyCode::S) => {
                             if modifiers.ctrl() {
-                                println!("state: {}", fe.board.state_string());
+                                println!("state: {}", fd.fe.board.state_string());
                             } else {
                                 let mut buffer = String::new();
                                 println!("please input state string:");
@@ -314,8 +361,8 @@ fn main() {
                                 stdin.read_line(&mut buffer).unwrap();
                                 let board = ThreePlayerChess::from_str(&buffer.trim());
                                 if let Ok(board) = board {
-                                    fe.reset();
-                                    fe.board = board;
+                                    fd.fe.reset();
+                                    fd.fe.board = board;
                                     println!("input string accepted");
                                 } else {
                                     println!("failed to parse: {}", board.err().unwrap());
@@ -332,13 +379,19 @@ fn main() {
                 {
                     let canvas = env.surface.canvas();
                     canvas.save();
-                    fe.render(canvas);
+                    fd.fe.render(canvas);
                     canvas.restore();
                 }
                 env.surface.canvas().flush();
                 env.windowed_context.swap_buffers().unwrap();
-                if fe.post_render_event() {
-                    env.windowed_context.window().request_redraw();
+                if fd.autoplay_remaining > 0 {
+                    if fd.fe.board.game_status() != three_player_chess::board::GameStatus::Ongoing {
+                        fd.autoplay_remaining = 0;
+                    } else {
+                        fd.autoplay_remaining -= 1;
+                        fd.do_engine_move();
+                        env.windowed_context.window().request_redraw();
+                    }
                 }
             }
             _ => (),

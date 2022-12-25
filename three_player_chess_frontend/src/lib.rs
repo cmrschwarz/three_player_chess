@@ -15,8 +15,6 @@ use three_player_chess::board;
 use three_player_chess::board::PieceType::*;
 use three_player_chess::board::*;
 use three_player_chess::movegen::*;
-use three_player_chess_engine::Engine;
-use three_player_chess_paranoid_engine::ParanoidEngine;
 pub const FONT: &'static [u8] = include_bytes!("../res/Roboto-Regular.ttf");
 const BORDER_WIDTH: f32 = 0.02;
 
@@ -81,15 +79,6 @@ pub struct Frontend {
     pub transform_dragged_pieces: bool,
     pub pieces: [[Image; PIECE_COUNT]; HB_COUNT],
     pub piece_scale_non_transformed: f32,
-    pub engine: Engine,
-    pub paranoid_engine: ParanoidEngine,
-    pub go_infinite: bool,
-    pub use_paranoid_engine: bool,
-    pub engine_depth: u16,
-    pub engine_time_secs: u16,
-    pub autoplay: bool,
-    pub autoplay_count: u16,
-    pub autoplay_remaining: u16,
     pub highlight_attacked: bool,
     pub highlight_capturable: bool,
     pub allow_illegal_moves: bool,
@@ -443,20 +432,11 @@ impl Frontend {
             pieces: PIECE_IMAGES.clone(),
             transform_dragged_pieces: false,
             piece_scale_non_transformed: 1.2,
-            engine: Engine::new(),
-            paranoid_engine: ParanoidEngine::new(),
-            use_paranoid_engine: false,
-            autoplay: false,
-            autoplay_count: u16::MAX,
-            autoplay_remaining: 0,
-            go_infinite: false,
             highlight_attacked: false,
             highlight_capturable: false,
             show_notation: true,
-            engine_depth: 3,
             allow_illegal_moves: false,
             show_non_legal_move_hints: false,
-            engine_time_secs: 3,
         }
     }
     fn get_hb_id(&self, color: board::Color) -> usize {
@@ -1335,9 +1315,6 @@ impl Frontend {
 
         if self.board.is_valid_move(mov) {
             self.apply_move_with_history(mov, self.board.turn);
-            if !self.allow_illegal_moves && self.autoplay {
-                self.autoplay_remaining = self.autoplay_count;
-            }
             return true;
         } else if self.allow_illegal_moves {
             if src_val.color() != Some(self.board.turn) {
@@ -1391,23 +1368,6 @@ impl Frontend {
     pub fn rotate(&mut self) {
         self.origin = board::Color::from((HB_COUNT + usize::from(self.origin) - 1) as u8 % 3);
     }
-    pub fn do_engine_move(&mut self) {
-        let search_time = if self.go_infinite {
-            10e6
-        } else {
-            self.engine_time_secs as f32
-        };
-        let result = if self.use_paranoid_engine {
-            self.paranoid_engine
-                .search_position(&self.board, self.engine_depth, search_time, true)
-        } else {
-            self.engine
-                .search_position(&self.board, self.engine_depth, search_time, true)
-        };
-        if let Some(mov) = result {
-            self.apply_move_with_history(mov, self.board.turn);
-        }
-    }
     pub fn undo_move(&mut self) {
         let rm = self.history.pop();
         if let Some((rm, turn)) = rm {
@@ -1417,17 +1377,5 @@ impl Frontend {
             self.board.turn = turn;
             println!("state: {}", self.board.state_string());
         }
-    }
-    pub fn post_render_event(&mut self) -> bool {
-        if self.autoplay_remaining > 0 {
-            if self.board.game_status() != GameStatus::Ongoing {
-                self.autoplay_remaining = 0;
-            } else {
-                self.autoplay_remaining -= 1;
-                self.do_engine_move();
-            }
-            return true;
-        }
-        false
     }
 }
