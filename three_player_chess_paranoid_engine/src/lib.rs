@@ -487,28 +487,21 @@ impl ParanoidEngine {
                     hash,
                     Transposition::new(best_move, eval, self.eval_cap_line_max_move_index),
                 );
-                propagation_result = match propagation_result {
-                    PropagationResult::Ok => {
-                        debug_assert!(index > 0);
-                        if depth > 0 {
-                            self.propagate_move_eval(
-                                depth - 1,
-                                self.engine_stack[depth as usize]
-                                    .move_rev
-                                    .as_ref()
-                                    .map(|rm| rm.mov),
-                                eval,
-                            );
-                        }
-
-                        PropagationResult::Ok
-                    }
-                    PropagationResult::Pruned(1) => PropagationResult::Ok,
-                    PropagationResult::Pruned(n) => PropagationResult::Pruned(n - 1),
-                };
                 if depth == 0 {
                     return Ok(());
                 }
+                self.propagate_move_eval(
+                    depth - 1,
+                    self.engine_stack[depth as usize]
+                        .move_rev
+                        .as_ref()
+                        .map(|rm| rm.mov),
+                    eval,
+                );
+                propagation_result = match propagation_result {
+                    PropagationResult::Ok | PropagationResult::Pruned(1) => PropagationResult::Ok,
+                    PropagationResult::Pruned(n) => PropagationResult::Pruned(n - 1),
+                };
                 depth -= 1;
                 ed = &mut self.engine_stack[depth as usize];
             }

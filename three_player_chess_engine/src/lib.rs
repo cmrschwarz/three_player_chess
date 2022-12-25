@@ -443,6 +443,7 @@ impl Engine {
                         els
                     );
                 }
+
                 self.transposition_table.insert(
                     hash,
                     Transposition::new(
@@ -452,28 +453,21 @@ impl Engine {
                         self.eval_cap_line_max_move_index,
                     ),
                 );
-                propagation_result = match propagation_result {
-                    PropagationResult::Ok => {
-                        debug_assert!(index > 0);
-                        if depth > 0 {
-                            self.propagate_move_score(
-                                depth - 1,
-                                self.engine_stack[depth as usize]
-                                    .move_rev
-                                    .as_ref()
-                                    .map(|rm| rm.mov),
-                                score,
-                            );
-                        }
-
-                        PropagationResult::Ok
-                    }
-                    PropagationResult::Pruned(1) => PropagationResult::Ok,
-                    PropagationResult::Pruned(n) => PropagationResult::Pruned(n - 1),
-                };
                 if depth == 0 {
                     return Ok(());
                 }
+                self.propagate_move_score(
+                    depth - 1,
+                    self.engine_stack[depth as usize]
+                        .move_rev
+                        .as_ref()
+                        .map(|rm| rm.mov),
+                    score,
+                );
+                propagation_result = match propagation_result {
+                    PropagationResult::Ok | PropagationResult::Pruned(1) => PropagationResult::Ok,
+                    PropagationResult::Pruned(n) => PropagationResult::Pruned(n - 1),
+                };
                 depth -= 1;
                 ed = &mut self.engine_stack[depth as usize];
             }

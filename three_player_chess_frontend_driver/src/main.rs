@@ -48,6 +48,32 @@ impl FrontendDriver {
             self.fe.apply_move_with_history(mov, self.fe.board.turn);
         }
     }
+    // for testing purposes, we usually set some interesting position here for engine debugging
+    fn setup_board(&mut self) {
+        // AF2I5Eb//H4///G9//:B4LB7IC6K9//C8Fc/KA8/H1/I8//:HbKa///J7/H2/Kc//:103:103 black refuses to take blues queen
+        // FH2ABE3//D2/C1G2/Jb/A2//:LKBA7J6/D5/C6/LA8//B8//:HFKLb///K9//Fc//:79:80 blue fails to save himself
+        // BCFG2A3H4//G9/DE1/E2/G1//:AD4KD7B5L9/I5/DC6/LI8//K8//:HGJbLa/E9/K5Ib/ELc/Ia/Gc//:96:96 paranoid hangs his bishop
+        // BCFG2AD3H4/E9/G9/DE1/E2/H2//:A4KD7CB5L9/I5/D6Kb/LI8//K8//:HGJbLa/Fa/K5Ib/ELc/Ia/Gc//:88:90 Qh9??
+        // BCFG2ADH3/E9/G9/DE1/E2/G1//:A4KD7CB5L9/I5/B7D6/LB8//K8//:HGJKbLa/Fa/K5Ea/JLc/Eb/Gc//:75:82 weird knight trade
+        // ABCDFGH2E9/BG1/C1J7/AH1/D1/E1/AH/:LKDCBA7Ea/B8I7/JC8/LA8/I8/D8/LA/:HGFIJKLb/KcJa/K5Jc/HLc/Ec/Ic/HL/:11:12 white refuses to take queen
+        // BDFGH2ACE3/B1H4/CF1/AH1/F3/E1/AH/:LJDCA7K6IB5/C6L5/JC8/LA8/I8/D8/LA/:GIJKLbFaHE9/KcEb/JcIa/HLc/Fb/Ic/HL/:14:18 white self destructs
+        // AF2H3I5Ea//H4//B4/G3//:LB7IC6A5K9//C8Gb/KA8/H1/I8//:HbKa///J7Fc/D6/Kc//:93:95 blue self destructs
+        // ABCF2GH3D4Ea/G1B5/CF1/AH1/C4/E1/AH/:LJDCBA7I6K5/C6I9/C8I7/LA8/I8/D8/LA/:I5HGJLbKa/GcJa/H4Kb/HLc/Ec/Ic/HL/:28:28  Nxi5 !!
+        // BCFH2A3E4F9/B5/D2/DE1/H4/G1//:LCA7C6J5//D7E9/I8//B7//:HGFKbKLa/Fa/L6/HcJb/Ja/Kc//:76:76   movegen bug repro
+        // BCFH2AH3/E9/D3Ia/A1La//B1//://///D4//:L7/////Ea//:189:336
+        // BFGH2E3D5//F1/H1/C8/E1/H/:D4LKJ7/B4K9/I7J5/L8//B6//:GFIKLbHaEI9/C3/Jc/HKc/Ec/Ic/H/:59:59
+        // BFGH2E3D5/F3/F1/H1/I8/E1/H/:LKJ7C5/B4K9/I7J5/L8//C7//:GFIKLbHEaI9/C3C8/Jc/HKc/Ec/Ic/H/:54:54
+        // ABEG2G3D7///D1Ib//C1//:CBA7LK5///K8J7//B8//K6:G4GLbLaE9/////L9//:68:68
+        // ABEG2G3D7///D2Ib//C1//:CBA7K5///J8J7//B8//:G4L7GLbE9/////K9//:84:84 white has to sac a pawn/queen to checkmate
+        // ABCFGH2DE4/B1H3/CF1/AH1/B5/E1/AH/:LKJICBA7D5/J6I5/JC8/LA8//D8/LA/:GFEJKbHLaI9/GcJa/FcEa/HLc/Ec/Ic/HL/:10:15
+        // ABCEFGH2D3/B5G9/CF1/AH1/D1/E1/AH/:LKJDCBA7I9/JC6/JC8/KA8/I8/D8/A/:GFEJKLbIaH9/FLa/FJc/GLc/Ec/Ic/L/:15:15
+        // CEFGH2A5E4D5H4C5/BG1/CF1/AH1/D4/E1/AH/:LKIDCBA7J6/KB8/JC8/LA8/L5/D8/LA/:HGFEILbJaK9B2/GKc/FJc/HLc/Ec/Ic/HL/Ka:0:0
+        // ABCEFGH2D3/B5G9/F1D2/AH1/D1/E1/AH/:LKJDCBA7I9/JC6/JC8/LA8/I8/D8/A/:GFEJKLbH9/FLa/FJc/GLc/Ec/Ic/L/:15:17
+        self.fe.board = ThreePlayerChess::from_str(
+            "FH2ABE3//D2/C1G2/Jb/A2//:LKBA7J6/D5/C6/LA8//B8//:HFKLb///K9//Fc//:79:80",
+        )
+        .unwrap();
+    }
 }
 
 type WindowedContext = glutin::ContextWrapper<glutin::PossiblyCurrent, glutin::window::Window>;
@@ -150,6 +176,7 @@ fn main() {
         go_infinite: false,
         use_paranoid_engine: false,
     };
+    fd.setup_board();
 
     fd.fe.update_dimensions(
         0,
