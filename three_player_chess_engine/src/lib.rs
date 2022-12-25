@@ -429,7 +429,6 @@ impl Engine {
                 let best_move = ed.best_move;
                 let move_rev = ed.move_rev.clone();
                 let hash = ed.hash;
-                let index = ed.index;
                 if depth > 0 {
                     self.board.revert_move(&move_rev.clone().unwrap());
                 }
