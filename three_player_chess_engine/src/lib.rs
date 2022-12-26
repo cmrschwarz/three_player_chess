@@ -350,22 +350,20 @@ impl Engine {
             // moves that player 3 wouldn't even consider
             // (e.g. a move for player 3 that leads to player 2 winning)
             let prev_mover = usize::from(self.board.turn.prev());
-            if depth >= 1 && result == PropagationResult::Ok {
+            if depth >= 1 {
                 let ed1 = &self.engine_stack[depth as usize - 1];
                 if score[prev_mover] <= ed1.score[prev_mover] && ed1.best_move != ed_move_ref {
                     self.prune_count += 1;
                     result = PropagationResult::Pruned(1);
+                } else if score[mover] >= EVAL_WIN || score[prev_mover] <= EVAL_LOSS {
+                    // if we have a checkmate here, we want to stop eval and not
+                    // do a depth N check for no reason. this does not destroy the
+                    // 'fighting on' effect, because it only affects moves on the
+                    // same depth
+                    // also on depth 0, we still search for the prettiest checkmate :)
+                    self.prune_count += 1;
+                    result = PropagationResult::Pruned(1);
                 }
-            }
-            if result == PropagationResult::Ok
-                && (score[mover] >= EVAL_WIN || score[prev_mover] <= EVAL_LOSS)
-            {
-                // if we have a checkmate here, we want to stop eval and not
-                // do a depth N check for no reason. this does not destroy the
-                // 'fighting on' effect, because it only affects moves on the
-                // same depth
-                self.prune_count += 1;
-                result = PropagationResult::Pruned(1);
             }
             if self.debug_log {
                 // we really like this as debug break point, so we keep separate lines
