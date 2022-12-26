@@ -796,7 +796,15 @@ impl Frontend {
                 && field_val.color() != Some(self.board.turn)
                 && self
                     .board
-                    .is_piece_capturable_at(field, Some(self.board.turn), true)
+                    .is_piece_capturable_at(
+                        field,
+                        Some(self.board.turn),
+                        Some(
+                            &self.board.moves_for_board[usize::from(
+                                self.board.king_positions[usize::from(self.board.turn)],
+                            )],
+                        ),
+                    )
                     .is_some();
             let img = &self.pieces[usize::from(color)][usize::from(piece_value)];
 
@@ -808,7 +816,7 @@ impl Frontend {
                 && field_val.color() == Some(self.board.turn)
                 && self
                     .board
-                    .is_piece_capturable_at(field, None, false)
+                    .is_piece_capturable_at(field, None, None)
                     .is_some()
             {
                 canvas.draw_rect(&*UNIT_RECT, &sk_paint(self.danger_light, PaintStyle::Fill));
@@ -1000,7 +1008,7 @@ impl Frontend {
             board.turn = color;
             let mut moves = Default::default();
             let mp = MovegenParams::new(&mut self.board, MovegenOptions::default());
-            board.gen_moves_for_field(square, &mut moves, mp);
+            board.gen_moves_for_field(square, &mut moves, &mp);
             for m in moves {
                 self.possible_moves.set(usize::from(m.target), true);
                 if let MoveType::Castle(short) = m.move_type {
@@ -1085,7 +1093,7 @@ impl Frontend {
             return;
         }
         let mp = MovegenParams::new(&mut self.board, MovegenOptions::default());
-        self.board.gen_moves_for_field(square, &mut moves, mp);
+        self.board.gen_moves_for_field(square, &mut moves, &mp);
         for m in moves {
             if FieldValue::from(self.board.board[usize::from(m.target)]).piece_type() == Some(King)
             {
@@ -1251,6 +1259,7 @@ impl Frontend {
                 castle = true;
             }
             if castle {
+                //TODO: illegal moves might break this
                 let short = tgt_afl.file > src_afl.file;
                 mov.move_type = MoveType::Castle(short);
                 mov.target = get_castling_target(src_afl.hb, true, short);
@@ -1331,7 +1340,7 @@ impl Frontend {
         for c in board::Color::iter() {
             let kp = self.board.king_positions[usize::from(*c)];
             self.king_in_check[usize::from(*c)] =
-                self.board.is_piece_capturable_at(kp, None, false).is_some();
+                self.board.is_piece_capturable_at(kp, None, None).is_some();
         }
     }
     pub fn reset(&mut self) {

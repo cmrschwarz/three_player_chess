@@ -339,7 +339,7 @@ impl ThreePlayerChess {
         let bytes = pstr.as_bytes();
         let ci = usize::from(color);
         let mut i = 0;
-
+        let mut exactly_one_king = false;
         for piece_type in PieceType::iter() {
             let mut file_count = 0;
             loop {
@@ -374,9 +374,11 @@ impl ThreePlayerChess {
                             if file_count != 1
                                 || (bytes.len() == i || bytes[i] != '/'.try_into().unwrap())
                             {
-                                return Err("each player must have one king");
+                                exactly_one_king = false;
+                                break;
                             }
                             self.king_positions[ci] = loc;
+                            exactly_one_king = true;
                         }
                     }
                     file_count = 0;
@@ -388,6 +390,9 @@ impl ThreePlayerChess {
                     file_count += 1;
                 }
             }
+        }
+        if !exactly_one_king {
+            return Err("players must have exactly one king!");
         }
         for _ in 0..2 {
             if i == bytes.len() {
@@ -781,10 +786,12 @@ impl Move {
     }
     fn parse_special_move(game: &mut ThreePlayerChess, string: &str) -> Option<Move> {
         if string == "O-O" {
-            return game.gen_move_castling(true);
+            let mp = MovegenParams::new(game, MovegenOptions::default());
+            return game.gen_move_castling(true, &mp);
         }
         if string == "O-O-O" {
-            return game.gen_move_castling(false);
+            let mp = MovegenParams::new(game, MovegenOptions::default());
+            return game.gen_move_castling(false, &mp);
         }
         let draw_claim_basis = if string == "draw" {
             if game.threefold_repetition_applies() {
@@ -912,7 +919,8 @@ impl Move {
         let field_val = game.get_field_value(self.source);
         let (color, piece) = field_val.unwrap();
         let mut mov = *self;
-        let mut mff = MovesForField::new_empty(self.target);
+        let mut mff = MovesForField::new_empty();
+        let target_afl = AnnotatedFieldLocation::from(self.target);
         let mut disambiguate_file = false;
         let mut disambiguate_rank = false;
         let fc = self.source.file_char();
@@ -934,13 +942,13 @@ impl Move {
             }
         };
         if piece == Knight {
-            mff.add_knight_moves();
+            mff.add_knight_moves(target_afl);
             for nm in &mff.knight_moves {
                 check_move_ambiguities(*nm);
             }
         }
         if piece == Bishop || piece == Queen {
-            mff.add_diagonal_lines();
+            mff.add_diagonal_lines(target_afl);
             for dli in mff.diagonal_lines_iter() {
                 for l in dli {
                     check_move_ambiguities(*l);
@@ -948,7 +956,7 @@ impl Move {
             }
         }
         if piece == Rook || piece == Queen {
-            mff.add_orthogonal_lines();
+            mff.add_orthogonal_lines(target_afl);
             for cdi in mff.orthogonal_lines_iter() {
                 for l in cdi {
                     check_move_ambiguities(*l);
@@ -1043,8 +1051,18 @@ impl Move {
 
         match gs {
             GameStatus::Ongoing => {
-                if game.is_king_capturable(None) {
-                    if game.is_king_capturable(Some(turn)) {
+                if game
+                    .is_piece_capturable_at(game.king_positions[usize::from(game.turn)], None, None)
+                    .is_some()
+                {
+                    if game
+                        .is_piece_capturable_at(
+                            game.king_positions[usize::from(game.turn)],
+                            Some(turn),
+                            None,
+                        )
+                        .is_some()
+                    {
                         writer.write_char('+')?;
                     } else {
                         writer.write_str("(+)")?;
@@ -1053,7 +1071,7 @@ impl Move {
                     .is_piece_capturable_at(
                         game.king_positions[usize::from(get_next_hb(turn, false))],
                         Some(turn),
-                        false,
+                        None,
                     )
                     .is_some()
                 {

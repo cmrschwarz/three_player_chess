@@ -149,7 +149,14 @@ pub fn board_has_captures(tpc: &mut ThreePlayerChess) -> bool {
             let loc = FieldLocation::from(i);
             if color != tpc.turn {
                 if tpc
-                    .is_piece_capturable_at(loc, Some(tpc.turn), true)
+                    .is_piece_capturable_at(
+                        loc,
+                        Some(tpc.turn),
+                        Some(
+                            &tpc.moves_for_board
+                                [usize::from(tpc.king_positions[usize::from(tpc.turn)])],
+                        ),
+                    )
                     .is_some()
                 {
                     return true;
