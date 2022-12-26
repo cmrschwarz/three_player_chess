@@ -700,7 +700,8 @@ impl ThreePlayerChess {
                 self.board[tgt] = FieldValue(Some((self.turn, piece_type))).into();
                 self.board[src] = Default::default();
             }
-            ClaimDraw(_) => return,
+
+            NullMove | ClaimDraw(_) => return,
         }
     }
     pub fn apply_king_move_sideeffects(&mut self, m: Move) {
@@ -869,6 +870,12 @@ impl ThreePlayerChess {
                 );
                 self.last_capture_or_pawn_move_index = self.move_index;
             }
+            NullMove => {
+                self.zobrist_hash.fifty_move_rule_move_inc(
+                    self.move_index,
+                    self.last_capture_or_pawn_move_index,
+                );
+            }
         }
         self.turn = self.turn.next();
         self.zobrist_hash.next_turn(self.turn);
@@ -914,7 +921,7 @@ impl ThreePlayerChess {
                 self.board[tgt] = Default::default();
                 self.board[src] = FieldValue(Some((self.turn, PieceType::Pawn))).into();
             }
-            ClaimDraw(_) => return,
+            NullMove | ClaimDraw(_) => return,
         }
     }
     pub fn unapply_move_sideffects(&mut self, rm: &ReversableMove) {
@@ -928,7 +935,7 @@ impl ThreePlayerChess {
         self.possible_en_passant = rm.possible_en_passant;
         self.zobrist_hash.value = rm.zobrist_hash_value;
 
-        if let ClaimDraw(_) = rm.mov.move_type {
+        if let NullMove | ClaimDraw(_) = rm.mov.move_type {
             return;
         }
         if self.get_field_value(rm.mov.target).piece_type().unwrap() == King {

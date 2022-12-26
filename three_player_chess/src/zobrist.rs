@@ -4,8 +4,6 @@ use rand::prelude::*;
 const PIECE_TYPE_CASTLABLE_ROOK: usize = PIECE_COUNT;
 const PIECE_TYPE_EN_PASSENT_SQUARE: usize = PIECE_COUNT + 1;
 
-pub const ZOBRIST_NULL_MOVE_HASH: u64 = 0xAAAAAAAAAAAAAAAA;
-
 #[derive(Clone, PartialEq, Eq)]
 pub struct ZobristData {
     field_values: [[u64; (PIECE_COUNT + 2) * HB_COUNT]; BOARD_SIZE],

@@ -216,9 +216,16 @@ pub enum MoveType {
     Castle(bool), // long castle(left) is false, short castle (right) is true
     Promotion(PieceType),
     CapturePromotion(PackedFieldValue, PieceType), // (captured piece, promotion piece type)
+    NullMove, // only used in engines, helps to avoid issues with late move pruning
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+impl Default for MoveType {
+    fn default() -> Self {
+        NullMove
+    }
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
 pub struct Move {
     pub move_type: MoveType,
     pub source: FieldLocation,
@@ -1042,6 +1049,7 @@ impl Move {
                     "3"
                 }
             ))?,
+            NullMove => writer.write_str("NULL")?,
         }
         let turn = game.turn;
         let rm = ReversableMove::new(game, *self);
@@ -1139,6 +1147,7 @@ impl From<Move> for u64 {
             }
             ClaimDraw(claim_reason) => 6 | (u8::from(claim_reason) as u64) << 8,
             SlideClaimDraw(claim_reason) => 7 | (u8::from(claim_reason) as u64) << 8,
+            NullMove => 8,
         };
         move_type << 16 | (u8::from(m.target) as u64) << 8 | (u8::from(m.source) as u64)
     }

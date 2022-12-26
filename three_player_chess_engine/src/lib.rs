@@ -3,7 +3,6 @@ use std::ops::Sub;
 use std::time::{Duration, Instant};
 use three_player_chess::board::*;
 use three_player_chess::movegen::MovegenOptions;
-use three_player_chess::zobrist::ZOBRIST_NULL_MOVE_HASH;
 use three_player_chess_board_eval::*;
 
 #[derive(Copy, Clone, Eq, PartialEq)]
@@ -62,8 +61,8 @@ struct EngineDepth {
 struct EngineMove {
     // we store this in here so we can check the transposition table
     // without actually applying (and then reverting) the move
-    hash: u64,         // hash of position after the move
-    mov: Option<Move>, // we allow null moves
+    hash: u64, // hash of position after the move
+    mov: Move,
     score: Score,
 }
 
@@ -132,7 +131,7 @@ impl Engine {
             eval_str = format!(
                 "({}): {}",
                 score_str(self.engine_stack[0].score),
-                self.transposition_line_str(Some(bm))
+                self.transposition_line_str(bm)
             );
             let mut moves: Vec<_> = self
                 .board
@@ -164,7 +163,7 @@ impl Engine {
                     eval_str,
                     if i == 0 { "*" } else { " " },
                     score_str(em.0),
-                    self.transposition_line_str(Some(em.1))
+                    self.transposition_line_str(em.1)
                 );
             }
             let bad_moves_present = moves
@@ -179,7 +178,7 @@ impl Engine {
                     "{}\n   ~({}): {}",
                     eval_str,
                     score_str(em.0),
-                    self.transposition_line_str(Some(em.1))
+                    self.transposition_line_str(em.1)
                 );
             }
         }
@@ -294,10 +293,10 @@ impl Engine {
         );
         if captures_only {
             //null move
-            ed.moves.push(EngineMove {
-                score: calculate_position_score(&mut self.board),
-                hash: parent_hash ^ ZOBRIST_NULL_MOVE_HASH,
-                mov: None,
+            self.dummy_vec.push(Move {
+                move_type: MoveType::NullMove,
+                source: Default::default(),
+                target: Default::default(),
             });
         }
         for mov in self.dummy_vec.iter() {
@@ -315,7 +314,7 @@ impl Engine {
             ed.moves.push(EngineMove {
                 score,
                 hash,
-                mov: Some(*mov),
+                mov: *mov,
             });
         }
         self.dummy_vec.clear();
@@ -326,22 +325,17 @@ impl Engine {
         if let Some(em) = ed.moves.first().as_deref() {
             // so that we apply the first move as 'better than nothing'
             // but don't prune
-            ed.best_move = em.mov;
+            ed.best_move = Some(em.mov);
         }
         ed
     }
-    fn propagate_move_score(
-        &mut self,
-        depth: u16,
-        mov: Option<Move>,
-        score: Score,
-    ) -> PropagationResult {
+    fn propagate_move_score(&mut self, depth: u16, mov: Move, score: Score) -> PropagationResult {
         let mut result = PropagationResult::Ok;
         let mover = usize::from(self.board.turn);
         let mut ed = &mut self.engine_stack[depth as usize];
         if score[mover] > ed.score[mover] {
             ed.score = score;
-            ed.best_move = mov;
+            ed.best_move = Some(mov);
             let ed_move_ref = ed.move_rev.as_ref().map(|mr| mr.mov);
             if depth >= 2 {
                 let ed1 = &self.engine_stack[depth as usize - 1];
@@ -369,7 +363,7 @@ impl Engine {
                 self.prune_count += 1;
                 result = PropagationResult::Pruned(1);
             }
-            if self.debug_log && mov.is_some() {
+            if self.debug_log {
                 // we really like this as debug break point, so we keep separate lines
                 let flavor_text;
                 if depth > 1 {
@@ -424,22 +418,18 @@ impl Engine {
         }
         res
     }
-    fn transposition_line_str(&mut self, mov: Option<Move>) -> String {
+    fn transposition_line_str(&mut self, mov: Move) -> String {
         let mut res = String::new();
         let mut board = self.board.clone();
         let mut mov = mov;
         loop {
-            if let Some(mov) = mov {
-                res.push_str(mov.to_string(&mut board).as_str());
-                board.perform_move(mov);
-            }
+            res.push_str(mov.to_string(&mut board).as_str());
+            board.perform_move(mov);
+
             if let Some(tp) = self.transposition_table.get(&board.get_zobrist_hash()) {
-                if mov.is_some() {
-                    //let tp_score = tp.score;
-                    //res += &format_args!(" ({})", score_str(tp_score),).to_string();
-                }
-                mov = tp.best_move;
-                if mov.is_none() {
+                if let Some(bm) = tp.best_move {
+                    mov = bm;
+                } else {
                     break;
                 }
             } else {
@@ -467,7 +457,7 @@ impl Engine {
                 }
                 if depth == 1 && self.debug_log {
                     let mov = ed.move_rev.as_ref().map(|rm| rm.mov).unwrap();
-                    let els = self.transposition_line_str(Some(mov));
+                    let els = self.transposition_line_str(mov);
                     println!(
                         "finished evaluating {}: ({}): {}",
                         move_rev.as_ref().unwrap().mov.to_string(&mut self.board),
@@ -493,7 +483,8 @@ impl Engine {
                     self.engine_stack[depth as usize]
                         .move_rev
                         .as_ref()
-                        .map(|rm| rm.mov),
+                        .unwrap()
+                        .mov,
                     score,
                 );
                 propagation_result = match propagation_result {
@@ -506,48 +497,44 @@ impl Engine {
             let em = &mut ed.moves[ed.index];
             ed.index += 1;
             if depth == 0 && self.debug_log {
-                if let Some(m) = em.mov {
-                    println!(
-                        "beginning to evaluate {} (currently {})",
-                        m.to_string(&mut self.board),
-                        score_str(em.score),
-                    );
-                    depth = depth; // convenient breakpoint hook
-                }
+                println!(
+                    "beginning to evaluate {} (currently {})",
+                    em.mov.to_string(&mut self.board),
+                    score_str(em.score),
+                );
+                depth = depth; // convenient breakpoint hook
             }
 
             let rm;
-            if let Some(mov) = em.mov {
-                if let Some(tp) = self.transposition_table.get(&em.hash) {
-                    if tp.eval_max_move_index >= self.eval_max_move_index
-                        && tp.eval_cap_line_max_move_index >= self.eval_cap_line_max_move_index
-                    {
-                        self.transposition_count += 1;
-                        self.pos_count += 1;
-                        let tp_score = tp.score;
-                        propagation_result = self.propagate_move_score(depth, Some(mov), tp_score);
-                        continue;
-                    }
-                    em.score = tp.score;
+
+            if let Some(tp) = self.transposition_table.get(&em.hash) {
+                if tp.eval_max_move_index >= self.eval_max_move_index
+                    && tp.eval_cap_line_max_move_index >= self.eval_cap_line_max_move_index
+                {
+                    self.transposition_count += 1;
+                    self.pos_count += 1;
+                    let tp_score = tp.score;
+                    let mov = em.mov;
+                    propagation_result = self.propagate_move_score(depth, mov, tp_score);
+                    continue;
                 }
-                rm = Some(ReversableMove::new(&self.board, mov));
-                self.board
-                    .perform_reversable_move(rm.as_ref().unwrap(), true);
-            } else {
-                rm = None;
+                em.score = tp.score;
             }
+            rm = ReversableMove::new(&self.board, em.mov);
+            self.board.perform_reversable_move(&rm, true);
+
             // even for null moves, we increase the depth, because we want them to be
             // 'overrulable' by actual moves
             depth += 1;
             let game_over = self.board.game_status != GameStatus::Ongoing;
-            let force_eval = rm.is_none() || depth >= self.eval_depth + self.eval_cap_line_len;
+            let force_eval = depth >= self.eval_depth + self.eval_cap_line_len;
             if depth >= self.eval_depth || force_eval || game_over {
                 let hash = em.hash;
                 let mut score = em.score;
                 let score_now = if game_over || force_eval {
                     true
                 } else {
-                    self.gen_engine_depth(depth, rm.clone(), true);
+                    self.gen_engine_depth(depth, Some(rm.clone()), true);
                     //1 for the null move
                     self.engine_stack[depth as usize].moves.len() == 1
                 };
@@ -558,12 +545,10 @@ impl Engine {
                     }
                     self.pos_count += 1;
                     if self.debug_log {
-                        let line_depth = depth - rm.as_ref().map_or(1, |_| 0);
                         println!(
-                            "score: ({}): {}{} (score_now: {})",
+                            "score: ({}): {} (score_now: {})",
                             score_str(score),
-                            self.engine_line_str(line_depth, rm.as_ref()),
-                            rm.as_ref().map_or("NULL", |_| ""),
+                            self.engine_line_str(depth, Some(&rm)),
                             score_now
                         );
                     }
@@ -580,13 +565,10 @@ impl Engine {
                             },
                         ),
                     );
-                    if let Some(ref rm) = rm {
-                        self.board.revert_move(rm);
-                    }
+                    self.board.revert_move(&rm);
                     depth -= 1;
 
-                    propagation_result =
-                        self.propagate_move_score(depth, rm.map(|rm| rm.mov), score);
+                    propagation_result = self.propagate_move_score(depth, rm.mov, score);
                     continue;
                 }
                 if self.debug_log {
@@ -594,20 +576,19 @@ impl Engine {
                         println!(
                             "expanding unstable position @depth {}: {}",
                             depth,
-                            self.engine_line_str(depth, rm.as_ref()),
+                            self.engine_line_str(depth, Some(&rm)),
                         );
                     }
                 }
             } else {
                 if self.debug_log {
-                    let line_depth = depth - rm.as_ref().map_or(1, |_| 0);
                     println!(
                         "expanding further @depth {}: {}",
                         depth,
-                        self.engine_line_str(line_depth, rm.as_ref()),
+                        self.engine_line_str(depth, Some(&rm)),
                     );
                 }
-                self.gen_engine_depth(depth, rm, depth >= self.eval_depth);
+                self.gen_engine_depth(depth, Some(rm), depth >= self.eval_depth);
             }
             if Instant::now().gt(&end) {
                 return Err(());

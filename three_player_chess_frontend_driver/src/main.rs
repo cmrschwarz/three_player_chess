@@ -50,6 +50,7 @@ impl FrontendDriver {
     }
     // for testing purposes, we usually set some interesting position here for engine debugging
     fn setup_board(&mut self) {
+        // F2C3H4A5///H1//G1//:LKJCBA7/J6/C6/LC8/Hc/B8//:FLbJKaG9//F3Ia/Jc/Ec/Ib//:88:88 black hangs mate?
         // BDGH2A3D4/G3/CF1/BH1/Ic/D1//:JCA7I6B5I9//D7D6/C8/L8/B8//:G4FLbHEaJ9//Eb/Hc/Ib/Ka//:73:77
         // AF2I5Eb//H4///G9//:B4LB7IC6K9//C8Fc/KA8/H1/I8//:HbKa///J7/H2/Kc//:103:103 black refuses to take blues queen
         // FH2ABE3//D2/C1G2/Jb/A2//:LKBA7J6/D5/C6/LA8//B8//:HFKLb///K9//Fc//:79:80 blue fails to save himself
@@ -73,7 +74,7 @@ impl FrontendDriver {
         // ABG2H3/E2C3/A6/B1Fb/B3/E1//:LKJC7B6I9///IC8/Lc/B8//:GJLbHEa//JcKa/Gc/E9/Ic//:66:66
         // ABG2H3/E2C3/C8/B1Jb/B3/E1//:LKJC7B6///I9/Ja/B8//:GLbHa//JcKa/Gc/E9/Ic//:71:71
         self.fe.board = ThreePlayerChess::from_str(
-            "BDGH2A3D4/G3/CF1/BH1/Ic/D1//:JCA7I6B5I9//D7D6/C8/L8/B8//:G4FLbHEaJ9//Eb/Hc/Ib/Ka//:73:77",
+            "F2C3H4A5///H1//G1//:LKJCBA7/J6/C6/LC8/Hc/B8//:FLbJKaG9//F3Ia/Jc/Ec/Ib//:88:88",
         )
         .unwrap();
     }
