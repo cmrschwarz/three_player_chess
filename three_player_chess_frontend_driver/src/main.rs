@@ -214,6 +214,7 @@ fn main() {
                 }
                 WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
                 WindowEvent::MouseInput { state, button, .. } => {
+                    let histoy_len = fd.fe.history.len();
                     match state {
                         ElementState::Pressed => fd.fe.mouse_clicked(button == MouseButton::Right),
                         ElementState::Released => {
@@ -221,6 +222,10 @@ fn main() {
                         }
                     }
                     env.windowed_context.window().request_redraw();
+                    if histoy_len < fd.fe.history.len() && fd.autoplay && fd.autoplay_remaining == 0
+                    {
+                        fd.autoplay_remaining = fd.autoplay_count;
+                    }
                 }
                 WindowEvent::CursorMoved { position, .. } => {
                     fd.fe.mouse_moved(nalgebra::Vector2::<i32>::new(
