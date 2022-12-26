@@ -14,8 +14,6 @@ arrayvec = "0.7.2"
 bitvec = "1.0.0"
 
 three_player_chess = {path = "../three_player_chess"}
-three_player_chess_engine = {path = "../three_player_chess_engine"}
-three_player_chess_paranoid_engine = {path = "../three_player_chess_paranoid_engine"}
 three_player_chess_board_eval = {path = "../three_player_chess_board_eval"}
 
 [dependencies.skia-safe]
