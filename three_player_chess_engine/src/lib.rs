@@ -8,6 +8,13 @@ use three_player_chess_board_eval::*;
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub struct Transposition {
     score: Score,
+    // prevent the most eggregious hash collisions
+    // since the fifty move rule kills non same depths transpositions
+    // anyways, this does not really hurt the tp's effectiveness
+    // NOTE: this is a hack, really. the fifty move rule thing could also
+    // be changed to where only for the last 10 moves or so does the value
+    // impact the zobrist
+    move_index: u16,
     eval_max_move_index: u16,
     best_move: Option<Move>,
 }
@@ -72,9 +79,15 @@ enum PropagationResult {
 }
 
 impl Transposition {
-    fn new(mov: Option<Move>, score: Score, eval_max_move_index: u16) -> Transposition {
+    fn new(
+        mov: Option<Move>,
+        score: Score,
+        move_index: u16,
+        eval_max_move_index: u16,
+    ) -> Transposition {
         Transposition {
             score,
+            move_index: move_index,
             eval_max_move_index,
             best_move: mov,
         }
@@ -334,7 +347,8 @@ impl Engine {
             ed.best_move = Some(mov);
             let ed_move_ref = ed.move_rev.as_ref().map(|mr| mr.mov);
             // we sadly can't prune up two levels here because we don't want player 1 to be afraid of
-            // moves of player 3 that player 3 wouldn't even consider
+            // moves that player 3 wouldn't even consider
+            // (e.g. a move for player 3 that leads to player 2 winning)
             let prev_mover = usize::from(self.board.turn.prev());
             if depth >= 1 && result == PropagationResult::Ok {
                 let ed1 = &self.engine_stack[depth as usize - 1];
@@ -458,7 +472,12 @@ impl Engine {
 
                 self.transposition_table.insert(
                     hash,
-                    Transposition::new(best_move, score, self.eval_max_move_index),
+                    Transposition::new(
+                        best_move,
+                        score,
+                        self.board.move_index,
+                        self.eval_max_move_index,
+                    ),
                 );
                 if depth == 0 {
                     return Ok(());
@@ -493,7 +512,9 @@ impl Engine {
             let rm;
 
             if let Some(tp) = self.transposition_table.get(&em.hash) {
-                if tp.eval_max_move_index >= self.eval_max_move_index {
+                if tp.eval_max_move_index >= self.eval_max_move_index
+                    && tp.move_index == self.board.move_index
+                {
                     self.transposition_count += 1;
                     self.pos_count += 1;
                     let tp_score = tp.score;
@@ -535,7 +556,12 @@ impl Engine {
                     }
                     self.transposition_table.insert(
                         hash,
-                        Transposition::new(None, score, self.eval_max_move_index),
+                        Transposition::new(
+                            None,
+                            score,
+                            self.board.move_index,
+                            self.eval_max_move_index,
+                        ),
                     );
                     self.board.revert_move(&rm);
                     depth -= 1;

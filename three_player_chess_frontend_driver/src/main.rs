@@ -295,7 +295,7 @@ fn main() {
                             } else {
                                 fd.autoplay ^= true;
                                 println!("set autoplay to {}", fd.autoplay);
-                                if (!fd.autoplay) {
+                                if !fd.autoplay {
                                     fd.autoplay_remaining = 0;
                                 }
                             }
