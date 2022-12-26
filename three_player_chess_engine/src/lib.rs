@@ -510,19 +510,23 @@ impl Engine {
             }
 
             let rm;
-
-            if let Some(tp) = self.transposition_table.get(&em.hash) {
-                if tp.eval_max_move_index >= self.eval_max_move_index
-                    && tp.move_index == self.board.move_index
-                {
-                    self.transposition_count += 1;
-                    self.pos_count += 1;
-                    let tp_score = tp.score;
-                    let mov = em.mov;
-                    propagation_result = self.propagate_move_score(depth, mov, tp_score);
-                    continue;
+            if depth > HB_COUNT as u16 {
+                // cannot have transpositions before at least somebody made
+                // two moves. this also prevents (potentially very destructive)
+                // hash collisions on the very first depths
+                if let Some(tp) = self.transposition_table.get(&em.hash) {
+                    if tp.eval_max_move_index >= self.eval_max_move_index
+                        && tp.move_index == self.board.move_index
+                    {
+                        self.transposition_count += 1;
+                        self.pos_count += 1;
+                        let tp_score = tp.score;
+                        let mov = em.mov;
+                        propagation_result = self.propagate_move_score(depth, mov, tp_score);
+                        continue;
+                    }
+                    em.score = tp.score;
                 }
-                em.score = tp.score;
             }
             rm = ReversableMove::new(&self.board, em.mov);
             self.board.perform_reversable_move(&rm, true);
