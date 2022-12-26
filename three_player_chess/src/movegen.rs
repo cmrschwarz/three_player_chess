@@ -673,7 +673,13 @@ impl ThreePlayerChess {
     pub fn apply_move(&mut self, m: Move) {
         let src = usize::from(m.source);
         let tgt = usize::from(m.target);
-        debug_assert!(FieldValue::from(self.board[tgt]).piece_type() != Some(King));
+        debug_assert!(
+            FieldValue::from(self.board[tgt]).piece_type() != Some(King),
+            "trying to capture king with {}->{} at: {}",
+            m.source.to_str_fancy(),
+            m.target.to_str_fancy(),
+            self.state_string()
+        );
         match m.move_type {
             Slide | SlideClaimDraw(_) | Capture(_) => {
                 self.board[tgt] = self.board[src];
@@ -996,6 +1002,11 @@ impl ThreePlayerChess {
         //checking for checks only makes sense for the current player
         debug_assert!(potential_king_checks.is_none() || capturing_color == Some(self.turn));
         let field_value = self.get_packed_field_value(loc);
+        debug_assert!(
+            FieldValue::from(field_value).is_some(),
+            "checking for capturable piece without a pice at {}",
+            self.state_string()
+        );
         let (piece_color, piece_type) = FieldValue::from(field_value).unwrap();
         fn color_may_capture(
             col: Color,
@@ -1278,127 +1289,44 @@ impl ThreePlayerChess {
         }
     }
 
-    fn gen_moves_rook(
-        &mut self,
-        field: AnnotatedFieldLocation,
-        moves: &mut Vec<Move>,
-        mp: &MovegenParams,
-    ) {
-        // we want to avoid having to change directions when attempting
-        // to move up/down(!) across the upper center line
-        // therefore we use the native origin of the starting field
-        // so this can't happen
-        debug_assert!(field.origin == field.hb);
-        for (length, rank, increase) in [
-            (RS - field.rank, true, true),  // up
-            (field.rank - 1, true, false),  // down
-            (field.file - 1, false, false), // left
-            (RS - field.file, false, true), // right
-        ] {
-            let mut pos = field;
-            for _ in 0..length {
-                let res = if rank {
-                    move_rank(pos, increase)
-                } else {
-                    move_file(pos, increase)
-                };
-                match res {
-                    Some(tgt) => {
-                        match self.gen_non_king_slide_move(field.loc, tgt.loc, moves, mp) {
-                            SuccessCapture | SuccessSlide if mp.opts.only_one => return,
-                            SuccessCapture | CaptureButCheck | SameColorCollision => break,
-                            SlideButCheck | SuccessSlide | SlideButCapturesOnly => {}
-                        }
-                        pos = tgt;
-                    }
-                    _ => break,
+    fn gen_moves_rook(&mut self, field: FieldLocation, moves: &mut Vec<Move>, mp: &MovegenParams) {
+        let mff = &self.moves_for_board[usize::from(field)];
+        for oli in mff.orthogonal_lines_iter() {
+            for f in oli {
+                match self.gen_non_king_slide_move(field, *f, moves, mp) {
+                    SuccessCapture | SuccessSlide if mp.opts.only_one => return,
+                    SuccessCapture | CaptureButCheck | SameColorCollision => break,
+                    SlideButCheck | SuccessSlide | SlideButCapturesOnly => {}
                 }
             }
         }
     }
     fn gen_moves_bishop(
         &mut self,
-        field: AnnotatedFieldLocation,
+        field: FieldLocation,
         moves: &mut Vec<Move>,
         mp: &MovegenParams,
     ) {
-        for (length, up, right) in [
-            (min(RS - field.file, RS - field.rank), true, true), // up right
-            (min(field.file, RS - field.rank), true, false),     // up left
-            (min(field.file, field.rank), false, false),         // down left
-            (min(RS - field.file, field.rank), false, true),     // down right
-        ] {
-            let mut pos = field;
-            for i in 0..length {
-                match move_diagonal(pos, up, right) {
-                    None => break,
-                    Some((one, None)) => {
-                        match self.gen_non_king_slide_move(field.loc, one.loc, moves, mp) {
-                            SuccessCapture | SuccessSlide if mp.opts.only_one => return,
-                            SuccessCapture | CaptureButCheck | SameColorCollision => break,
-                            SlideButCheck | SuccessSlide | SlideButCapturesOnly => {}
-                        };
-                        pos = one;
-                    }
-                    Some((mut one, Some(mut two))) => {
-                        let swap_dir = pos.hb != field.origin;
-                        if swap_dir && one.hb != field.origin {
-                            // to make sure that one doesn't have to swap directions
-                            // we come here because 'pos' and 'one' are both not the origin
-                            // on such a transition we need to change the order, which we want
-                            // to avoid for the outer loop
-                            std::mem::swap(&mut one, &mut two);
-                        }
-                        match self.gen_non_king_slide_move(field.loc, two.loc, moves, mp) {
-                            SuccessCapture | SuccessSlide if mp.opts.only_one => return,
-                            SuccessCapture | CaptureButCheck | SameColorCollision => break,
-                            SlideButCheck | SuccessSlide | SlideButCapturesOnly => {
-                                let mut pos2 = two;
-                                for _ in i..length {
-                                    match move_diagonal(pos2, up != swap_dir, right != swap_dir) {
-                                        None => break,
-                                        Some((one, None)) => {
-                                            match self.gen_non_king_slide_move(
-                                                field.loc, one.loc, moves, mp,
-                                            ) {
-                                                SuccessCapture | SuccessSlide
-                                                    if mp.opts.only_one =>
-                                                {
-                                                    return
-                                                }
-                                                SuccessCapture | CaptureButCheck
-                                                | SameColorCollision => break,
-                                                SlideButCheck | SuccessSlide
-                                                | SlideButCapturesOnly => {}
-                                            };
-                                            pos2 = one;
-                                        }
-                                        _ => unreachable!(),
-                                    }
-                                }
-                            }
-                        }
-                        match self.gen_non_king_slide_move(field.loc, one.loc, moves, mp) {
-                            SuccessCapture | SuccessSlide if mp.opts.only_one => return,
-                            SuccessCapture | CaptureButCheck | SameColorCollision => break,
-                            SlideButCheck | SuccessSlide | SlideButCapturesOnly => {}
-                        };
-                        pos = one;
-                    }
-                }
+        let mff = &self.moves_for_board[usize::from(field)];
+        for oli in mff.diagonal_lines_iter() {
+            for f in oli {
+                match self.gen_non_king_slide_move(field, *f, moves, mp) {
+                    SuccessCapture | SuccessSlide if mp.opts.only_one => return,
+                    SuccessCapture | CaptureButCheck | SameColorCollision => break,
+                    SlideButCheck | SuccessSlide | SlideButCapturesOnly => {}
+                };
             }
         }
     }
     fn gen_moves_knight(
         &mut self,
-        field: AnnotatedFieldLocation,
+        field: FieldLocation,
         moves: &mut Vec<Move>,
         mp: &MovegenParams,
     ) {
-        let mut knight_moves = arrayvec::ArrayVec::new();
-        get_knight_moves_for_field(field, &mut knight_moves);
-        for m in knight_moves {
-            let mt = self.gen_non_king_slide_move(field.loc, m, moves, mp);
+        let mff = &self.moves_for_board[usize::from(field)];
+        for m in mff.knight_moves.iter() {
+            let mt = self.gen_non_king_slide_move(field, *m, moves, mp);
             if mp.opts.only_one && mt.success() {
                 return;
             };
@@ -1666,15 +1594,9 @@ impl ThreePlayerChess {
             }
         }
     }
-    fn gen_moves_queen(
-        &mut self,
-        field: AnnotatedFieldLocation,
-        moves: &mut Vec<Move>,
-        mp: &MovegenParams,
-    ) {
-        let moves_len = moves.len();
+    fn gen_moves_queen(&mut self, field: FieldLocation, moves: &mut Vec<Move>, mp: &MovegenParams) {
         self.gen_moves_rook(field, moves, mp);
-        if mp.opts.only_one && moves.len() != moves_len {
+        if mp.opts.only_one && !moves.is_empty() {
             return;
         }
         self.gen_moves_bishop(field, moves, mp);
@@ -1703,18 +1625,16 @@ impl ThreePlayerChess {
         mp: &MovegenParams,
     ) {
         match self.get_field_value(field) {
-            FieldValue(Some((color, piece_type))) if color == self.turn => {
-                let field = field;
-                let field_a = AnnotatedFieldLocation::from(field);
-                match piece_type {
-                    PieceType::Pawn => self.gen_moves_pawn(field, moves, mp),
-                    PieceType::Knight => self.gen_moves_knight(field_a, moves, mp),
-                    PieceType::Bishop => self.gen_moves_bishop(field_a, moves, mp),
-                    PieceType::Rook => self.gen_moves_rook(field_a, moves, mp),
-                    PieceType::Queen => self.gen_moves_queen(field_a, moves, mp),
-                    PieceType::King => self.gen_moves_king(field_a, moves, mp),
+            FieldValue(Some((color, piece_type))) if color == self.turn => match piece_type {
+                PieceType::Pawn => self.gen_moves_pawn(field, moves, mp),
+                PieceType::Knight => self.gen_moves_knight(field, moves, mp),
+                PieceType::Bishop => self.gen_moves_bishop(field, moves, mp),
+                PieceType::Rook => self.gen_moves_rook(field, moves, mp),
+                PieceType::Queen => self.gen_moves_queen(field, moves, mp),
+                PieceType::King => {
+                    self.gen_moves_king(AnnotatedFieldLocation::from(field), moves, mp)
                 }
-            }
+            },
             _ => {}
         }
     }

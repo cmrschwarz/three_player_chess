@@ -222,32 +222,39 @@ impl Engine {
             },
         );
         let mut best_move = start_mov.pop();
-        for _ in 0..depth {
+        let mut total_pos_count = 0;
+        'search: for _ in 0..depth {
             self.eval_depth += 1;
             self.eval_cap_line_len = self.eval_depth;
-            let start = Instant::now();
-            self.transposition_count = 0;
-            self.prune_count = 0;
-            self.pos_count = 0;
-            if self.search_iterate(end).is_ok() {
-                best_move = self.engine_stack[0].best_move;
-                if report_results_per_depth || self.debug_log {
-                    self.report_search_depth_results(search_start, start);
+            for i in 0..2 {
+                self.transposition_count = 0;
+                self.prune_count = 0;
+                self.pos_count = 0;
+                let start = Instant::now();
+                self.eval_cap_line_len += i;
+                let bm = self.search_iterate(end);
+                total_pos_count += self.pos_count;
+                if bm.is_ok() {
+                    best_move = self.engine_stack[0].best_move;
+                    if report_results_per_depth || self.debug_log {
+                        self.report_search_depth_results(search_start, start);
+                    }
+                } else {
+                    if report_results_per_depth || self.debug_log {
+                        let time_elapsed = Instant::now().sub(start).as_secs_f32();
+                        println!(
+                            "depth {}+{} ({:.1}s [{:.1} s], {:.2} kN/s): aborted (after {} positions) [total: {:.2} kN/s]",
+                            self.eval_depth,
+                            self.eval_cap_line_len,
+                            time_elapsed,
+                            time_elapsed,
+                            (self.pos_count as f32 / time_elapsed) / 1000.,
+                            self.pos_count,
+                            (total_pos_count as f32 /  Instant::now().sub(search_start).as_secs_f32()) / 1000.,
+                        );
+                    }
+                    break 'search;
                 }
-            } else {
-                if report_results_per_depth || self.debug_log {
-                    let time_elapsed = Instant::now().sub(start).as_secs_f32();
-                    println!(
-                        "depth {}+{} ({:.1}s [{:.1} s], {:.2} kN/s): aborted (after {} positions)",
-                        self.eval_depth,
-                        self.eval_cap_line_len,
-                        time_elapsed,
-                        Instant::now().sub(search_start).as_secs_f32(),
-                        (self.pos_count as f32 / time_elapsed) / 1000.,
-                        self.pos_count
-                    );
-                }
-                break;
             }
         }
         if let Some(bm) = best_move {
