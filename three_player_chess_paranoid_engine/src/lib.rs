@@ -129,7 +129,7 @@ impl ParanoidEngine {
                     (
                         {
                             let rm = ReversableMove::new(&self.board, *m);
-                            self.board.perform_reversable_move(&rm);
+                            self.board.perform_reversable_move(&rm, false);
                             let te = self.transposition_table.get(&self.board.get_zobrist_hash());
                             self.board.revert_move(&rm);
                             te.map_or(EVAL_LOSS, |te| te.eval)
@@ -301,10 +301,11 @@ impl ParanoidEngine {
                 }
             }
             let rm = ReversableMove::new(&self.board, *mov);
-            self.board.perform_reversable_move(&rm);
+            self.board.perform_reversable_move(&rm, false);
             let hash = self.board.get_zobrist_hash();
             let eval = self.transposition_table.get(&hash).map_or_else(
                 || {
+                    self.board.game_status = self.board.game_status();
                     let ev = calculate_position_eval(&mut self.board, self.deciding_player);
                     ev
                 },
@@ -420,10 +421,10 @@ impl ParanoidEngine {
         }
         for i in 1..depth + 1 {
             let rm = self.engine_stack[i].move_rev.clone().unwrap();
-            self.board.perform_reversable_move(&rm);
+            self.board.perform_reversable_move(&rm, true);
         }
         if let Some(ref rm) = last_move {
-            self.board.perform_reversable_move(&rm);
+            self.board.perform_reversable_move(&rm, true);
         }
         res
     }
@@ -534,7 +535,8 @@ impl ParanoidEngine {
                     }
                 }
                 rm = Some(ReversableMove::new(&self.board, mov));
-                self.board.perform_reversable_move(rm.as_ref().unwrap());
+                self.board
+                    .perform_reversable_move(rm.as_ref().unwrap(), true);
             } else {
                 rm = None;
             }

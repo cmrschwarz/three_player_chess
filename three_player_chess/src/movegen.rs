@@ -24,16 +24,112 @@ pub struct MovegenOptions {
 pub struct MovegenParams {
     opts: MovegenOptions,
     potential_checks: MovesForField,
+    king_is_safe: bool,
 }
 
 impl MovegenParams {
-    pub fn new(board: &mut ThreePlayerChess, opts: MovegenOptions) -> MovegenParams {
-        MovegenParams {
+    pub fn new(board: &ThreePlayerChess, opts: MovegenOptions) -> MovegenParams {
+        let turn = board.turn;
+        let pc = &board.moves_for_board[usize::from(board.king_positions[usize::from(turn)])];
+        let mut mp = MovegenParams {
             opts: opts,
-            potential_checks: board.moves_for_board
-                [usize::from(board.king_positions[usize::from(board.turn)])]
-            .clone(),
+            potential_checks: MovesForField::new_empty(),
+            king_is_safe: true,
+        };
+        for m in pc.knight_moves.iter() {
+            if let Some((color, piece_type)) = *FieldValue::from(board.board[usize::from(*m)]) {
+                if piece_type == Knight || color != turn {
+                    mp.potential_checks.knight_moves.push(*m);
+                    mp.king_is_safe = false;
+                }
+            }
         }
+        let mut line_ends = 0;
+        for (oln, oli) in pc.orthogonal_lines_iter().enumerate() {
+            const XX: usize = usize::MAX;
+            let mut first_enemy = XX;
+            let mut second_enemy = XX;
+            let mut first_friend = XX;
+            let mut second_friend = XX;
+            for (i, m) in oli.iter().enumerate() {
+                if let Some((color, piece_type)) = *FieldValue::from(board.board[usize::from(*m)]) {
+                    if color == turn
+                        || (piece_type == King || piece_type == Pawn || piece_type == Knight)
+                    {
+                        if first_friend == XX {
+                            first_friend = i;
+                        } else {
+                            second_friend = i;
+                            break;
+                        }
+                    } else {
+                        if first_enemy == XX {
+                            first_enemy = i;
+                            second_enemy = i;
+                        } else {
+                            second_enemy = i;
+                            break;
+                        }
+                    }
+                    if piece_type == Knight || color != turn {
+                        mp.potential_checks.knight_moves.push(*m);
+                    }
+                }
+            }
+            if first_enemy != XX && second_friend >= first_enemy {
+                let len = second_enemy - first_enemy + 1;
+                mp.potential_checks.orthogonal_lines[line_ends..line_ends + len]
+                    .copy_from_slice(&oli[first_enemy..second_enemy + 1]);
+                line_ends += len;
+                mp.king_is_safe = false;
+            }
+            mp.potential_checks.orthogonal_line_ends[oln] = line_ends as u8;
+        }
+        line_ends = 0;
+        for (dln, dli) in pc.diagonal_lines_iter().enumerate() {
+            const XX: usize = usize::MAX;
+            let mut first_enemy = XX;
+            let mut second_enemy = XX;
+            let mut first_friend = XX;
+            let mut second_friend = XX;
+            for (i, m) in dli.iter().enumerate() {
+                if let Some((color, piece_type)) = *FieldValue::from(board.board[usize::from(*m)]) {
+                    if color == turn
+                        || (piece_type == King
+                            || piece_type == Rook
+                            || piece_type == Knight
+                            || (piece_type == Pawn && i > 0))
+                    {
+                        if first_friend == XX {
+                            first_friend = i;
+                        } else {
+                            second_friend = i;
+                            break;
+                        }
+                    } else {
+                        if first_enemy == XX {
+                            first_enemy = i;
+                            second_enemy = i;
+                        } else {
+                            second_enemy = i;
+                            break;
+                        }
+                    }
+                    if piece_type == Knight || color != turn {
+                        mp.potential_checks.knight_moves.push(*m);
+                    }
+                }
+            }
+            if first_enemy != XX && second_friend >= first_enemy {
+                let len = second_enemy - first_enemy + 1;
+                mp.potential_checks.diagonal_lines[line_ends..line_ends + len]
+                    .copy_from_slice(&dli[first_enemy..second_enemy + 1]);
+                line_ends += len;
+                mp.king_is_safe = false;
+            }
+            mp.potential_checks.diagonal_line_ends[dln] = line_ends as u8;
+        }
+        mp
     }
 }
 
@@ -558,15 +654,15 @@ impl ThreePlayerChess {
             assert!(false);
         }
     }
-    pub fn perform_reversable_move(&mut self, rm: &ReversableMove) {
+    pub fn perform_reversable_move(&mut self, rm: &ReversableMove, update_status: bool) {
         self.movegen_sanity_check(rm, true, false);
         self.apply_move(rm.mov);
-        self.apply_move_sideeffects(rm.mov);
+        self.apply_move_sideeffects(rm.mov, update_status);
         self.movegen_sanity_check(rm, false, false);
     }
     pub fn perform_move(&mut self, m: Move) {
         self.apply_move(m);
-        self.apply_move_sideeffects(m);
+        self.apply_move_sideeffects(m, true);
     }
     pub fn revert_move(&mut self, rm: &ReversableMove) {
         self.movegen_sanity_check(rm, true, true);
@@ -674,7 +770,7 @@ impl ThreePlayerChess {
             }
         }
     }
-    pub fn apply_move_sideeffects(&mut self, m: Move) {
+    pub fn apply_move_sideeffects(&mut self, m: Move, update_status: bool) {
         self.move_index += 1;
         let ep = &mut self.possible_en_passant[usize::from(self.turn)];
         if let Some(loc) = *ep {
@@ -776,7 +872,9 @@ impl ThreePlayerChess {
         }
         self.turn = self.turn.next();
         self.zobrist_hash.next_turn(self.turn);
-        self.game_status = self.game_status();
+        if update_status {
+            self.game_status = self.game_status();
+        }
     }
     pub fn unapply_move(&mut self, m: Move) {
         let src = usize::from(m.source);
@@ -867,7 +965,7 @@ impl ThreePlayerChess {
         mp: &MovegenParams,
         moves: &mut Vec<Move>,
     ) -> bool {
-        if !self.would_non_king_move_bypass_check(mv, &mp.potential_checks) {
+        if mp.king_is_safe || !self.would_non_king_move_bypass_check(mv, &mp.potential_checks) {
             moves.push(mv);
             true
         } else {

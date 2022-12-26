@@ -1226,7 +1226,7 @@ impl Frontend {
         println!("making move: {}", mov.to_string(&mut self.board));
         let rm = ReversableMove::new(&self.board, mov);
         self.history.push((rm.clone(), color));
-        self.board.perform_reversable_move(&rm);
+        self.board.perform_reversable_move(&rm, true);
         println!("state: {}", self.board.state_string());
         self.reset_effects();
     }

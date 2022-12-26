@@ -1046,7 +1046,7 @@ impl Move {
         let turn = game.turn;
         let rm = ReversableMove::new(game, *self);
 
-        game.perform_reversable_move(&rm);
+        game.perform_reversable_move(&rm, true);
         let gs = game.game_status;
 
         match gs {

@@ -142,7 +142,7 @@ impl Engine {
                     (
                         {
                             let rm = ReversableMove::new(&self.board, *m);
-                            self.board.perform_reversable_move(&rm);
+                            self.board.perform_reversable_move(&rm, false);
                             let te = self.transposition_table.get(&self.board.get_zobrist_hash());
                             self.board.revert_move(&rm);
                             te.map_or([Eval::MIN; HB_COUNT], |te| te.score)
@@ -293,7 +293,7 @@ impl Engine {
         }
         for mov in self.dummy_vec.iter() {
             let rm = ReversableMove::new(&self.board, *mov);
-            self.board.perform_reversable_move(&rm);
+            self.board.perform_reversable_move(&rm, false);
             let hash = self.board.get_zobrist_hash();
             let score = self.transposition_table.get(&hash).map_or_else(
                 || {
@@ -408,10 +408,10 @@ impl Engine {
         }
         for i in 1..depth + 1 {
             let rm = self.engine_stack[i].move_rev.clone().unwrap();
-            self.board.perform_reversable_move(&rm);
+            self.board.perform_reversable_move(&rm, true);
         }
         if let Some(ref rm) = last_move {
-            self.board.perform_reversable_move(&rm);
+            self.board.perform_reversable_move(&rm, true);
         }
         res
     }
@@ -522,7 +522,8 @@ impl Engine {
                     em.score = tp.score;
                 }
                 rm = Some(ReversableMove::new(&self.board, mov));
-                self.board.perform_reversable_move(rm.as_ref().unwrap());
+                self.board
+                    .perform_reversable_move(rm.as_ref().unwrap(), true);
             } else {
                 rm = None;
             }
