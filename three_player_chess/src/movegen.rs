@@ -38,7 +38,7 @@ impl MovegenParams {
         };
         for m in pc.knight_moves.iter() {
             if let Some((color, piece_type)) = *FieldValue::from(board.board[usize::from(*m)]) {
-                if piece_type == Knight || color != turn {
+                if piece_type == Knight && color != turn {
                     mp.potential_checks.knight_moves.push(*m);
                     mp.king_is_safe = false;
                 }
@@ -71,15 +71,12 @@ impl MovegenParams {
                             break;
                         }
                     }
-                    if piece_type == Knight || color != turn {
-                        mp.potential_checks.knight_moves.push(*m);
-                    }
                 }
             }
             if first_enemy != XX && second_friend >= first_enemy {
-                let len = second_enemy - first_enemy + 1;
+                let len = second_enemy + 1;
                 mp.potential_checks.orthogonal_lines[line_ends..line_ends + len]
-                    .copy_from_slice(&oli[first_enemy..second_enemy + 1]);
+                    .copy_from_slice(&oli[0..second_enemy + 1]);
                 line_ends += len;
                 mp.king_is_safe = false;
             }
@@ -115,15 +112,12 @@ impl MovegenParams {
                             break;
                         }
                     }
-                    if piece_type == Knight || color != turn {
-                        mp.potential_checks.knight_moves.push(*m);
-                    }
                 }
             }
             if first_enemy != XX && second_friend >= first_enemy {
-                let len = second_enemy - first_enemy + 1;
+                let len = second_enemy + 1;
                 mp.potential_checks.diagonal_lines[line_ends..line_ends + len]
-                    .copy_from_slice(&dli[first_enemy..second_enemy + 1]);
+                    .copy_from_slice(&dli[0..second_enemy + 1]);
                 line_ends += len;
                 mp.king_is_safe = false;
             }

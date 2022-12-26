@@ -241,16 +241,18 @@ impl Engine {
                     }
                 } else {
                     if report_results_per_depth || self.debug_log {
-                        let time_elapsed = Instant::now().sub(start).as_secs_f32();
+                        let now = Instant::now();
+                        let time_elapsed = now.sub(start).as_secs_f32();
+                        let total_time_elapsed = now.sub(search_start).as_secs_f32();
                         println!(
                             "depth {}+{} ({:.1}s [{:.1} s], {:.2} kN/s): aborted (after {} positions) [total: {:.2} kN/s]",
                             self.eval_depth,
                             self.eval_cap_line_len,
                             time_elapsed,
-                            time_elapsed,
+                            total_time_elapsed,
                             (self.pos_count as f32 / time_elapsed) / 1000.,
                             self.pos_count,
-                            (total_pos_count as f32 /  Instant::now().sub(search_start).as_secs_f32()) / 1000.,
+                            (total_pos_count as f32 /  total_time_elapsed) / 1000.,
                         );
                     }
                     break 'search;
