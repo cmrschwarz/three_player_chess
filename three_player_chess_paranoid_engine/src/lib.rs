@@ -202,7 +202,8 @@ impl ParanoidEngine {
         self.board.gen_moves_with_options(
             &mut start_mov,
             MovegenOptions {
-                captures_only: false,
+                gen_slides: true,
+                gen_null_move: false,
                 only_one: true,
             },
         );
@@ -279,20 +280,11 @@ impl ParanoidEngine {
         self.board.gen_moves_with_options(
             &mut self.dummy_vec,
             MovegenOptions {
-                captures_only: captures_only,
+                gen_slides: !captures_only,
+                gen_null_move: captures_only,
                 only_one: false,
             },
         );
-        /*
-        if captures_only {
-            // null move
-            ed.moves.push(EngineMove {
-                eval: ed.eval,
-                captures_available: parent_has_caps,
-                hash: parent_hash ^ ZOBRIST_NULL_MOVE_HASH,
-                mov: None,
-            });
-        }*/
         for mov in self.dummy_vec.iter() {
             if captures_only {
                 match mov.move_type {

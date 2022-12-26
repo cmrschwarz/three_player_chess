@@ -9,7 +9,6 @@ use three_player_chess_board_eval::*;
 pub struct Transposition {
     score: Score,
     eval_max_move_index: u16,
-    eval_cap_line_max_move_index: u16,
     best_move: Option<Move>,
 }
 #[derive(Default)]
@@ -73,16 +72,10 @@ enum PropagationResult {
 }
 
 impl Transposition {
-    fn new(
-        mov: Option<Move>,
-        score: Score,
-        eval_max_move_index: u16,
-        eval_cap_line_max_move_index: u16,
-    ) -> Transposition {
+    fn new(mov: Option<Move>, score: Score, eval_max_move_index: u16) -> Transposition {
         Transposition {
             score,
             eval_max_move_index,
-            eval_cap_line_max_move_index,
             best_move: mov,
         }
     }
@@ -216,7 +209,8 @@ impl Engine {
         self.board.gen_moves_with_options(
             &mut start_mov,
             MovegenOptions {
-                captures_only: false,
+                gen_slides: true,
+                gen_null_move: false,
                 only_one: true,
             },
         );
@@ -224,26 +218,24 @@ impl Engine {
         let mut total_pos_count = 0;
         'search: for _ in 0..depth {
             self.eval_depth += 1;
-            self.eval_cap_line_len = self.eval_depth;
-            for i in 0..2 {
-                self.transposition_count = 0;
-                self.prune_count = 0;
-                self.pos_count = 0;
-                let start = Instant::now();
-                self.eval_cap_line_len += i;
-                let bm = self.search_iterate(end);
-                total_pos_count += self.pos_count;
-                if bm.is_ok() {
-                    best_move = self.engine_stack[0].best_move;
-                    if report_results_per_depth || self.debug_log {
-                        self.report_search_depth_results(search_start, start);
-                    }
-                } else {
-                    if report_results_per_depth || self.debug_log {
-                        let now = Instant::now();
-                        let time_elapsed = now.sub(start).as_secs_f32();
-                        let total_time_elapsed = now.sub(search_start).as_secs_f32();
-                        println!(
+            self.eval_cap_line_len = 3.min(self.eval_depth);
+            self.transposition_count = 0;
+            self.prune_count = 0;
+            self.pos_count = 0;
+            let start = Instant::now();
+            let bm = self.search_iterate(end);
+            total_pos_count += self.pos_count;
+            if bm.is_ok() {
+                best_move = self.engine_stack[0].best_move;
+                if report_results_per_depth || self.debug_log {
+                    self.report_search_depth_results(search_start, start);
+                }
+            } else {
+                if report_results_per_depth || self.debug_log {
+                    let now = Instant::now();
+                    let time_elapsed = now.sub(start).as_secs_f32();
+                    let total_time_elapsed = now.sub(search_start).as_secs_f32();
+                    println!(
                             "depth {}+{} ({:.1}s [{:.1} s], {:.2} kN/s): aborted (after {} positions) [total: {:.2} kN/s]",
                             self.eval_depth,
                             self.eval_cap_line_len,
@@ -253,9 +245,8 @@ impl Engine {
                             self.pos_count,
                             (total_pos_count as f32 /  total_time_elapsed) / 1000.,
                         );
-                    }
-                    break 'search;
                 }
+                break 'search;
             }
         }
         if let Some(bm) = best_move {
@@ -263,12 +254,13 @@ impl Engine {
         }
         None
     }
+    // returns whether there are legal moves found -> otherwise force evaluation
     fn gen_engine_depth(
         &mut self,
         depth: u16,
         rm: Option<ReversableMove>,
         captures_only: bool,
-    ) -> &EngineDepth {
+    ) -> bool {
         let parent_hash = self.board.get_zobrist_hash();
         let ed = if self.engine_stack.len() == depth as usize {
             self.engine_stack.push(Default::default());
@@ -287,17 +279,20 @@ impl Engine {
         self.board.gen_moves_with_options(
             &mut self.dummy_vec,
             MovegenOptions {
-                captures_only: captures_only,
+                gen_slides: !captures_only,
+                gen_null_move: captures_only,
                 only_one: false,
             },
         );
-        if captures_only {
-            //null move
-            self.dummy_vec.push(Move {
-                move_type: MoveType::NullMove,
-                source: Default::default(),
-                target: Default::default(),
-            });
+        if captures_only && self.dummy_vec.is_empty() {
+            self.board.gen_moves_with_options(
+                &mut self.dummy_vec,
+                MovegenOptions {
+                    gen_slides: true,
+                    gen_null_move: false,
+                    only_one: false,
+                },
+            );
         }
         for mov in self.dummy_vec.iter() {
             let rm = ReversableMove::new(&self.board, *mov);
@@ -326,8 +321,9 @@ impl Engine {
             // so that we apply the first move as 'better than nothing'
             // but don't prune
             ed.best_move = Some(em.mov);
+            return true;
         }
-        ed
+        return false;
     }
     fn propagate_move_score(&mut self, depth: u16, mov: Move, score: Score) -> PropagationResult {
         let mut result = PropagationResult::Ok;
@@ -337,29 +333,23 @@ impl Engine {
             ed.score = score;
             ed.best_move = Some(mov);
             let ed_move_ref = ed.move_rev.as_ref().map(|mr| mr.mov);
-            if depth >= 2 {
-                let ed1 = &self.engine_stack[depth as usize - 1];
-                let ed1_move_ref = ed1.move_rev.as_ref().map(|mr| mr.mov);
-                let ed2 = &self.engine_stack[depth as usize - 2];
-                let prev_prev_mover = usize::from(self.board.turn.prev().prev());
-                if ed2.score[prev_prev_mover] >= score[prev_prev_mover]
-                    && ed2.best_move != ed1_move_ref
-                {
-                    self.prune_count += 1;
-                    result = PropagationResult::Pruned(2);
-                }
-            }
+            // we sadly can't prune up two levels here because we don't want player 1 to be afraid of
+            // moves of player 3 that player 3 wouldn't even consider
+            let prev_mover = usize::from(self.board.turn.prev());
             if depth >= 1 && result == PropagationResult::Ok {
-                let prev_mover = usize::from(self.board.turn.prev());
                 let ed1 = &self.engine_stack[depth as usize - 1];
                 if score[prev_mover] <= ed1.score[prev_mover] && ed1.best_move != ed_move_ref {
                     self.prune_count += 1;
                     result = PropagationResult::Pruned(1);
                 }
             }
-            if result == PropagationResult::Ok && score[mover] >= EVAL_WIN {
-                // if we have a checkmate in depth 0, we want to stop eval and not
-                // do a depth N check for no reason
+            if result == PropagationResult::Ok
+                && (score[mover] >= EVAL_WIN || score[prev_mover] <= EVAL_LOSS)
+            {
+                // if we have a checkmate here, we want to stop eval and not
+                // do a depth N check for no reason. this does not destroy the
+                // 'fighting on' effect, because it only affects moves on the
+                // same depth
                 self.prune_count += 1;
                 result = PropagationResult::Pruned(1);
             }
@@ -468,12 +458,7 @@ impl Engine {
 
                 self.transposition_table.insert(
                     hash,
-                    Transposition::new(
-                        best_move,
-                        score,
-                        self.eval_max_move_index,
-                        self.eval_cap_line_max_move_index,
-                    ),
+                    Transposition::new(best_move, score, self.eval_max_move_index),
                 );
                 if depth == 0 {
                     return Ok(());
@@ -508,9 +493,7 @@ impl Engine {
             let rm;
 
             if let Some(tp) = self.transposition_table.get(&em.hash) {
-                if tp.eval_max_move_index >= self.eval_max_move_index
-                    && tp.eval_cap_line_max_move_index >= self.eval_cap_line_max_move_index
-                {
+                if tp.eval_max_move_index >= self.eval_max_move_index {
                     self.transposition_count += 1;
                     self.pos_count += 1;
                     let tp_score = tp.score;
@@ -534,9 +517,7 @@ impl Engine {
                 let score_now = if game_over || force_eval {
                     true
                 } else {
-                    self.gen_engine_depth(depth, Some(rm.clone()), true);
-                    //1 for the null move
-                    self.engine_stack[depth as usize].moves.len() == 1
+                    !self.gen_engine_depth(depth, Some(rm.clone()), true)
                 };
 
                 if score_now {
@@ -554,16 +535,7 @@ impl Engine {
                     }
                     self.transposition_table.insert(
                         hash,
-                        Transposition::new(
-                            None,
-                            score,
-                            self.eval_max_move_index,
-                            if !force_eval && score_now {
-                                u16::MAX
-                            } else {
-                                self.eval_cap_line_max_move_index
-                            },
-                        ),
+                        Transposition::new(None, score, self.eval_max_move_index),
                     );
                     self.board.revert_move(&rm);
                     depth -= 1;
