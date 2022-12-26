@@ -55,7 +55,7 @@ impl MovegenParams {
             for (i, m) in oli.iter().enumerate() {
                 if let Some((color, piece_type)) = *FieldValue::from(board.board[usize::from(*m)]) {
                     if color == turn
-                        || (piece_type == King || piece_type == Pawn || piece_type == Knight)
+                        || (piece_type == Pawn || piece_type == Knight || piece_type == King)
                     {
                         if first_friend == XX {
                             first_friend = i;
@@ -93,9 +93,9 @@ impl MovegenParams {
             for (i, m) in dli.iter().enumerate() {
                 if let Some((color, piece_type)) = *FieldValue::from(board.board[usize::from(*m)]) {
                     if color == turn
-                        || (piece_type == King
-                            || piece_type == Rook
+                        || (piece_type == Rook
                             || piece_type == Knight
+                            || piece_type == King
                             || (piece_type == Pawn && i > 0))
                     {
                         if first_friend == XX {
@@ -1164,10 +1164,14 @@ impl ThreePlayerChess {
         mff: &MovesForField,
     ) -> bool {
         for oli in mff.orthogonal_lines_iter() {
-            for f in oli.iter() {
+            for (i, f) in oli.iter().enumerate() {
                 match *self.get_field_value(*f) {
                     Some((color, piece_type)) if color != king_color => match piece_type {
                         PieceType::Rook | PieceType::Queen => {
+                            return true;
+                        }
+                        // we use this func to test legal moves, so this can happen
+                        PieceType::King if i == 0 => {
                             return true;
                         }
                         _ => break,
@@ -1184,11 +1188,14 @@ impl ThreePlayerChess {
                         PieceType::Bishop | PieceType::Queen => {
                             return true;
                         }
-                        PieceType::Pawn => {
+                        PieceType::King if i == 0 => {
+                            return true;
+                        }
+                        PieceType::Pawn if i == 0 => {
                             let field_pos =
                                 AnnotatedFieldLocation::from_with_origin(color, king_location);
                             let pawn_pos = AnnotatedFieldLocation::from_with_origin(color, *f);
-                            if i == 0 && pawn_pos.rank + 1 == field_pos.rank {
+                            if pawn_pos.rank + 1 == field_pos.rank {
                                 return true;
                             }
                             break;

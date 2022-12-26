@@ -50,6 +50,7 @@ impl FrontendDriver {
     }
     // for testing purposes, we usually set some interesting position here for engine debugging
     fn setup_board(&mut self) {
+        // BG3B4/E3//K9//D3//:L7A6K5/////J6//K6://///Fb//:200:202
         // G2F3A5///C6Hc//E2//:KA7L5I9///J7/A1/B7//:G3F4ILaGJ9///Lc//Eb//:135:141 white eval busted?
         // F2C3H4A5///H1//G1//:LKJCBA7/J6/C6/LC8/Hc/B8//:FLbJKaG9//F3Ia/Jc/Ec/Ib//:88:88 black hangs mate?
         // BDGH2A3D4/G3/CF1/BH1/Ic/D1//:JCA7I6B5I9//D7D6/C8/L8/B8//:G4FLbHEaJ9//Eb/Hc/Ib/Ka//:73:77
@@ -74,10 +75,9 @@ impl FrontendDriver {
         // ABCEFGH2D3/B5G9/F1D2/AH1/D1/E1/AH/:LKJDCBA7I9/JC6/JC8/LA8/I8/D8/A/:GFEJKLbH9/FLa/FJc/GLc/Ec/Ic/L/:15:17
         // ABG2H3/E2C3/A6/B1Fb/B3/E1//:LKJC7B6I9///IC8/Lc/B8//:GJLbHEa//JcKa/Gc/E9/Ic//:66:66
         // ABG2H3/E2C3/C8/B1Jb/B3/E1//:LKJC7B6///I9/Ja/B8//:GLbHa//JcKa/Gc/E9/Ic//:71:71
-        self.fe.board = ThreePlayerChess::from_str(
-            "G2F3A5///C6Hc//E2//:KA7L5I9///J7/A1/B7//:G3F4ILaGJ9///Lc//Eb//:135:141",
-        )
-        .unwrap();
+        self.fe.board =
+            ThreePlayerChess::from_str("BG3B4/E3//K9//D3//:L7A6K5/////J6//K6://///Fb//:200:202")
+                .unwrap();
     }
 }
 
